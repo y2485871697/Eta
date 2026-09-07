@@ -56,10 +56,7 @@ internal object ProviderBalanceFetcher {
         val value = resolvePath(root, resultPath)
         return when (value) {
             is JsonNull -> "null"
-            is JsonElement -> value.jsonPrimitive.contentOrNull
-                ?: value.jsonPrimitive.booleanOrNull?.toString()
-                ?: value.jsonPrimitive.doubleOrNull?.toString()
-                ?: value.toString()
+            is JsonElement -> value.jsonPrimitive.content
             else -> error("Unable to parse balance from JSON path $resultPath 解析余额")
         }
     }

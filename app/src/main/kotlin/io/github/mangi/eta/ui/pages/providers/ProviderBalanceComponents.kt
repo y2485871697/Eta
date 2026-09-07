@@ -1,8 +1,13 @@
 package io.github.mangi.eta.ui.pages.providers
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -11,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -20,7 +26,7 @@ import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.repository.ProviderBalanceFetcher
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibility
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -45,8 +51,8 @@ internal fun ProviderBalanceOptionFields(
             title = stringResource(R.string.ui_balance_info_title),
             summary = stringResource(R.string.ui_balance_info_summary),
             onClick = { expanded = !expanded },
-            endAction = {
-                SwitchPreference(
+            endActions = {
+                androidx.compose.material3.Switch(
                     checked = balanceOption.enabled,
                     onCheckedChange = {
                         onBalanceOptionChange(balanceOption.copy(enabled = it))
@@ -95,12 +101,24 @@ internal fun ProviderBalanceOptionFields(
                     }
                 )
                 testResult?.let {
-                    Text(
-                        text = it,
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(top = 8.dp)
-                    )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AccountBalanceWallet,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .size(16.dp),
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
+                        Text(
+                            text = it,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
                 }
             }
         }
