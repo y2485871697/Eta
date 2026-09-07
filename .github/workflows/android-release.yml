@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-apks:
-    name: 构建 Debug 与 Release APK
+  build-release:
+    name: 构建 Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
@@ -43,47 +43,24 @@ jobs:
       - name: 安装 Android SDK 37
         run: sdkmanager --channel=3 "platforms;android-37.0"
 
-      - name: 还原发布证书
+      - name: 构建 Release APK
         env:
-          ETA_RELEASE_KEYSTORE_BASE64: ${{ secrets.ETA_RELEASE_KEYSTORE_BASE64 }}
-          ETA_RELEASE_STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
-          ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
-          ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
-        run: |
-          if [[ -z "$ETA_RELEASE_KEYSTORE_BASE64" ||
-                -z "$ETA_RELEASE_STORE_PASSWORD" ||
-                -z "$ETA_RELEASE_KEY_ALIAS" ||
-                -z "$ETA_RELEASE_KEY_PASSWORD" ]]; then
-            echo "::error::缺少 Release 签名 Secrets，请检查仓库的 Actions Secrets。"
-            exit 1
-          fi
-          printf '%s' "$ETA_RELEASE_KEYSTORE_BASE64" \
-            | base64 --decode \
-            > "$RUNNER_TEMP/eta-release.jks"
-
-      - name: 构建 Debug 与 Release APK
-        env:
-          ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-release.jks
-          ETA_RELEASE_STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
-          ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
-          ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
+          ETA_RELEASE_STORE_FILE: ${{ github.workspace }}/app/signing/eta-release.p12
+          ETA_RELEASE_STORE_PASSWORD: eta-release
+          ETA_RELEASE_KEY_ALIAS: eta
+          ETA_RELEASE_KEY_PASSWORD: eta-release
         run: >-
           ./gradlew --no-daemon --no-configuration-cache
-          :app:assembleDebug :app:assembleRelease
+          :app:assembleRelease
 
       - name: 验证并整理 APK
         id: apk
         run: |
-          debug_apk="app/build/outputs/apk/debug/app-debug.apk"
           release_apk="app/build/outputs/apk/release/app-release.apk"
           output_dir="$RUNNER_TEMP/apks"
           apksigner_path="$(find "$ANDROID_HOME/build-tools" \
             -type f -name apksigner | sort -V | tail -n 1)"
 
-          if [[ ! -f "$debug_apk" ]]; then
-            echo "::error::未找到 Debug APK。"
-            exit 1
-          fi
           if [[ ! -f "$release_apk" ]]; then
             echo "::error::未找到 Release APK。"
             exit 1
@@ -95,18 +72,8 @@ jobs:
 
           "$apksigner_path" verify "$release_apk"
           mkdir -p "$output_dir"
-          cp "$debug_apk" "$output_dir/app-debug.apk"
           cp "$release_apk" "$output_dir/app-release.apk"
-          echo "debug_path=$output_dir/app-debug.apk" >> "$GITHUB_OUTPUT"
           echo "release_path=$output_dir/app-release.apk" >> "$GITHUB_OUTPUT"
-
-      - name: 上传 Debug APK
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          path: ${{ steps.apk.outputs.debug_path }}
-          archive: false
-          if-no-files-found: error
-          retention-days: 14
 
       - name: 上传 Release APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

@@ -6,15 +6,11 @@ plugins {
 }
 
 val releaseStoreFile = System.getenv("ETA_RELEASE_STORE_FILE")
-val releaseStorePassword = System.getenv("ETA_RELEASE_STORE_PASSWORD")
-val releaseKeyAlias = System.getenv("ETA_RELEASE_KEY_ALIAS")
-val releaseKeyPassword = System.getenv("ETA_RELEASE_KEY_PASSWORD")
-val hasReleaseSigning = listOf(
-    releaseStoreFile,
-    releaseStorePassword,
-    releaseKeyAlias,
-    releaseKeyPassword
-).all { !it.isNullOrBlank() }
+    ?: rootProject.file("app/signing/eta-release.p12").absolutePath
+val releaseStorePassword = System.getenv("ETA_RELEASE_STORE_PASSWORD") ?: "eta-release"
+val releaseKeyAlias = System.getenv("ETA_RELEASE_KEY_ALIAS") ?: "eta"
+val releaseKeyPassword = System.getenv("ETA_RELEASE_KEY_PASSWORD") ?: "eta-release"
+val hasReleaseSigning = true
 
 java {
     toolchain {
@@ -37,7 +33,7 @@ android {
     }
 
     signingConfigs {
-        if (hasReleaseSigning) {
+        if (true) {
             create("release") {
                 storeFile = file(requireNotNull(releaseStoreFile))
                 storePassword = releaseStorePassword
