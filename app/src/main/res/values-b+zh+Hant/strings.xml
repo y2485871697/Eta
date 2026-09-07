@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <resources>
-  <string name="app_name">Eta</string>
+  <string name="app_name">代鱼</string>
   <string name="xposed_description">系統級 AI Agent，接管小布與超級小愛，解鎖 Gemini 與圈選搜尋，整合瀏覽器、終端機與裝置工具。</string>
-  <string name="agent_accessibility_label">Eta Agent</string>
+  <string name="agent_accessibility_label">代鱼</string>
   <string name="agent_accessibility_description">讀取畫面內容並執行點按、滑動、文字輸入等操作，協助 Agent 完成任務。</string>
-  <string name="notification_history_service_label">Eta 通知記錄</string>
-  <string name="voice_interaction_service_label">Eta 系統助理</string>
-  <string name="recognition_service_label">Eta 語音辨識</string>
+  <string name="notification_history_service_label">代鱼 通知記錄</string>
+  <string name="voice_interaction_service_label">代鱼 系統助理</string>
+  <string name="recognition_service_label">代鱼 語音辨識</string>
   <string name="action_back">返回</string>
   <string name="action_cancel">取消</string>
   <string name="action_confirm">確認</string>
@@ -255,7 +255,7 @@
   <string name="voice_speech_unavailable">無法使用語音辨識</string>
   <string name="voice_request_failed">請求失敗，請重試。</string>
   <string name="overlay_supplement">補充</string>
-  <string name="overlay_supplement_hint">補充要求，Eta 會接續目前的任務</string>
+  <string name="overlay_supplement_hint">補充要求，代鱼 會接續目前的任務</string>
   <string name="overlay_send">傳送</string>
   <string name="overlay_stopping">正在停止</string>
   <string name="overlay_paused">已暫停</string>
@@ -269,16 +269,16 @@
   <string name="conversation_section_pinned">已釘選</string>
   <string name="conversation_section_today">今天</string>
   <string name="conversation_dock_models">模型</string>
-  <string name="conversation_preview_reasoning">Eta 正在推理</string>
+  <string name="conversation_preview_reasoning">代鱼 正在推理</string>
   <string name="conversation_preview_tool_call">工具呼叫：%1$s</string>
-  <string name="conversation_preview_empty">直接輸入問題，Eta 會在需要時操作手機</string>
+  <string name="conversation_preview_empty">直接輸入問題，代鱼 會在需要時操作手機</string>
   <string name="ui_core_memory_user_name_long_term_preferences_aa6ff9"># 核心記憶
 - 使用者名稱：
 - 長期偏好：</string>
   <string name="ui_apk_analysis_95ad17">APK 分析</string>
   <string name="ui_agent_and_local_tools_can_still_be_used_but_the_syst_b14479">Agent 與本機工具仍可使用；系統助理接管、Gemini 與圈選搜尋設定目前無法修改</string>
   <string name="ui_endpoint_mode_3c8546">Endpoint 模式</string>
-  <string name="ui_eta_system_assistant_003e9b">Eta 系統助理</string>
+  <string name="ui_eta_system_assistant_003e9b">代鱼 系統助理</string>
   <string name="ui_lsposed_service_is_not_connected_44734d">LSPosed 服務未連線</string>
   <string name="ui_linux_tool_environment_314d22">Linux 工具環境</string>
   <string name="ui_the_entire_contents_of_memory_md_will_be_deleted_and_83a8ac">MEMORY.md 的全部內容將被刪除，記憶開關保持目前狀態。</string>
@@ -289,7 +289,7 @@
   <string name="ui_bright_screen_evokes_automatic_voice_input_4358fe">亮屏喚起自動語音輸入</string>
   <string name="ui_only_take_over_with_agent_prefix_d17556">僅以 /agent 前綴接管</string>
   <string name="ui_only_check_the_ranges_actually_supported_by_the_mode_2c343d">僅勾選模型或網關實際支援的檔位；不支援的組合會在請求前明確報錯。</string>
-  <string name="ui_valid_only_for_gemini_and_eta_d5b63d">僅對 Gemini 和 Eta 生效</string>
+  <string name="ui_valid_only_for_gemini_and_eta_d5b63d">僅對 Gemini 和 代鱼 生效</string>
   <string name="ui_preferences_and_strategies_2abd3c">偏好與策略</string>
   <string name="ui_stop_a17f70">停止</string>
   <string name="ui_allow_sensitive_device_operation_3d42ea">允許敏感裝置操作</string>
@@ -317,11 +317,11 @@
   <string name="ui_enable_memory_4b69b7">啟用記憶</string>
   <string name="ui_enable_device_direct_tools_e2d595">啟用裝置直達工具</string>
   <string name="ui_back_to_bottom_32282e">回到底部</string>
-  <string name="ui_enter_the_url_in_the_address_bar_or_let_the_agent_br_e2ae90">在網址列輸入網址，或請 Agent 幫你查閱網頁。工作階段只在 Eta 內使用。</string>
+  <string name="ui_enter_the_url_in_the_address_bar_or_let_the_agent_br_e2ae90">在網址列輸入網址，或請 Agent 幫你查閱網頁。工作階段只在 代鱼 內使用。</string>
   <string name="ui_copy_4edd1d">複製</string>
   <string name="ui_install_087db6">安裝</string>
   <string name="ui_convert_google_apps_to_system_apps_0f6d89">將 Google App 轉為系統應用程式</string>
-  <string name="ui_this_will_close_the_current_page_and_clear_eta_brows_1cd331">將關閉目前頁面並清除 Eta 瀏覽器的 Cookie 與網站資料。外部瀏覽器不會受到影響。</string>
+  <string name="ui_this_will_close_the_current_page_and_clear_eta_brows_1cd331">將關閉目前頁面並清除 代鱼 瀏覽器的 Cookie 與網站資料。外部瀏覽器不會受到影響。</string>
   <string name="ui_xiaobu_xiaoai_compatible_entrance_ae918a">小布／小愛相容入口</string>
   <string name="ui_display_name_ed16be">展示名稱</string>
   <string name="ui_tool_a72ef1">工具</string>
@@ -457,7 +457,7 @@
   <string name="state_location_permissions_b53f9c">位置權限</string>
   <string name="state_usage_access_20f1f8">使用情況存取權</string>
   <string name="state_the_built_in_skills_have_not_changed_please_try_agai_34e5e3">內建 Skills 未發生變化，請稍後重試。</string>
-  <string name="state_deletion_is_not_complete_eta_will_try_to_recover_whe_c4297e">刪除未完成。Eta 會在重新整理 Skills 清單時嘗試恢復，請確認狀態後再重試。</string>
+  <string name="state_deletion_is_not_complete_eta_will_try_to_recover_whe_c4297e">刪除未完成。代鱼 會在重新整理 Skills 清單時嘗試恢復，請確認狀態後再重試。</string>
   <string name="state_background_running_permission_dde21b">背景執行權限</string>
   <string name="state_follow_up_ability_589688">後續能力</string>
   <string name="state_screens_and_controls_3f095b">螢幕與控制</string>
@@ -557,7 +557,7 @@
   <string name="page_unsaved_changes_376474">未儲存的更改</string>
   <string name="page_not_enabled_8bb38e">未啟用</string>
   <string name="page_no_matching_model_found_ae7e96">未找到匹配的模型</string>
-  <string name="page_root_permission_is_not_obtained_please_authorize_eta_fdb6ab">未取得 Root 權限，請在 Root 管理員中授權 Eta</string>
+  <string name="page_root_permission_is_not_obtained_please_authorize_eta_fdb6ab">未取得 Root 權限，請在 Root 管理員中授權 代鱼</string>
   <string name="page_examine_40ffb3">檢查</string>
   <string name="page_under_inspection_9908c9">檢查中</string>
   <string name="page_check_core_commands_workspace_mounts_shared_storage__a8ce44">檢查核心指令、工作區掛載、共享儲存與剩餘空間</string>
@@ -588,7 +588,7 @@
   <string name="page_authorized_284cc0">已授權</string>
   <string name="page_base_url_must_be_a_valid_http_s_address_0e7d58">Base URL 必須是有效的 HTTP(S) 位址</string>
   <string name="page_can_t_open_default_assistant_settings_02c66f">無法開啟預設助理設置</string>
-  <string name="page_choose_eta_as_your_default_digital_assistant_4a73a9">選擇 Eta 作為預設數位助理</string>
+  <string name="page_choose_eta_as_your_default_digital_assistant_4a73a9">選擇 代鱼 作為預設數位助理</string>
   <string name="page_configuration_d7d7ce">設定</string>
   <string name="page_configuration_write_failed_8c2554">無法寫入設定</string>
   <string name="page_create_fcbd09">創建</string>
@@ -599,14 +599,14 @@
   <string name="page_didn_t_get_root_permissions_23efb3">未取得 root 權限</string>
   <string name="page_document_49deaf">文件</string>
   <string name="page_enter_path_ec5f01">輸入路徑</string>
-  <string name="page_eta_is_executing_032532">Eta 正在執行…</string>
+  <string name="page_eta_is_executing_032532">代鱼 正在執行…</string>
   <string name="page_folder_46ecac">資料夾</string>
   <string name="page_google_app_is_already_a_system_priv_app_4f33b0">Google App 已是系統 priv-app</string>
   <string name="page_google_app_not_installed_2e3e55">未安裝 Google App</string>
   <string name="page_help_me_open_wechat_65c265">幫我打開微信</string>
   <string name="page_hide_bb0e7e">隱藏</string>
   <string name="page_kernelsu_needs_to_enable_metamodule_support_first_5d29de">請先在 KernelSU 中啟用 metamodule 支援</string>
-  <string name="page_leave_it_to_eta_to_finish_3d378f">交給 Eta 完成</string>
+  <string name="page_leave_it_to_eta_to_finish_3d378f">交給 代鱼 完成</string>
   <string name="page_magisk_or_kernelsu_not_detected_ae18c5">未偵測到 Magisk 或 KernelSU</string>
   <string name="page_missing_2fe9b7">缺失</string>
   <string name="page_model_98fd0c">模型</string>
@@ -616,8 +616,8 @@
   <string name="page_not_configured_63595e">尚未設定</string>
   <string name="page_open_agent_browser_to_search_and_summarize_today_s_t_bbf6ba">開啟 Agent 瀏覽器，搜尋並總結今天的科技新聞要點</string>
   <string name="page_picture_be8da6">圖片</string>
-  <string name="page_please_grant_eta_root_permissions_in_kernelsu_7b1bc8">請在 KernelSU 中授予 Eta root 權限</string>
-  <string name="page_please_grant_eta_root_permissions_in_magisk_298c7d">請在 Magisk 中授予 Eta root 權限</string>
+  <string name="page_please_grant_eta_root_permissions_in_kernelsu_7b1bc8">請在 KernelSU 中授予 代鱼 root 權限</string>
+  <string name="page_please_grant_eta_root_permissions_in_magisk_298c7d">請在 Magisk 中授予 代鱼 root 權限</string>
   <string name="page_processing_dde1db">處理中...</string>
   <string name="page_read_proc_meminfo_and_proc_pressure_focus_on_analyzi_43156d">讀取 /proc/meminfo 和 /proc/pressure/，重點分析 PSI（Pressure Stall Information）指標，總結目前記憶體壓力和系統狀態</string>
   <string name="page_remove_provider_9f848f">刪除供應商</string>
@@ -647,10 +647,10 @@
   <string name="page_use_standard_chat_completions_ee4b1a">使用 Chat Completions API</string>
   <string name="page_using_typed_items_with_semantic_streaming_events_f9c906">使用 Responses API、typed Items 與語意化串流事件</string>
   <string name="voice_input_request">輸入要求</string>
-  <string name="voice_reasoning">Eta 正在推理</string>
+  <string name="voice_reasoning">代鱼 正在推理</string>
   <string name="voice_completed">已完成</string>
-  <string name="voice_failed">Eta 執行失敗</string>
-  <string name="voice_running_tool">Eta 正在執行 %1$s</string>
+  <string name="voice_failed">代鱼 執行失敗</string>
+  <string name="voice_running_tool">代鱼 正在執行 %1$s</string>
   <string name="voice_screen_preparing">正在準備目前畫面</string>
   <string name="voice_screen_add">加入目前畫面</string>
   <string name="voice_screen_unavailable">無法使用目前畫面</string>
@@ -658,13 +658,13 @@
   <string name="voice_screen_title">目前畫面</string>
   <string name="voice_screen_context_summary">將加入為下一則訊息的內容脈絡</string>
   <string name="voice_screen_remove">移除目前畫面</string>
-  <string name="voice_input_hint">傳訊息給 Eta…</string>
+  <string name="voice_input_hint">傳訊息給 代鱼…</string>
   <string name="voice_send">傳送</string>
-  <string name="injected_reasoning">Eta 正在推理…</string>
-  <string name="injected_executing">Eta 正在執行任務…</string>
-  <string name="injected_completed">Eta 已完成本次任務</string>
-  <string name="injected_failed">Eta 處理失敗，請稍後再試</string>
-  <string name="injected_breeno_custom_model_disabled">請先在 Eta 設定中啟用「小布自訂模型」</string>
+  <string name="injected_reasoning">代鱼 正在推理…</string>
+  <string name="injected_executing">代鱼 正在執行任務…</string>
+  <string name="injected_completed">代鱼 已完成本次任務</string>
+  <string name="injected_failed">代鱼 處理失敗，請稍後再試</string>
+  <string name="injected_breeno_custom_model_disabled">請先在 代鱼 設定中啟用「小布自訂模型」</string>
   <string name="injected_breeno_context_unavailable">無法取得小布程序的 Context</string>
   <string name="injected_runtime_failed">Agent Runtime 執行失敗</string>
   <string name="injected_breeno_failed">小布自訂模型呼叫失敗：%1$s</string>
@@ -827,7 +827,7 @@
   <string name="state_ui_go_to_settings_1f2998">去設定</string>
   <string name="state_ui_built_in_skills_with_the_same_name_are_protected_446ad3">同名內建 Skill 受保護，不能由 ZIP 取代。</string>
   <string name="state_ui_the_target_with_the_same_name_is_not_a_user_skil_00474b">同名目標不是可安全取代的使用者 Skill，現有檔案未被覆蓋。</string>
-  <string name="state_ui_the_installation_failed_and_automatic_recovery_d_0d9e01">安裝失敗且自動復原未完整完成。Eta 已在應用程式私人目錄保留復原備份，請先檢查 Skills 清單並停止繼續安裝。</string>
+  <string name="state_ui_the_installation_failed_and_automatic_recovery_d_0d9e01">安裝失敗且自動復原未完整完成。代鱼 已在應用程式私人目錄保留復原備份，請先檢查 Skills 清單並停止繼續安裝。</string>
   <string name="state_ui_conversation_switched_selected_path_not_added_5bf91e">對話已切換，未新增所選路徑</string>
   <string name="state_ui_xiaobu_s_entrance_needs_to_be_set_to_always_allo_cc74cb">小佈入口需要設為“始終允許”</string>
   <string name="state_ui_the_selected_file_is_not_a_valid_zip_package_bff052">所選檔案不是有效的 ZIP Skill 包。</string>
@@ -862,13 +862,13 @@
   <plurals name="file_references_added_with_failures">
     <item quantity="other">已加入 %1$d 個項目，%2$d 個項目無法引用</item>
   </plurals>
-  <string name="skill_deleted_message">「%1$s」已從 Eta 刪除。</string>
+  <string name="skill_deleted_message">「%1$s」已從 代鱼 刪除。</string>
   <string name="skill_enabled_message">「%1$s」已啟用，將從下一輪對話開始可用。</string>
   <string name="settings_open_assistant_failed">無法開啟預設助理設定</string>
   <string name="settings_model_not_selected">尚未選擇模型</string>
   <string name="settings_not_configured">尚未設定</string>
   <string name="settings_default_assistant_active">已設為預設數位助理</string>
-  <string name="settings_select_default_assistant">選擇 Eta 作為預設數位助理</string>
+  <string name="settings_select_default_assistant">選擇 代鱼 作為預設數位助理</string>
   <string name="status_authorized">已授權</string>
   <string name="status_unauthorized">未授權</string>
   <string name="status_enabled">已啟用</string>
@@ -882,8 +882,8 @@
   <string name="systemizer_google_missing">尚未安裝 Google App</string>
   <string name="systemizer_root_manager_missing">未偵測到 Magisk 或 KernelSU</string>
   <string name="systemizer_metamodule_missing">請先在 KernelSU 啟用 metamodule 支援</string>
-  <string name="systemizer_grant_kernelsu">請在 KernelSU 授予 Eta root 權限</string>
-  <string name="systemizer_grant_magisk">請在 Magisk 授予 Eta root 權限</string>
+  <string name="systemizer_grant_kernelsu">請在 KernelSU 授予 代鱼 root 權限</string>
+  <string name="systemizer_grant_magisk">請在 Magisk 授予 代鱼 root 權限</string>
   <string name="systemizer_root_denied">未取得 root 權限</string>
   <string name="systemizer_installed">安裝完成，重新啟動後生效</string>
   <string name="provider_error">失敗：%1$s</string>
@@ -1002,7 +1002,7 @@
   <string name="linux_debian_base_install_complete">Debian %1$s 基礎環境安裝完成</string>
   <string name="linux_debian_install_complete">Debian %1$s 與常用工具安裝完成</string>
   <string name="linux_unsupported_abi">暫不支援裝置架構：%1$s</string>
-  <string name="linux_root_unavailable">未取得 Root 權限，請在 Root 管理器中授權 Eta</string>
+  <string name="linux_root_unavailable">未取得 Root 權限，請在 Root 管理器中授權 代鱼</string>
   <string name="linux_busybox_unavailable">Root 環境缺少可用的 BusyBox 或必要 applet</string>
   <string name="linux_environment_unavailable">目前的 Root 環境無法建立隔離的 mount namespace 或 chroot</string>
   <string name="linux_stage_failed">%1$s失敗，請檢查網路或稍後再試</string>
@@ -1084,8 +1084,8 @@
   <string name="permission_status_disabled">未啟用</string>
   <string name="chat_edit_replace_later">傳送後將取代此訊息及其後的內容</string>
   <string name="chat_edit_replace_message">傳送後將取代此訊息</string>
-  <string name="chat_eta_working">Eta 正在執行…</string>
-  <string name="chat_input_hint">交給 Eta 完成</string>
+  <string name="chat_eta_working">代鱼 正在執行…</string>
+  <string name="chat_input_hint">交給 代鱼 完成</string>
   <string name="chat_stop">停止</string>
   <string name="chat_send">傳送</string>
   <string name="chat_reasoning_effort">推理強度，目前為 %1$s</string>
@@ -1148,7 +1148,7 @@
   <string name="data_backup_export_summary">將對話、模型供應商與 MEMORY.md 儲存為 JSON 檔案</string>
   <string name="data_backup_import">匯入資料</string>
   <string name="data_backup_import_summary">從備份檔案取代對話、模型供應商與 MEMORY.md</string>
-  <string name="data_backup_import_confirm_title">匯入 Eta 資料？</string>
+  <string name="data_backup_import_confirm_title">匯入 代鱼 資料？</string>
   <string name="data_backup_import_confirm_summary">目前的對話、模型供應商與 MEMORY.md 將被取代，備份檔案可能包含 API Key。</string>
   <string name="data_backup_working">處理中…</string>
   <string name="data_backup_exported">已匯出 %1$d 個對話與 %2$d 個模型供應商</string>
