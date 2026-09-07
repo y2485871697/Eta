@@ -159,6 +159,7 @@ fun AgentAppShell(
 @Composable
 private fun AgentTopBar(
     route: AppRoute?,
+    currentConversationTitle: String? = null,
     scrollBehavior: ScrollBehavior,
     color: Color,
     onBack: () -> Unit,
@@ -204,7 +205,7 @@ private fun AgentTopBar(
     if (isHome) {
         // 首页聊天舞台保持紧凑；二级内容页统一使用可折叠大标题。
         SmallTopAppBar(
-            title = titleForRoute(route),
+            title = titleForRoute(route, currentConversationTitle),
             color = color,
             scrollBehavior = scrollBehavior,
             navigationIcon = navigationIcon,
@@ -212,7 +213,7 @@ private fun AgentTopBar(
         )
     } else {
         AdaptiveTopAppBar(
-            title = titleForRoute(route),
+            title = titleForRoute(route, currentConversationTitle),
             color = color,
             scrollBehavior = scrollBehavior,
             navigationIcon = navigationIcon,
@@ -332,7 +333,7 @@ private fun TopBarOverflowMenu(
 }
 
 @Composable
-private fun titleForRoute(route: AppRoute?): String = when (route) {
+private fun titleForRoute(route: AppRoute?, currentConversationTitle: String? = null): String = when (route) {
     is AppRoute.Home -> currentConversationTitle ?: stringResource(R.string.app_name)
     is AppRoute.Chat -> stringResource(R.string.route_chat)
     is AppRoute.Browser -> stringResource(R.string.route_browser)
