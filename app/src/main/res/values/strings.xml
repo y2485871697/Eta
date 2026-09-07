@@ -1172,4 +1172,10 @@
   <string name="data_backup_imported">Imported %1$d conversations and %2$d providers</string>
   <string name="data_backup_failed">Backup operation failed</string>
   <string name="data_backup_file_open_failed">Unable to open the selected file</string>
+  <string name="ui_balance_info_title">Balance</string>
+  <string name="ui_balance_info_summary">Fetch account balance from provider</string>
+  <string name="ui_balance_api_path">Balance API path</string>
+  <string name="ui_balance_result_path">Result JSON key</string>
+  <string name="ui_test_balance">Test balance query</string>
+  <string name="ui_balance_section_title">Balance</string>
 </resources>

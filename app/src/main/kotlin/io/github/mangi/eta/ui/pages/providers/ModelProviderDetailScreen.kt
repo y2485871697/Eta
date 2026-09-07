@@ -44,6 +44,7 @@ import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
+import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.withId
 import io.github.mangi.eta.data.repository.ProviderRepository
@@ -56,6 +57,7 @@ import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.components.StatusError
 import io.github.mangi.eta.ui.components.StatusSuccess
 import io.github.mangi.eta.ui.layout.horizontalCutoutPadding
+import io.github.mangi.eta.ui.pages.providers.ProviderBalanceOptionFields
 import io.github.mangi.eta.ui.navigation.NewProviderType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -88,6 +90,7 @@ internal data class ProviderConfigDraft(
     val endpointMode: String,
     val hostedWebSearchEnabled: Boolean,
     val anthropicVersion: String,
+    val balanceOption: BalanceOption,
 ) {
     companion object {
         fun from(provider: ProviderSetting): ProviderConfigDraft = ProviderConfigDraft(
@@ -104,6 +107,7 @@ internal data class ProviderConfigDraft(
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
             anthropicVersion = (provider as? AnthropicProviderSetting)?.anthropicVersion
                 ?: AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION,
+            balanceOption = provider.balanceOption,
         )
     }
 }
@@ -119,6 +123,9 @@ internal val ProviderConfigDraftSaver = mapSaver(
             "endpointMode" to draft.endpointMode,
             "hostedWebSearchEnabled" to draft.hostedWebSearchEnabled,
             "anthropicVersion" to draft.anthropicVersion,
+            "balanceOptionEnabled" to draft.balanceOption.enabled,
+            "balanceOptionApiPath" to draft.balanceOption.apiPath,
+            "balanceOptionResultPath" to draft.balanceOption.resultPath,
         )
     },
     restore = { state ->
@@ -131,6 +138,11 @@ internal val ProviderConfigDraftSaver = mapSaver(
             endpointMode = state.getValue("endpointMode") as String,
             hostedWebSearchEnabled = state.getValue("hostedWebSearchEnabled") as Boolean,
             anthropicVersion = state.getValue("anthropicVersion") as String,
+            balanceOption = BalanceOption(
+                enabled = state["balanceOptionEnabled"] as? Boolean ?: false,
+                apiPath = state["balanceOptionApiPath"] as? String ?: "",
+                resultPath = state["balanceOptionResultPath"] as? String ?: "",
+            ),
         )
     },
 )
@@ -392,6 +404,7 @@ private fun ProviderConfigTab(
                                         endpointMode = draft.endpointMode,
                                         hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
                                         anthropicVersion = draft.anthropicVersion,
+                                        balanceOption = draft.balanceOption,
                                     )
                                 )
                             } finally {
@@ -431,6 +444,15 @@ private fun ProviderConfigTab(
             }
         }
 
+        item(key = "balance_option") {
+            ProviderSection(title = stringResource(R.string.ui_balance_section_title)) {
+                ProviderBalanceOptionFields(
+                    balanceOption = draft.balanceOption,
+                    onBalanceOptionChange = { onDraftChange(draft.copy(balanceOption = it)) },
+                    provider = provider,
+                )
+            }
+        }
         item(key = "actions") {
             // 操作分层：主按钮实心独占，次要操作降级为文字按钮，与弹窗按钮语言一致
             Column(
@@ -468,6 +490,7 @@ private fun ProviderConfigTab(
                                 endpointMode = draft.endpointMode,
                                 hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
                                 anthropicVersion = draft.anthropicVersion,
+                                balanceOption = draft.balanceOption,
                             )
                             try {
                                 if (isNew) {
@@ -645,6 +668,7 @@ private fun buildUpdatedProvider(
     endpointMode: String,
     hostedWebSearchEnabled: Boolean,
     anthropicVersion: String,
+    balanceOption: BalanceOption,
 ): ProviderSetting {
     val prompt = systemPrompt.trim().takeIf { it.isNotBlank() }
     return when (source) {
@@ -656,6 +680,7 @@ private fun buildUpdatedProvider(
             isEnabled = isEnabled,
             endpointMode = endpointMode,
             hostedWebSearchEnabled = hostedWebSearchEnabled,
+            balanceOption = balanceOption,
         )
         is CustomProviderSetting -> source.copy(
             name = name.trim(),
@@ -665,6 +690,7 @@ private fun buildUpdatedProvider(
             isEnabled = isEnabled,
             endpointMode = endpointMode,
             hostedWebSearchEnabled = hostedWebSearchEnabled,
+            balanceOption = balanceOption,
         )
         is AnthropicProviderSetting -> source.copy(
             name = name.trim(),
@@ -673,6 +699,7 @@ private fun buildUpdatedProvider(
             systemPrompt = prompt,
             isEnabled = isEnabled,
             anthropicVersion = anthropicVersion.trim().ifBlank { AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION },
+            balanceOption = balanceOption,
         )
     }
 }

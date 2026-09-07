@@ -7,6 +7,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.Relation
+import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.CustomBody
 import io.github.mangi.eta.data.model.CustomHeader
@@ -43,6 +44,7 @@ internal data class ProviderEntity(
     @ColumnInfo(name = "hosted_web_search_enabled", defaultValue = "0")
     val hostedWebSearchEnabled: Boolean,
     @ColumnInfo(name = "anthropic_version") val anthropicVersion: String,
+    @ColumnInfo(name = "balance_option_json") val balanceOptionJson: String,
 )
 
 @Serializable
@@ -119,6 +121,7 @@ internal fun ProviderSetting.toEntity(): ProviderEntity =
             is AnthropicProviderSetting -> OpenAiEndpointMode.CHAT_COMPLETIONS
         },
         hostedWebSearchEnabled = hostedWebSearchEnabled,
+        balanceOptionJson = ProviderJson.encodeBalance(balanceOption),
         anthropicVersion = when (this) {
             is AnthropicProviderSetting -> anthropicVersion
             else -> AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION
@@ -152,6 +155,7 @@ internal fun ProviderWithModels.toDomain(): ProviderSetting {
             customHeaders = ProviderJson.decodeHeaders(provider.customHeadersJson),
             customBody = ProviderJson.decodeBody(provider.customBodyJson),
             createdAt = provider.createdAt,
+            balanceOption = ProviderJson.decodeBalance(provider.balanceOptionJson),
             anthropicVersion = provider.anthropicVersion.ifBlank {
                 AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION
             },
@@ -173,6 +177,7 @@ internal fun ProviderWithModels.toDomain(): ProviderSetting {
             createdAt = provider.createdAt,
             endpointMode = provider.endpointMode.ifBlank { OpenAiEndpointMode.CHAT_COMPLETIONS },
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
+            balanceOption = ProviderJson.decodeBalance(provider.balanceOptionJson),
         )
 
         else -> OpenAiCompatibleProviderSetting(
@@ -191,6 +196,7 @@ internal fun ProviderWithModels.toDomain(): ProviderSetting {
             createdAt = provider.createdAt,
             endpointMode = provider.endpointMode.ifBlank { OpenAiEndpointMode.CHAT_COMPLETIONS },
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
+            balanceOption = ProviderJson.decodeBalance(provider.balanceOptionJson),
         )
     }
 }
@@ -304,4 +310,10 @@ private object ProviderJson {
                     json.decodeFromString(ModelReasoningCapabilities.serializer(), encoded)
                 }.getOrNull()
             }
+
+    fun encodeBalance(balanceOption: BalanceOption): String =
+        json.encodeToString(BalanceOption.serializer(), balanceOption)
+
+    fun decodeBalance(raw: String): BalanceOption =
+        runCatching { json.decodeFromString(BalanceOption.serializer(), raw) }.getOrDefault(BalanceOption())
 }

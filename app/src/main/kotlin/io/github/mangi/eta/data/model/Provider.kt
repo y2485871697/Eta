@@ -1,5 +1,6 @@
 package io.github.mangi.eta.data.model
 
+import io.github.mangi.eta.data.model.BalanceOption
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -45,6 +46,8 @@ sealed interface ProviderSetting {
     val createdAt: Long
     val hostedWebSearchEnabled: Boolean
         get() = false
+    val balanceOption: BalanceOption
+        get() = BalanceOption()
 }
 
 @Serializable
@@ -65,6 +68,7 @@ data class OpenAiCompatibleProviderSetting(
     override val createdAt: Long = System.currentTimeMillis(),
     val endpointMode: String = OpenAiEndpointMode.CHAT_COMPLETIONS,
     override val hostedWebSearchEnabled: Boolean = false,
+    override val balanceOption: BalanceOption = BalanceOption(),
 ) : ProviderSetting
 
 @Serializable
@@ -83,7 +87,8 @@ data class AnthropicProviderSetting(
     override val customHeaders: List<CustomHeader> = emptyList(),
     override val customBody: List<CustomBody> = emptyList(),
     override val createdAt: Long = System.currentTimeMillis(),
-    val anthropicVersion: String = DEFAULT_ANTHROPIC_VERSION
+    val anthropicVersion: String = DEFAULT_ANTHROPIC_VERSION,
+    override val balanceOption: BalanceOption = BalanceOption(),
 ) : ProviderSetting {
     companion object {
         const val DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
@@ -108,6 +113,7 @@ data class CustomProviderSetting(
     override val createdAt: Long = System.currentTimeMillis(),
     val endpointMode: String = OpenAiEndpointMode.CHAT_COMPLETIONS,
     override val hostedWebSearchEnabled: Boolean = false,
+    override val balanceOption: BalanceOption = BalanceOption(),
 ) : ProviderSetting
 
 internal val ProviderSetting.runtimeProviderType: String
