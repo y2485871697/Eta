@@ -113,6 +113,7 @@ fun AgentAppShell(
                             onStopKimiWeb = onStopKimiWeb,
                             onRefreshKimiWeb = onRefreshKimiWeb,
                             onOpenBrowser = onOpenBrowser,
+                            currentConversationTitle = currentConversationTitle,
 
                         )
                     }
