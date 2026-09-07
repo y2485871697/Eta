@@ -62,6 +62,7 @@ fun AgentAppShell(
     currentRoute: AppRoute?,
     isCurrentRoute: Boolean,
     conversationPaneState: ConversationPaneUiState?,
+    currentConversationTitle: String? = null,
     isConversationPaneOpen: Boolean,
     onBack: () -> Unit,
     onOpenConversationPane: () -> Unit,
@@ -112,6 +113,7 @@ fun AgentAppShell(
                             onStopKimiWeb = onStopKimiWeb,
                             onRefreshKimiWeb = onRefreshKimiWeb,
                             onOpenBrowser = onOpenBrowser,
+                            currentConversationTitle = currentConversationTitle,
                         )
                     }
                 }
@@ -194,6 +196,7 @@ private fun AgentTopBar(
                 onStopKimiWeb = onStopKimiWeb,
                 onRefreshKimiWeb = onRefreshKimiWeb,
                 onOpenBrowser = onOpenBrowser,
+                            currentConversationTitle = currentConversationTitle,
             )
         }
     }
@@ -330,7 +333,7 @@ private fun TopBarOverflowMenu(
 
 @Composable
 private fun titleForRoute(route: AppRoute?): String = when (route) {
-    is AppRoute.Home -> ""
+    is AppRoute.Home -> currentConversationTitle ?: stringResource(R.string.app_name)
     is AppRoute.Chat -> stringResource(R.string.route_chat)
     is AppRoute.Browser -> stringResource(R.string.route_browser)
     is AppRoute.Terminal -> stringResource(R.string.route_terminal)

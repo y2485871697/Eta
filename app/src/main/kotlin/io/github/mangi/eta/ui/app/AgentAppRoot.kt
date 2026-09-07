@@ -171,6 +171,9 @@ fun AgentAppRoot(
             currentRoute = route,
             isCurrentRoute = backStack.lastOrNull() == route,
             conversationPaneState = agentState.conversationPaneState,
+            currentConversationTitle = agentState.conversationPaneState.selectedConversationId?.let { id ->
+                agentState.conversationPaneState.conversations.find { it.id == id }?.title
+            },
             isConversationPaneOpen = conversationPaneOpen,
             onBack = { popRoute() },
             onOpenConversationPane = { conversationPaneOpen = true },
