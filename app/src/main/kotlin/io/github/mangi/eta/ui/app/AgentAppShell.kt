@@ -113,7 +113,7 @@ fun AgentAppShell(
                             onStopKimiWeb = onStopKimiWeb,
                             onRefreshKimiWeb = onRefreshKimiWeb,
                             onOpenBrowser = onOpenBrowser,
-                            currentConversationTitle = currentConversationTitle,
+
                         )
                     }
                 }
@@ -197,7 +197,7 @@ private fun AgentTopBar(
                 onStopKimiWeb = onStopKimiWeb,
                 onRefreshKimiWeb = onRefreshKimiWeb,
                 onOpenBrowser = onOpenBrowser,
-                            currentConversationTitle = currentConversationTitle,
+
             )
         }
     }
