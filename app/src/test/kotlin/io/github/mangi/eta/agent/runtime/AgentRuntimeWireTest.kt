@@ -24,6 +24,13 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class AgentRuntimeWireTest {
+    private fun emptyHistoryDescriptor(): android.os.ParcelFileDescriptor {
+        val context = RuntimeEnvironment.getApplication()
+        val file = java.io.File(context.cacheDir, "test-empty-history-${System.nanoTime()}.json")
+        file.writeText("[]", Charsets.UTF_8)
+        return android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+
     @Test
     fun retryEventSurvivesIpcAndArchiveJson() {
         val event = AgentEvent.ModelRetryScheduled(7, 2, 3, 4_000, "MODEL_TIMEOUT")
@@ -64,7 +71,7 @@ class AgentRuntimeWireTest {
         )
 
         assertThrows(AgentRuntimeWire.PayloadTooLargeException::class.java) {
-            AgentRuntimeWire.toLegacyBundle(request)
+            AgentRuntimeWire.toLegacyBundle(request, emptyHistoryDescriptor())
         }
     }
 
@@ -96,7 +103,7 @@ class AgentRuntimeWireTest {
             RuntimeEnvironment.getApplication(),
             request.images,
         ).use { prepared ->
-            val bundle = AgentRuntimeWire.toBundle(request, prepared.images)
+            val bundle = AgentRuntimeWire.toBundle(request, prepared.images, emptyHistoryDescriptor())
             val parcel = Parcel.obtain()
             try {
                 parcel.writeBundle(bundle)
@@ -151,7 +158,7 @@ class AgentRuntimeWireTest {
                 assertTrue(prepared.images.single().fileDescriptor != null)
                 val materialized = AgentRuntimeImageTransfer.materialize(
                     AgentRuntimeWire.incomingRunRequestFromBundle(
-                        AgentRuntimeWire.toBundle(request, prepared.images)
+                        AgentRuntimeWire.toBundle(request, prepared.images, emptyHistoryDescriptor())
                     )
                 )
                 assertTrue(materialized.images.single().reference.startsWith("data:image/"))
@@ -277,7 +284,7 @@ class AgentRuntimeWireTest {
             ),
         )
 
-        val bundle = AgentRuntimeWire.toLegacyBundle(request)
+        val bundle = AgentRuntimeWire.toLegacyBundle(request, emptyHistoryDescriptor())
         assertEquals(true, bundle.containsKey("browser_tools"))
         assertEquals(true, bundle.getBoolean("browser_tools"))
         val roundTripped = AgentRuntimeWire.runRequestFromBundle(bundle)
@@ -301,7 +308,7 @@ class AgentRuntimeWireTest {
             ),
             images = emptyList(),
         )
-        val legacyBundle = AgentRuntimeWire.toLegacyBundle(request).apply {
+        val legacyBundle = AgentRuntimeWire.toLegacyBundle(request, emptyHistoryDescriptor()).apply {
             remove("browser_tools")
             remove("context_window")
             remove("reasoning_effort")
@@ -331,7 +338,7 @@ class AgentRuntimeWireTest {
             ),
             images = emptyList(),
         )
-        val legacyBundle = AgentRuntimeWire.toLegacyBundle(request).apply {
+        val legacyBundle = AgentRuntimeWire.toLegacyBundle(request, emptyHistoryDescriptor()).apply {
             remove("device_direct_tools")
             remove("device_sensitive_read_tools")
             remove("device_sensitive_action_tools")

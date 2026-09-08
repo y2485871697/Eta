@@ -5,8 +5,8 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
-import io.github.mangi.eta.agent.model.AgentConversationCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.agent.model.AgentConversationCodec
 import io.github.mangi.eta.data.model.CustomBody
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
@@ -22,7 +22,7 @@ import kotlinx.serialization.json.Json
  * 入口进程通过 bind + Messenger 与模块自身进程的 [AgentRuntimeService] 通信：
  * 发送一次运行请求，接收事件流和最终结果。
  *
- * 不引入 AIDL：结构化字段使用 [Bundle]，图片正文使用 [ParcelFileDescriptor]，避免占用 Binder 事务缓冲区。
+ * 不引入 AIDL：结构化字段使用 [Bundle]，图片正文与会话历史均使用 [ParcelFileDescriptor]，避免占用 Binder 事务缓冲区。
  */
 internal object AgentRuntimeWire {
     const val AGENT_UI_HANDOFF_SOURCE = "agent_ui"
@@ -103,11 +103,12 @@ internal object AgentRuntimeWire {
     private const val KEY_CUSTOM_HEADERS_JSON = "custom_headers_json"
     private const val KEY_CUSTOM_BODY_JSON = "custom_body_json"
     private const val KEY_IMAGES = "images"
-    private const val KEY_HISTORY = "history"
-    private const val KEY_CONTENT_JSON = "content_json"
-    private const val KEY_TOOL_CALL_ID = "tool_call_id"
-    private const val KEY_TOOL_CALLS_JSON = "tool_calls_json"
-    private const val KEY_ROLE = "role"
+    internal const val KEY_HISTORY = "history"
+    internal const val KEY_HISTORY_FD = "history_fd"
+    internal const val KEY_CONTENT_JSON = "content_json"
+    internal const val KEY_TOOL_CALL_ID = "tool_call_id"
+    internal const val KEY_TOOL_CALLS_JSON = "tool_calls_json"
+    internal const val KEY_ROLE = "role"
     private const val KEY_DATA_URL = "data_url"
     private const val KEY_IMAGE_URL = "image_url"
     private const val KEY_IMAGE_FD = "image_fd"
@@ -117,8 +118,8 @@ internal object AgentRuntimeWire {
     private const val KEY_HEIGHT = "height"
     private const val KEY_SOURCE = "source"
     private const val KEY_OK = "ok"
-    private const val KEY_CONTENT = "content"
-    private const val KEY_REASONING_CONTENT = "reasoning_content"
+    internal const val KEY_CONTENT = "content"
+    internal const val KEY_REASONING_CONTENT = "reasoning_content"
     private const val KEY_ERROR = "error"
     private const val KEY_RESULT = "result"
     private const val KEY_TRANSCRIPT_JSON = "transcript_json"
@@ -203,7 +204,7 @@ internal object AgentRuntimeWire {
         encodeDefaults = false
     }
 
-    fun toBundle(request: RunRequest, images: List<WireImage>): Bundle {
+    fun toBundle(request: RunRequest, images: List<WireImage>, historyDescriptor: ParcelFileDescriptor): Bundle {
         require(images.size == request.images.size) { "图片传输项与请求图片数量不一致" }
         val imageBundles = images.map { image ->
             require((image.remoteUrl == null) xor (image.fileDescriptor == null)) {
@@ -219,12 +220,13 @@ internal object AgentRuntimeWire {
                 putString(KEY_SOURCE, image.source)
             }
         }
-        return requestBundle(request, imageBundles)
+        return requestBundle(request, imageBundles, historyDescriptor)
     }
 
-    /** 兼容旧客户端与协议测试；新请求不得通过 Binder 内联图片正文。 */
-    fun toLegacyBundle(request: RunRequest): Bundle = requestBundle(
+    /** 兼容旧客户端与协议测试；history 仍走文件描述符，图片旧 data URL 方式仅用于回退。 */
+    fun toLegacyBundle(request: RunRequest, historyDescriptor: ParcelFileDescriptor): Bundle = requestBundle(
         request = request,
+        historyDescriptor = historyDescriptor,
         imageBundles = request.images.map { image ->
             Bundle().apply {
                 putString(KEY_DATA_URL, image.reference)
@@ -237,7 +239,11 @@ internal object AgentRuntimeWire {
         },
     )
 
-    private fun requestBundle(request: RunRequest, imageBundles: List<Bundle>): Bundle = Bundle().apply {
+    private fun requestBundle(
+        request: RunRequest,
+        imageBundles: List<Bundle>,
+        historyDescriptor: ParcelFileDescriptor,
+    ): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, request.runId)
         putString(KEY_PROMPT, request.prompt)
         putString(KEY_PROVIDER_ID, request.config.providerId)
@@ -267,19 +273,7 @@ internal object AgentRuntimeWire {
         putString(KEY_CUSTOM_HEADERS_JSON, json.encodeToString(request.config.customHeaders))
         putString(KEY_CUSTOM_BODY_JSON, json.encodeToString(request.config.customBody))
         request.handoff?.let { putBundle(KEY_HANDOFF, toBundle(it)) }
-        putParcelableArrayList(
-            KEY_HISTORY,
-            ArrayList(AgentConversationCodec.messagesForIpc(request.history).map { message ->
-                Bundle().apply {
-                    putString(KEY_ROLE, message.role)
-                    putString(KEY_CONTENT, message.content)
-                    putString(KEY_CONTENT_JSON, message.contentJson)
-                    putString(KEY_TOOL_CALL_ID, message.toolCallId)
-                    putString(KEY_REASONING_CONTENT, message.reasoningContent)
-                    putString(KEY_TOOL_CALLS_JSON, message.toolCallsJson)
-                }
-            })
-        )
+        putParcelable(KEY_HISTORY_FD, historyDescriptor)
         putParcelableArrayList(
             KEY_IMAGES,
             ArrayList(imageBundles)
@@ -397,16 +391,7 @@ internal object AgentRuntimeWire {
                 customHeaders = decodeCustomHeaders(bundle.getString(KEY_CUSTOM_HEADERS_JSON)),
                 customBody = decodeCustomBody(bundle.getString(KEY_CUSTOM_BODY_JSON))
             ),
-            history = bundle.getParcelableArrayList(KEY_HISTORY, Bundle::class.java).orEmpty().map { message ->
-                AgentModelClient.ConversationMessage(
-                    role = message.getString(KEY_ROLE).orEmpty(),
-                    content = message.getString(KEY_CONTENT).orEmpty(),
-                    contentJson = message.getString(KEY_CONTENT_JSON).orEmpty(),
-                    toolCallId = message.getString(KEY_TOOL_CALL_ID).orEmpty(),
-                    reasoningContent = message.getString(KEY_REASONING_CONTENT).orEmpty(),
-                    toolCallsJson = message.getString(KEY_TOOL_CALLS_JSON).orEmpty(),
-                )
-            },
+            history = AgentRuntimeHistoryTransfer.readFromBundle(bundle),
             images = images,
             handoff = bundle.getBundle(KEY_HANDOFF)?.let(::entryHandoffFromBundle)
         )
@@ -574,8 +559,8 @@ internal object AgentRuntimeWire {
                 putInt("round", event.round)
                 putString("kind", event.kind.name)
                 putInt("index", event.index)
-                putString("block_id", event.blockId)
-                putString("name", event.name)
+                event.blockId?.let { putString("block_id", it) }
+                event.name?.let { putString("name", it) }
             }
 
             is AgentEvent.AssistantBlockDelta -> {
@@ -592,10 +577,10 @@ internal object AgentRuntimeWire {
                 putInt("round", event.round)
                 putString("kind", event.kind.name)
                 putInt("index", event.index)
-                putString("block_id", event.blockId)
-                putString("name", event.name)
+                event.blockId?.let { putString("block_id", it) }
+                event.name?.let { putString("name", it) }
                 putInt("content_chars", event.contentChars)
-                putString("replacement_content", event.replacementContent)
+                event.replacementContent?.let { putString("replacement_content", it) }
             }
 
             is AgentEvent.AssistantReceived -> {
@@ -769,7 +754,6 @@ internal object AgentRuntimeWire {
             resultSummary = bundle.getString("result_summary").orEmpty(),
             imageCount = bundle.getInt("image_count"),
             imageBytes = bundle.getInt("image_bytes"),
-            // 旧版本 Runtime 不发送 success，缺省为 null 由消费端回退判断
             success = if (bundle.containsKey("success")) bundle.getBoolean("success") else null,
         )
 
@@ -805,36 +789,37 @@ internal object AgentRuntimeWire {
         else -> null
     }
 
-    private fun Bundle.optionalInt(key: String): Int? =
-        if (containsKey(key)) getInt(key) else null
-
     private fun Bundle.putTokenUsage(usage: AgentTokenUsage) {
-        usage.contextTokens?.let { putInt("usage_context", it) }
-        usage.inputTokens?.let { putInt("usage_input", it) }
-        usage.outputTokens?.let { putInt("usage_output", it) }
-        usage.reasoningTokens?.let { putInt("usage_reasoning", it) }
-        usage.cachedTokens?.let { putInt("usage_cache", it) }
+        usage.contextTokens?.let { putInt("usage_context_tokens", it) }
+        usage.inputTokens?.let { putInt("usage_input_tokens", it) }
+        usage.outputTokens?.let { putInt("usage_output_tokens", it) }
+        usage.reasoningTokens?.let { putInt("usage_reasoning_tokens", it) }
+        usage.cachedTokens?.let { putInt("usage_cached_tokens", it) }
     }
 
-    private fun Bundle.getTokenUsage(): AgentTokenUsage =
-        AgentTokenUsage(
-            contextTokens = optionalInt("usage_context"),
-            inputTokens = optionalInt("usage_input"),
-            outputTokens = optionalInt("usage_output"),
-            reasoningTokens = optionalInt("usage_reasoning"),
-            cachedTokens = optionalInt("usage_cache"),
-        )
-
-    private fun decodeCustomHeaders(raw: String?): List<CustomHeader> =
-        if (raw.isNullOrBlank()) emptyList()
-        else runCatching { json.decodeFromString<List<CustomHeader>>(raw) }.getOrDefault(emptyList())
-
-    private fun decodeCustomBody(raw: String?): List<CustomBody> =
-        if (raw.isNullOrBlank()) emptyList()
-        else runCatching { json.decodeFromString<List<CustomBody>>(raw) }.getOrDefault(emptyList())
+    private fun Bundle.getTokenUsage(): AgentTokenUsage = AgentTokenUsage(
+        contextTokens = if (containsKey("usage_context_tokens")) getInt("usage_context_tokens") else null,
+        inputTokens = if (containsKey("usage_input_tokens")) getInt("usage_input_tokens") else null,
+        outputTokens = if (containsKey("usage_output_tokens")) getInt("usage_output_tokens") else null,
+        reasoningTokens = if (containsKey("usage_reasoning_tokens")) getInt("usage_reasoning_tokens") else null,
+        cachedTokens = if (containsKey("usage_cached_tokens")) getInt("usage_cached_tokens") else null,
+    )
 
     private fun decodeReasoningCapabilities(raw: String?): ModelReasoningCapabilities? =
-        if (raw.isNullOrBlank()) null
-        else runCatching { json.decodeFromString<ModelReasoningCapabilities>(raw) }.getOrNull()
+        runCatching {
+            raw?.let { json.decodeFromString<ModelReasoningCapabilities>(it) }
+        }.getOrNull()
 
+    private fun decodeCustomHeaders(raw: String?): List<CustomHeader> =
+        runCatching {
+            raw?.let { json.decodeFromString<List<CustomHeader>>(it) } ?: emptyList()
+        }.getOrDefault(emptyList())
+
+    private fun decodeCustomBody(raw: String?): List<CustomBody> =
+        runCatching {
+            raw?.let { json.decodeFromString<List<CustomBody>>(it) } ?: emptyList()
+        }.getOrDefault(emptyList())
+
+    private fun Bundle.optionalInt(key: String): Int? =
+        if (containsKey(key)) getInt(key) else null
 }

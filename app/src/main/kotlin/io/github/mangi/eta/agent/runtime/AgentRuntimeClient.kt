@@ -45,6 +45,7 @@ internal class AgentRuntimeClient(
         val resultLatch = CountDownLatch(1)
         val resultRef = AtomicReference<AgentRuntimeWire.RunResult?>()
         val preparedImagesRef = AtomicReference<AgentRuntimeImageTransfer.PreparedImages?>()
+        val preparedHistoryRef = AtomicReference<AgentRuntimeHistoryTransfer.PreparedHistory?>()
         val clientMessenger = Messenger(
             ClientHandler(
                 onEvent = onEvent,
@@ -54,6 +55,7 @@ internal class AgentRuntimeClient(
                 },
                 onRequestIngested = {
                     preparedImagesRef.getAndSet(null)?.close()
+                    preparedHistoryRef.getAndSet(null)?.close()
                 },
             )
         )
@@ -76,7 +78,9 @@ internal class AgentRuntimeClient(
             msg.replyTo = clientMessenger
             val preparedImages = AgentRuntimeImageTransfer.prepare(context, request.images)
             preparedImagesRef.set(preparedImages)
-            msg.data = AgentRuntimeWire.toBundle(request, preparedImages.images)
+            val preparedHistory = AgentRuntimeHistoryTransfer.prepare(context, request.history)
+            preparedHistoryRef.set(preparedHistory)
+            msg.data = AgentRuntimeWire.toBundle(request, preparedImages.images, preparedHistory.descriptor)
             serviceMessenger.send(msg)
             // 最终结果或 Binder 断连负责唤醒；正常长任务不因客户端等待时长被取消。
             resultLatch.await()
@@ -103,6 +107,7 @@ internal class AgentRuntimeClient(
             )
         } finally {
             preparedImagesRef.getAndSet(null)?.close()
+            preparedHistoryRef.getAndSet(null)?.close()
             runCatching { lease.binder.unlinkToDeath(deathRecipient, 0) }
             lease.close()
         }
