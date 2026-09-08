@@ -150,4 +150,14 @@ internal object RuntimeConfigRepository {
                 .remove(Prefs.Keys.AGENT_RUNTIME_CONFIG_JSON)
                 .commit()
         }.getOrDefault(false)
+
+    internal suspend fun configForProviderAndModel(
+        providerId: String,
+        modelId: String,
+    ): AgentModelClient.ModelConfig? {
+        val provider = ProviderRepository.providerById(providerId) ?: return null
+        val model = provider.models.firstOrNull { it.id == modelId && it.isEnabled } ?: return null
+        return buildRuntimeConfig(provider, model)
+    }
 }
+

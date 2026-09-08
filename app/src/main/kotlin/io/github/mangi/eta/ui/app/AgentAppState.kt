@@ -48,6 +48,7 @@ import io.github.mangi.eta.data.repository.EtaBackupRepository
 import io.github.mangi.eta.data.repository.EtaBackupSummary
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
+
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.AgentMemoryUiState
@@ -1063,6 +1064,17 @@ internal class AgentAppState(
         }
     }
 
+    private suspend fun resolveCompressModelConfig(fallback: AgentModelClient.ModelConfig): AgentModelClient.ModelConfig {
+        val prefs = Prefs.localAgentPreferences() ?: return fallback
+        val providerId = prefs.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null) ?: return fallback
+        val modelId = prefs.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null) ?: return fallback
+        return try {
+            RuntimeConfigRepository.configForProviderAndModel(providerId, modelId) ?: fallback
+        } catch (_: Throwable) {
+            fallback
+        }
+    }
+
     private fun launchConversationRun(
         conversationId: String,
         runId: String,
@@ -1145,7 +1157,7 @@ internal class AgentAppState(
                     source = "user_attach",
                 )
             }
-            val compressModelConfig = config
+            val compressModelConfig = resolveCompressModelConfig(config)
             val historyToSend = if (shouldAutoCompress(history, config.contextWindow ?: 128_000)) {
                 val compressed = tryCompressHistory(history, compressModelConfig)
                 withContext(Dispatchers.Main) {
