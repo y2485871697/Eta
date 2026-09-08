@@ -26,8 +26,6 @@ internal object AgentModelClient {
         ignoreUnknownKeys = true
         encodeDefaults = false
     }
-    private val traceFormatter = AgentTraceFormatter()
-
     fun loadConfig(): ModelConfig {
         val runtimeJson = Prefs.getString(Prefs.Keys.AGENT_RUNTIME_CONFIG_JSON)
         if (runtimeJson.isNotBlank()) {
@@ -93,7 +91,8 @@ internal object AgentModelClient {
         memoryContext: AgentMemoryContext = AgentMemoryContext.DISABLED,
         additionalTools: JSONArray = JSONArray(),
         capabilitiesProvider: () -> AgentToolCapabilities = { AgentToolCapabilities(rootAvailable = false) },
-        onEvent: (AgentEvent) -> Unit = {}
+        onEvent: (AgentEvent) -> Unit = {},
+        linuxEnvironmentLabelProvider: () -> String = { "Linux" },
     ): ModelResponse.Text {
         config.validate()
         val initialCapabilities = capabilitiesProvider()
@@ -132,6 +131,9 @@ internal object AgentModelClient {
             return tools
         }
         val tools = toolsFor(initialCapabilities)
+        val traceFormatter = AgentTraceFormatter(
+            linuxEnvironmentLabelProvider = linuxEnvironmentLabelProvider,
+        )
         onEvent(
             AgentEvent.RunStarted(
                 initialImages = images.size,
@@ -213,13 +215,13 @@ internal object AgentModelClient {
         AgentConversationCodec.durableMessage(AgentConversationCodec.userMessage(text, images))
 
     internal fun summarizeOpenUriArguments(argumentsJson: String): String =
-        traceFormatter.summarizeOpenUriArguments(argumentsJson)
+        AgentTraceFormatter().summarizeOpenUriArguments(argumentsJson)
 
     internal fun summarizeBrowserToolArguments(argumentsJson: String): String =
-        traceFormatter.summarizeBrowserArguments(argumentsJson)
+        AgentTraceFormatter().summarizeBrowserArguments(argumentsJson)
 
     internal fun summarizeToolResult(toolName: String, result: ToolResult): String =
-        traceFormatter.summarizeResult(toolName, result)
+        AgentTraceFormatter().summarizeResult(toolName, result)
 
     @Serializable
     data class ModelConfig(

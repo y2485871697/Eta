@@ -25,6 +25,8 @@ import io.github.mangi.eta.agent.voice.EtaAssistantOverlayService
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
+import io.github.mangi.eta.data.repository.LinuxEnvironmentSettingsRepository
+import io.github.mangi.eta.agent.terminal.LinuxDistribution
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 
@@ -198,16 +200,23 @@ internal class AgentRuntimeRunExecutor(
                 skillContext = skillContext,
                 memoryContext = memoryContext,
                 additionalTools = mcpTools,
-            ) { event ->
-                timing.accept(event)
-                acceptEvent(
-                    session,
-                    event,
-                    archivedEvents,
-                    entrySurfaceGuard,
-                    checkpointRecorder,
-                )
-            }
+                linuxEnvironmentLabelProvider = {
+                    when (LinuxEnvironmentSettingsRepository.current(appContext)) {
+                        LinuxDistribution.ALPINE -> "Alpine"
+                        LinuxDistribution.DEBIAN -> "Debian"
+                    }
+                },
+                onEvent = { event ->
+                    timing.accept(event)
+                    acceptEvent(
+                        session,
+                        event,
+                        archivedEvents,
+                        entrySurfaceGuard,
+                        checkpointRecorder,
+                    )
+                },
+            )
             response = completedResponse
             AgentRuntimeWire.RunResult(
                 runId = request.runId,

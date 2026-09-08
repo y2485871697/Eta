@@ -5,7 +5,9 @@ import java.util.Locale
 import org.json.JSONObject
 
 /** 工具摘要面向用户展示，不包含敏感参数；终端命令通过独立字段提供给用户核对。 */
-internal class AgentTraceFormatter {
+internal class AgentTraceFormatter(
+    private val linuxEnvironmentLabelProvider: () -> String = { "Linux" },
+) {
     fun summarizeArguments(toolCall: AgentModelClient.ToolCall): String =
         when (toolCall.name) {
             BROWSER_TOOL_NAME -> summarizeBrowserArguments(toolCall.argumentsJson)
@@ -501,7 +503,7 @@ internal class AgentTraceFormatter {
     private fun String.terminalEnvironmentLabel(): String = when (this) {
         "alpine" -> "Alpine"
         "debian" -> "Debian"
-        "linux" -> "Linux"
+        "linux" -> linuxEnvironmentLabelProvider()
         else -> "Android"
     }
 
