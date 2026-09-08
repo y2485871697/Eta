@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -108,7 +106,7 @@ internal fun ProviderBalanceOptionFields(
                         modifier = Modifier.padding(top = 8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.AccountBalanceWallet,
+                            imageVector = MoneyBag02,
                             contentDescription = null,
                             modifier = Modifier
                                 .padding(end = 4.dp)
