@@ -25,6 +25,8 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.repository.ProviderBalanceFetcher
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
 import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -95,7 +97,7 @@ internal fun ProviderBalanceOptionFields(
                             isTesting = true
                             testResult = null
                             testResult = ProviderBalanceFetcher.fetch(provider)
-                                .fold(onSuccess = { it }, onFailure = { it.message ?: it.toString() })
+                                .fold(onSuccess = { it.formatBalanceResult() }, onFailure = { it.message ?: it.toString() })
                             isTesting = false
                         }
                     }
@@ -122,5 +124,18 @@ internal fun ProviderBalanceOptionFields(
                 }
             }
         }
+    }
+}
+
+private fun String.formatBalanceResult(): String {
+    val trimmed = trim()
+    val number = trimmed.toDoubleOrNull()
+    return if (number != null) {
+        DecimalFormat(
+            "#,##0.00",
+            DecimalFormatSymbols.getInstance(java.util.Locale.getDefault()),
+        ).format(number)
+    } else {
+        trimmed
     }
 }

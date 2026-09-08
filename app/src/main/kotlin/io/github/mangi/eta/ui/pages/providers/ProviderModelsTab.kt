@@ -885,10 +885,16 @@ private fun ModelEditDialog(
                         modifier = Modifier.weight(1f),
                     )
                     if (contextWindowOverrideText.isNotBlank()) {
-                        TextButton(
+                        Text(
                             text = stringResource(R.string.ui_restore_automatic_8d4e1e),
-                            enabled = !isSaving,
-                            onClick = { contextWindowOverrideText = "" },
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickable(
+                                    enabled = !isSaving,
+                                    onClick = { contextWindowOverrideText = "" },
+                                )
+                                .padding(vertical = 4.dp),
                         )
                     }
                 }
