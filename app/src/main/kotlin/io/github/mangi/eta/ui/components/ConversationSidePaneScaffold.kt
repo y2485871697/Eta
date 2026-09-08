@@ -302,20 +302,32 @@ fun ConversationSidePaneScaffold(
                     state = paneDragState,
                     reverseDirection = false,
                     orientation = Orientation.Horizontal,
-                    enabled = visible && backHandlerEnabled,
+                    enabled = backHandlerEnabled,
                     flingBehavior = flingBehavior,
                 )
                 .zIndex(1f),
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                content()
-                if (visible) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clickable(onClick = onDismiss),
-                    )
-                }
+            content()
+            if (visible) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(onClick = onDismiss),
+                )
+            }
+            if (backHandlerEnabled && !visible) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(32.dp)
+                        .anchoredDraggable(
+                            state = paneDragState,
+                            reverseDirection = false,
+                            orientation = Orientation.Horizontal,
+                            enabled = true,
+                            flingBehavior = flingBehavior,
+                        ),
+                )
             }
         }
     }
