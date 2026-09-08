@@ -60,6 +60,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.terminal.TerminalEnvironment
+import io.github.mangi.eta.agent.terminal.label
 import io.github.mangi.eta.agent.terminal.TerminalScreenBuffer
 import io.github.mangi.eta.ui.app.ConsoleStore
 import io.github.mangi.eta.ui.app.ConsoleUiState
@@ -221,7 +222,7 @@ private fun ConsoleStatusBar(
             onClick = { onSwitchEnvironment(TerminalEnvironment.ANDROID) },
         )
         EnvironmentTab(
-            label = if (linuxEnvironment == TerminalEnvironment.ALPINE) "Alpine" else "Debian",
+            label = linuxEnvironment.label(),
             selected = environment == linuxEnvironment,
             onClick = { onSwitchEnvironment(linuxEnvironment) },
         )

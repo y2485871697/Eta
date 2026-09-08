@@ -25,3 +25,12 @@ internal val LinuxDistribution.terminalEnvironment: TerminalEnvironment
         LinuxDistribution.ALPINE -> TerminalEnvironment.ALPINE
         LinuxDistribution.DEBIAN -> TerminalEnvironment.DEBIAN
     }
+
+/**
+ * 返回 UI 显示用的人类可读名称。
+ */
+internal fun TerminalEnvironment.label(): String = when (this) {
+    TerminalEnvironment.ANDROID -> "Android"
+    TerminalEnvironment.ALPINE -> "Alpine"
+    TerminalEnvironment.DEBIAN -> "Debian"
+}
