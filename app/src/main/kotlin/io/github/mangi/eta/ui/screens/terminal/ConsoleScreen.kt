@@ -1,5 +1,9 @@
 package io.github.mangi.eta.ui.screens.terminal
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -334,7 +338,26 @@ private fun ColumnScope.ConsoleGrid(
                 .alpha(0.01f)
                 .focusRequester(focusRequester),
         )
-        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+        val lifecycleOwner = LocalLifecycleOwner.current
+        var shouldAutoFocus by remember { mutableStateOf(true) }
+
+        DisposableEffect(lifecycleOwner) {
+            val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_PAUSE -> shouldAutoFocus = false
+                    Lifecycle.Event.ON_RESUME -> shouldAutoFocus = true
+                    else -> {}
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        }
+
+        LaunchedEffect(Unit) {
+            if (shouldAutoFocus) {
+                focusRequester.requestFocus()
+            }
+        }
 
         if (state.exited || state.failMessage != null) {
             Column(
