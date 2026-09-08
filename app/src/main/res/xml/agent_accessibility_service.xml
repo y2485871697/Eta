@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:accessibilityEventTypes="typeWindowsChanged|typeWindowStateChanged|typeWindowContentChanged|typeViewScrolled|typeViewTextChanged|typeViewTextSelectionChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:accessibilityFlags="flagReportViewIds|flagIncludeNotImportantViews|flagDefault|flagRetrieveInteractiveWindows"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="true"
     android:canTakeScreenshot="true"
     android:description="@string/agent_accessibility_description"
-    android:notificationTimeout="50" />
+    android:isAccessibilityTool="true"
+    android:notificationTimeout="50"
+    android:settingsActivity="io.github.mangi.eta.ui.MainActivity"
+    tools:ignore="AccessibilityPolicy,UnusedAttribute" />
