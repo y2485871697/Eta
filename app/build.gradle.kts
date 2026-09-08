@@ -49,7 +49,7 @@ android {
             isPseudoLocalesEnabled = true
         }
         release {
-            signingConfig = signingConfigs.findByName("release")
+            signingConfig = if (System.getenv("ETA_DISABLE_RELEASE_SIGNING") == "true") signingConfigs.findByName("debug") else signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

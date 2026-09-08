@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-debug:
-    name: 构建 Debug APK
+    name: 构建 Debug 签名 Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
@@ -39,13 +39,15 @@ jobs:
       - name: 安装 Android SDK 37
         run: sdkmanager --channel=3 "platforms;android-37.0"
 
-      - name: 构建 Debug APK
-        run: ./gradlew --no-daemon --no-configuration-cache :app:assembleDebug
+      - name: 构建 Release APK（使用 Debug 签名）
+        env:
+          ETA_DISABLE_RELEASE_SIGNING: "true"
+        run: ./gradlew --no-daemon --no-configuration-cache :app:assembleRelease
 
-      - name: 上传 Debug APK
+      - name: 上传 Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: eta-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: eta-debug-signed-release
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
