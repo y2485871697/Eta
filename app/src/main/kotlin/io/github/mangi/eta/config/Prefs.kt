@@ -44,6 +44,11 @@ internal object Prefs {
         const val AGENT_DEVICE_SENSITIVE_ACTION_TOOLS = "agent_device_sensitive_action_tools"
         const val AGENT_THINKING_ENABLED = "agent_thinking_enabled"
         const val AGENT_RUNTIME_CONFIG_JSON = "agent_runtime_config_json"
+        const val AGENT_AUTO_COMPRESS_ENABLED = "agent_auto_compress_enabled"
+        const val AGENT_COMPRESS_TARGET_TOKENS = "agent_compress_target_tokens"
+        const val AGENT_COMPRESS_KEEP_RECENT = "agent_compress_keep_recent"
+        const val AGENT_COMPRESS_MODEL_PROVIDER_ID = "agent_compress_model_provider_id"
+        const val AGENT_COMPRESS_MODEL_ID = "agent_compress_model_id"
 
         /** 全部布尔开关及其默认值。 */
         val BOOLEAN_DEFAULTS: Map<String, Boolean> = mapOf(
@@ -61,7 +66,8 @@ internal object Prefs {
             AGENT_DEVICE_DIRECT_TOOLS to true,
             AGENT_DEVICE_SENSITIVE_READ_TOOLS to true,
             AGENT_DEVICE_SENSITIVE_ACTION_TOOLS to true,
-            AGENT_THINKING_ENABLED to true
+            AGENT_THINKING_ENABLED to true,
+            AGENT_AUTO_COMPRESS_ENABLED to false,
         )
 
         /** 由 Eta Runtime 最终裁决、不要求 Xposed 框架在线的开关。 */
@@ -72,6 +78,7 @@ internal object Prefs {
             AGENT_DEVICE_SENSITIVE_READ_TOOLS,
             AGENT_DEVICE_SENSITIVE_ACTION_TOOLS,
             AGENT_THINKING_ENABLED,
+            AGENT_AUTO_COMPRESS_ENABLED,
         )
     }
 
@@ -81,6 +88,31 @@ internal object Prefs {
 
     @Volatile
     private var localAgent: SharedPreferences? = null
+
+    /** 读取 Agent 本地 Int 配置。 */
+    fun getInt(key: String, default: Int): Int {
+        return localAgent?.getInt(key, default) ?: default
+    }
+
+    /** 读取 Agent 本地 String 配置。 */
+    fun getString(key: String, default: String = ""): String {
+        return localAgent?.getString(key, default) ?: default
+    }
+
+    /** 写入 Agent 本地 Int 配置。 */
+    fun putInt(key: String, value: Int) {
+        localAgent?.edit()?.putInt(key, value)?.apply()
+    }
+
+    /** 写入 Agent 本地 String 配置。 */
+    fun putString(key: String, value: String) {
+        localAgent?.edit()?.putString(key, value)?.apply()
+    }
+
+    /** 写入 Agent 本地 Boolean 配置。 */
+    fun putBoolean(key: String, value: Boolean) {
+        localAgent?.edit()?.putBoolean(key, value)?.apply()
+    }
 
     /** App 进程调用：初始化不依赖 Xposed Service 的 Agent 配置。 */
     fun initLocal(context: Context) {

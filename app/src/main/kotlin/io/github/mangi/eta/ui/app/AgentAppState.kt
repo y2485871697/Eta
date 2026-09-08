@@ -25,6 +25,8 @@ import io.github.mangi.eta.agent.model.AgentFileReference
 import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.agent.model.AgentFileReferencePolicy
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
+import io.github.mangi.eta.agent.model.AgentContextBudget
+import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentExecutionService
@@ -126,6 +128,9 @@ internal class AgentAppState(
     var homeState by mutableStateOf(
         selectedConversationId?.let(conversationsById::get) ?: emptyChatState(defaultThinkingEnabled)
     )
+        private set
+
+    var autoCompressEnabled by mutableStateOf(agentBooleanForUi(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED))
         private set
 
     var modelPickerState by mutableStateOf(AgentModelPickerUiState())
@@ -1025,6 +1030,39 @@ internal class AgentAppState(
         )
     }
 
+
+    /**
+     * 判断是否应自动压缩对话历史。
+     */
+    private fun shouldAutoCompress(history: List<AgentModelClient.ConversationMessage>, contextWindow: Int): Boolean {
+        if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return false
+        return AgentContextCompactor.shouldCompress(history, contextWindow)
+    }
+
+    /**
+     * 尝试压缩对话历史，失败时回退原历史。
+     */
+    private fun tryCompressHistory(
+        history: List<AgentModelClient.ConversationMessage>,
+        compressModelConfig: AgentModelClient.ModelConfig?,
+    ): List<AgentModelClient.ConversationMessage> {
+        val targetTokens = Prefs.getInt(Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS, AgentContextCompactor.DEFAULT_TARGET_TOKENS)
+            .coerceIn(500, 4000)
+        val keepRecent = Prefs.getInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, AgentContextCompactor.DEFAULT_KEEP_RECENT)
+            .coerceAtLeast(0)
+        val config = AgentContextCompactor.Config(
+            targetTokens = targetTokens,
+            keepRecentMessages = keepRecent,
+            compressModelConfig = compressModelConfig,
+        )
+        return runCatching {
+            AgentContextCompactor.compress(history, config)
+        }.getOrElse {
+            AndroidAgentLogger.warn("auto compress failed: ${it.message}")
+            history
+        }
+    }
+
     private fun launchConversationRun(
         conversationId: String,
         runId: String,
@@ -1107,6 +1145,17 @@ internal class AgentAppState(
                     source = "user_attach",
                 )
             }
+            val compressModelConfig = config
+            val historyToSend = if (shouldAutoCompress(history, config.contextWindow ?: 128_000)) {
+                val compressed = tryCompressHistory(history, compressModelConfig)
+                withContext(Dispatchers.Main) {
+                    updateConversation(conversationId, state.copy(history = compressed + userHistoryMessage))
+                    showCompactedRevisionNotice()
+                }
+                compressed
+            } else {
+                history
+            }
             val result = runInterruptible {
                 AgentRuntimeClient(appContext, AndroidAgentLogger).run(
                     request = AgentRuntimeWire.RunRequest(
@@ -1114,7 +1163,7 @@ internal class AgentAppState(
                         prompt = prompt,
                         config = config,
                         images = modelImages,
-                        history = history,
+                        history = historyToSend,
                         handoff = AgentRuntimeWire.EntryHandoff(
                             id = runId,
                             source = AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE,
@@ -2284,6 +2333,11 @@ internal class AgentAppState(
             )
 
         fun newConversationId(): String = "conv-${UUID.randomUUID()}"
+    }
+
+    fun updateAutoCompressEnabled(enabled: Boolean) {
+        autoCompressEnabled = enabled
+        Prefs.putBoolean(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED, enabled)
     }
 }
 

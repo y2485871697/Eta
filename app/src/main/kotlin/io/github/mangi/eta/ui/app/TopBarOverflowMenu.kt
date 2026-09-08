@@ -3,6 +3,7 @@ package io.github.mangi.eta.ui.app
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddComment
+import androidx.compose.material.icons.rounded.Compress
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Stop
@@ -23,6 +24,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.config.Prefs
 
 private val TopBarMenuIconSize = 24.dp
 
@@ -36,6 +38,8 @@ internal fun TopBarOverflowMenu(
     onStopKimiWeb: () -> Unit,
     onRefreshKimiWeb: () -> Unit,
     onOpenBrowser: () -> Unit,
+    autoCompressEnabled: Boolean,
+    onToggleAutoCompress: (Boolean) -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -100,6 +104,27 @@ internal fun TopBarOverflowMenu(
                     )
                 },
                 onClick = { showMenu = false; onOpenBrowser() }
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.action_auto_compress_context)) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Compress,
+                        contentDescription = null,
+                        modifier = Modifier.size(TopBarMenuIconSize)
+                    )
+                },
+                trailingIcon = {
+                    androidx.compose.material3.Switch(
+                        checked = autoCompressEnabled,
+                        onCheckedChange = null,
+                        modifier = Modifier.size(TopBarMenuIconSize)
+                    )
+                },
+                onClick = {
+                    showMenu = false
+                    onToggleAutoCompress(!autoCompressEnabled)
+                }
             )
             if (canStopKimiWeb) {
                 DropdownMenuItem(

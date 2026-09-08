@@ -1178,4 +1178,14 @@
   <string name="ui_balance_result_path">Result JSON key</string>
   <string name="ui_test_balance">Test balance query</string>
   <string name="ui_balance_section_title">Balance</string>
+
+    <string name="route_context_compression">上下文压缩</string>
+    <string name="ui_context_compression_settings_title">上下文压缩</string>
+    <string name="ui_auto_compress_context_title">自动压缩上下文</string>
+    <string name="ui_auto_compress_context_summary">达到上下文窗口阈值时自动压缩历史对话</string>
+    <string name="ui_compress_target_tokens_title">压缩目标 Token</string>
+    <string name="ui_compress_keep_recent_title">保留最近消息数</string>
+    <string name="ui_compress_keep_recent_summary">压缩时保留最近 N 条消息不压缩</string>
+
+    <string name="action_auto_compress_context">自动压缩上下文</string>
 </resources>

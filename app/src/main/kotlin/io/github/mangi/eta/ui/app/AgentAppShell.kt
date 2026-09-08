@@ -65,6 +65,8 @@ fun AgentAppShell(
     onStopKimiWeb: () -> Unit,
     onRefreshKimiWeb: () -> Unit,
     onOpenBrowser: () -> Unit,
+    autoCompressEnabled: Boolean = false,
+    onToggleAutoCompress: (Boolean) -> Unit = {},
     onSelectConversation: (String) -> Unit,
     onConversationRename: (ConversationSummaryUi) -> Unit,
     onConversationDelete: (ConversationSummaryUi) -> Unit,
@@ -103,7 +105,8 @@ fun AgentAppShell(
                             onRefreshKimiWeb = onRefreshKimiWeb,
                             onOpenBrowser = onOpenBrowser,
                             currentConversationTitle = currentConversationTitle,
-
+                            autoCompressEnabled = autoCompressEnabled,
+                            onToggleAutoCompress = onToggleAutoCompress,
                         )
                     }
                 }
@@ -162,6 +165,8 @@ private fun AgentTopBar(
     onStopKimiWeb: () -> Unit,
     onRefreshKimiWeb: () -> Unit,
     onOpenBrowser: () -> Unit,
+    autoCompressEnabled: Boolean = false,
+    onToggleAutoCompress: (Boolean) -> Unit = {},
 ) {
     val isHome = route is AppRoute.Home
     val navigationIcon: @Composable () -> Unit = {
@@ -187,6 +192,8 @@ private fun AgentTopBar(
                 onStopKimiWeb = onStopKimiWeb,
                 onRefreshKimiWeb = onRefreshKimiWeb,
                 onOpenBrowser = onOpenBrowser,
+                autoCompressEnabled = autoCompressEnabled,
+                onToggleAutoCompress = onToggleAutoCompress,
 
             )
         }
@@ -234,5 +241,6 @@ private fun titleForRoute(route: AppRoute?, currentConversationTitle: String? = 
     is AppRoute.McpServerDetail -> stringResource(R.string.route_mcp_server_detail)
     is AppRoute.ModelProviderDetail -> stringResource(R.string.route_provider_details)
     is AppRoute.ModelProviderNew -> stringResource(R.string.route_new_provider)
+    is AppRoute.ContextCompression -> stringResource(R.string.route_context_compression)
     null -> stringResource(R.string.app_name)
 }

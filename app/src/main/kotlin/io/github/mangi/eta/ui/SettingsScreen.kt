@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Compress
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PowerSettingsNew
@@ -237,6 +238,16 @@ internal fun SettingsScreen(
                             )
                         },
                         onClick = { onNavigate(AppRoute.Memory) },
+                    )
+
+                    ArrowPreference(
+                        title = stringResource(R.string.route_context_compression),
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.Compress,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.ContextCompression) },
                     )
 
                     ArrowPreference(

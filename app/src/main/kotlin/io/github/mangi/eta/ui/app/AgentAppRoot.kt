@@ -42,6 +42,7 @@ import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.AppearanceSettingsScreen
+import io.github.mangi.eta.ui.ContextCompressionSettingsScreen
 import io.github.mangi.eta.ui.SettingsScreen
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.model.AgentChatAction
@@ -202,6 +203,8 @@ fun AgentAppRoot(
             onStopKimiWeb = appViewModel::stopKimiWeb,
             onRefreshKimiWeb = appViewModel::refreshKimiWeb,
             onOpenBrowser = { pushRoute(AppRoute.Browser) },
+            autoCompressEnabled = agentState.autoCompressEnabled,
+            onToggleAutoCompress = { agentState.updateAutoCompressEnabled(it) },
             onSelectConversation = { conversationId -> selectConversation(conversationId) },
             onConversationRename = { conversation ->
                 conversationRenameTarget = conversation
@@ -576,6 +579,12 @@ fun AgentAppRoot(
                 ModelProviderDetailScreen(
                     providerId = route.providerId,
                     onBack = ::popRoute
+                )
+            }
+            entry<AppRoute.ContextCompression>(swipeDismiss = swipeDismiss) {
+                ContextCompressionSettingsScreen(
+                    context = context,
+                    onBack = ::popRoute,
                 )
             }
             entry<AppRoute.ModelProviderNew>(swipeDismiss = swipeDismiss) { route ->
