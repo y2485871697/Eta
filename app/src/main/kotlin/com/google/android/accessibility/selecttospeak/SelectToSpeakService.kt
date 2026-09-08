@@ -187,7 +187,7 @@ class SelectToSpeakService : AccessibilityService() {
         if (point.x > 0 && point.y > 0) point.x to point.y else null
     }.getOrNull()
 
-    internal fun packageWindowVisibility(packageName: String): PackageWindowVisibility =
+    fun packageWindowVisibility(packageName: String): PackageWindowVisibility =
         runOnMainSync {
             val activeRoot = rootInActiveWindow
             if (activeRoot?.packageName?.toString() == packageName) {

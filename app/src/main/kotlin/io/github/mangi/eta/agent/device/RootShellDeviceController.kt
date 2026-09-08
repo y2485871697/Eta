@@ -41,7 +41,7 @@ internal class RootShellDeviceController(
         val maxNodes: Int,
         val truncated: Boolean,
         val treeSignature: String = "",
-        internal val accessibilitySnapshot: AgentAccessibilityService.NodeSnapshot? = null,
+        internal val accessibilitySnapshot: AgentAccessibilityNodeSnapshot? = null,
     )
 
     enum class ElementSource(val wireName: String) {
@@ -633,9 +633,9 @@ internal class RootShellDeviceController(
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = runCatching { clipboard.primaryClip }.getOrNull()
             if (clip == null || clip.itemCount <= 0) {
-                AgentAccessibilityService.ClipboardReadResult.failure()
+                AgentAccessibilityClipboardReadResult.failure()
             } else {
-                AgentAccessibilityService.ClipboardReadResult(
+                AgentAccessibilityClipboardReadResult(
                     ok = true,
                     text = clip.getItemAt(0).coerceToText(context)?.toString().orEmpty(),
                 )
@@ -1232,7 +1232,7 @@ internal class RootShellDeviceController(
 
     private fun nodeActionJson(
         tool: String,
-        result: AgentAccessibilityService.NodeActionResult,
+        result: AgentAccessibilityNodeActionResult,
     ): String {
         val json = JSONObject()
             .put("ok", result.ok)
@@ -1251,7 +1251,7 @@ internal class RootShellDeviceController(
 
     private fun scrollActionJson(
         tool: String,
-        result: AgentAccessibilityService.ScrollActionResult,
+        result: AgentAccessibilityScrollActionResult,
     ): String {
         val json = JSONObject()
             .put("ok", result.ok)
@@ -1292,7 +1292,7 @@ internal class RootShellDeviceController(
             else -> value.contains(needle, ignoreCase = true)
         }
 
-    private fun AgentAccessibilityService.UiNode.toUiNode(): UiNode =
+    private fun AgentAccessibilityUiNode.toUiNode(): UiNode =
         UiNode(
             index = index,
             text = text,

@@ -3,3 +3,9 @@ package io.github.mangi.eta.agent.accessibility
 import com.google.android.accessibility.selecttospeak.SelectToSpeakService
 
 typealias AgentAccessibilityService = SelectToSpeakService
+
+typealias AgentAccessibilityNodeSnapshot = SelectToSpeakService.NodeSnapshot
+typealias AgentAccessibilityUiNode = SelectToSpeakService.UiNode
+typealias AgentAccessibilityClipboardReadResult = SelectToSpeakService.ClipboardReadResult
+typealias AgentAccessibilityNodeActionResult = SelectToSpeakService.NodeActionResult
+typealias AgentAccessibilityScrollActionResult = SelectToSpeakService.ScrollActionResult
