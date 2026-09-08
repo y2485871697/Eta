@@ -318,7 +318,9 @@ fun ConversationSidePaneScaffold(
             if (backHandlerEnabled && !visible) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxHeight()
+                        .width(24.dp)
+                        .background(Color.Red.copy(alpha = 0.5f))
                         .anchoredDraggable(
                             state = paneDragState,
                             reverseDirection = false,
