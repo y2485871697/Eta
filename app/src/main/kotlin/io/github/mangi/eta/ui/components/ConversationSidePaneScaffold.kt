@@ -4,6 +4,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.AnchoredDraggableDefaults
 import androidx.compose.foundation.gestures.AnchoredDraggableState
@@ -315,7 +316,11 @@ fun ConversationSidePaneScaffold(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .clickable(onClick = onDismiss),
+                        .clickable(
+                            onClick = onDismiss,
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ),
                 )
             }
         }
