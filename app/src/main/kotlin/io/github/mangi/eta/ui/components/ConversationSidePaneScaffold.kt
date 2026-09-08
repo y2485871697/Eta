@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.DraggableAnchors
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.anchoredDraggable
 import androidx.compose.foundation.gestures.animateTo
+import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -243,6 +244,8 @@ fun ConversationSidePaneScaffold(
             onOpenTools = onOpenTools,
             onOpenSkills = onOpenSkills,
             onOpenPermissions = onOpenPermissions,
+            paneDragState = paneDragState,
+            flingBehavior = flingBehavior,
             modifier = Modifier.zIndex(0f),
         )
 
@@ -332,6 +335,8 @@ private fun ConversationPanePanel(
     onOpenTools: () -> Unit,
     onOpenSkills: () -> Unit,
     onOpenPermissions: () -> Unit,
+    paneDragState: AnchoredDraggableState<ConversationPaneAnchor>,
+    flingBehavior: FlingBehavior,
     modifier: Modifier = Modifier,
 ) {
     val query = state.searchQuery.trim()
@@ -350,7 +355,14 @@ private fun ConversationPanePanel(
     Surface(
         modifier = modifier
             .width(width)
-            .fillMaxHeight(),
+            .fillMaxHeight()
+            .anchoredDraggable(
+                state = paneDragState,
+                reverseDirection = false,
+                orientation = Orientation.Horizontal,
+                enabled = true,
+                flingBehavior = flingBehavior,
+            ),
         color = MiuixTheme.colorScheme.surface,
         contentColor = MiuixTheme.colorScheme.onSurface,
     ) {
