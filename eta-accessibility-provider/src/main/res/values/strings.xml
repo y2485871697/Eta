@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">防息屏助手</string>
+    <string name="accessibility_service_label">防息屏自动点击</string>
+    <string name="accessibility_service_description">通过无障碍服务定时模拟点击，防止屏幕自动息屏</string>
+</resources>

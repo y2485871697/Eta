@@ -1,0 +1,56 @@
+name: Eta Accessibility Provider Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'eta-accessibility-provider/**'
+      - '.github/workflows/provider-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-provider:
+    name: Build Accessibility Provider APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-provider: basic
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+        with:
+          packages: ""
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install Android SDK 37
+        run: sdkmanager --channel=3 "platforms;android-37.0"
+
+      - name: Build Provider APK
+        run: >-
+          ./gradlew --no-daemon --no-configuration-cache
+          :eta-accessibility-provider:assembleRelease
+
+      - name: Upload Provider APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: eta-accessibility-provider-release
+          path: eta-accessibility-provider/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14

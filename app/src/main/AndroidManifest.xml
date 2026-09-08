@@ -131,21 +131,7 @@
                 android:value="User-initiated interactive terminals, local Linux services and device automation tasks" />
         </service>
 
-        <service
-            android:name="com.google.android.accessibility.selecttospeak.SelectToSpeakService"
-            android:exported="false"
-            android:label="@string/agent_accessibility_label"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            tools:ignore="AccessibilityPolicy">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/agent_accessibility_service" />
-        </service>
-
-        <service
+                <service
             android:name=".agent.device.AgentNotificationHistoryService"
             android:exported="false"
             android:label="@string/notification_history_service_label"
