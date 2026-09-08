@@ -302,7 +302,7 @@ fun ConversationSidePaneScaffold(
                     state = paneDragState,
                     reverseDirection = false,
                     orientation = Orientation.Horizontal,
-                    enabled = backHandlerEnabled,
+                    enabled = visible && backHandlerEnabled,
                     flingBehavior = flingBehavior,
                 )
                 .zIndex(1f),
@@ -320,7 +320,7 @@ fun ConversationSidePaneScaffold(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(24.dp)
-                        .background(Color.Red.copy(alpha = 0.5f))
+                        .background(Color.Blue.copy(alpha = 0.3f))
                         .anchoredDraggable(
                             state = paneDragState,
                             reverseDirection = false,
