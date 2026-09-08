@@ -1155,4 +1155,10 @@
   <string name="data_backup_imported">已导入 %1$d 个对话和 %2$d 个模型提供商</string>
   <string name="data_backup_failed">备份操作失败</string>
   <string name="data_backup_file_open_failed">无法打开所选文件</string>
+  <string name="ui_balance_info_title">余额</string>
+  <string name="ui_balance_info_summary">从提供商获取账户余额</string>
+  <string name="ui_balance_api_path">余额 API 路径</string>
+  <string name="ui_balance_result_path">结果 JSON 键</string>
+  <string name="ui_test_balance">测试余额查询</string>
+  <string name="ui_balance_section_title">余额</string>
 </resources>

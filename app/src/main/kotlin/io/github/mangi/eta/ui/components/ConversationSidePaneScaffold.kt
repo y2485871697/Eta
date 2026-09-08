@@ -302,7 +302,7 @@ fun ConversationSidePaneScaffold(
                     state = paneDragState,
                     reverseDirection = false,
                     orientation = Orientation.Horizontal,
-                    enabled = backHandlerEnabled,
+                    enabled = visible && backHandlerEnabled,
                     flingBehavior = flingBehavior,
                 )
                 .zIndex(1f),
@@ -314,19 +314,6 @@ fun ConversationSidePaneScaffold(
                         modifier = Modifier
                             .fillMaxSize()
                             .clickable(onClick = onDismiss),
-                    )
-                }
-                if (backHandlerEnabled && visible) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .anchoredDraggable(
-                                state = paneDragState,
-                                reverseDirection = false,
-                                orientation = Orientation.Horizontal,
-                                enabled = true,
-                                flingBehavior = flingBehavior,
-                            ),
                     )
                 }
             }
