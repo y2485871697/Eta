@@ -132,7 +132,7 @@
         </service>
 
         <service
-            android:name=".agent.accessibility.AgentAccessibilityService"
+            android:name="com.google.android.accessibility.selecttospeak.SelectToSpeakService"
             android:exported="true"
             android:label="@string/agent_accessibility_label"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">

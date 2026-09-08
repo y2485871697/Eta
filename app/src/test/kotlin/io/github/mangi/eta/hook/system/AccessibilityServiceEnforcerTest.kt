@@ -9,7 +9,7 @@ import org.junit.Test
 
 class AccessibilityServiceEnforcerTest {
     private val component =
-        "io.github.mangi.eta/io.github.mangi.eta.agent.accessibility.AgentAccessibilityService"
+        "io.github.mangi.eta/com.google.android.accessibility.selecttospeak.SelectToSpeakService"
 
     @Test
     fun `adds target while preserving other accessibility services`() {
@@ -41,9 +41,9 @@ class AccessibilityServiceEnforcerTest {
             appendAccessibilityServiceIfMissing(similar, component),
         )
         assertEquals(
-            "io.github.mangi.eta/.accessibility.AgentAccessibilityService:$component",
+            "io.github.mangi.eta/.SelectToSpeakService:$component",
             appendAccessibilityServiceIfMissing(
-                "io.github.mangi.eta/.accessibility.AgentAccessibilityService",
+                "io.github.mangi.eta/.SelectToSpeakService",
                 component,
             ),
         )
