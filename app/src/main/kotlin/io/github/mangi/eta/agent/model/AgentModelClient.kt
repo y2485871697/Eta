@@ -97,11 +97,18 @@ internal object AgentModelClient {
     ): ModelResponse.Text {
         config.validate()
         val initialCapabilities = capabilitiesProvider()
+        val effectiveContextWindow = config.contextWindow ?: 128_000
+        val historyBudget = AgentContextBudget.historyBudget(
+            contextWindow = effectiveContextWindow,
+            prompt = prompt,
+            images = images,
+        )
+        val trimmedHistory = AgentContextBudget.trimHistory(history, historyBudget)
         val messages = AgentPromptBuilder.buildInitialMessages(
             config,
             prompt,
             images,
-            history,
+            trimmedHistory,
             skillContext,
             memoryContext,
             rootAvailable = initialCapabilities.rootAvailable,
