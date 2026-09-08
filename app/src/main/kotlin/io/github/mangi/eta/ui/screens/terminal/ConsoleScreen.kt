@@ -334,7 +334,6 @@ private fun ColumnScope.ConsoleGrid(
                 .alpha(0.01f)
                 .focusRequester(focusRequester),
         )
-        LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
         if (state.exited || state.failMessage != null) {
             Column(
