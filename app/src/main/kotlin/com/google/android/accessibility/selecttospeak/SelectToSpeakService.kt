@@ -34,6 +34,11 @@ import io.github.mangi.eta.agent.device.ScrollEvidenceContract
 import io.github.mangi.eta.agent.device.ScrollMovementSource
 import io.github.mangi.eta.agent.device.RootScrollMotionContract
 import io.github.mangi.eta.core.AndroidAgentLogger
+import io.github.mangi.eta.agent.accessibility.MainThreadCallGate
+import io.github.mangi.eta.agent.accessibility.PackageWindowVisibility
+import io.github.mangi.eta.agent.accessibility.ScrollEventObservationGate
+import io.github.mangi.eta.agent.accessibility.ScreenshotWindowPolicy
+import io.github.mangi.eta.agent.accessibility.TextEditPlanner
 import java.util.ArrayDeque
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
