@@ -308,17 +308,6 @@ fun ConversationSidePaneScaffold(
                 .zIndex(1f),
         ) {
             content()
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .anchoredDraggable(
-                        state = paneDragState,
-                        reverseDirection = false,
-                        orientation = Orientation.Horizontal,
-                        enabled = visible && backHandlerEnabled,
-                        flingBehavior = flingBehavior,
-                    ),
-            )
             if (visible) {
                 Box(
                     modifier = Modifier
