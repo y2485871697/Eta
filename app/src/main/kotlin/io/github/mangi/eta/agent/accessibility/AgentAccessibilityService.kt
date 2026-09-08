@@ -47,7 +47,7 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import org.json.JSONObject
 
-class AgentAccessibilityService : AccessibilityService() {
+open class AgentAccessibilityService : AccessibilityService() {
 
     private data class ScreenshotWindow(
         val id: Int,
