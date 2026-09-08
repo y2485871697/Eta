@@ -8,7 +8,7 @@
     android:canRetrieveWindowContent="true"
     android:canTakeScreenshot="true"
     android:description="@string/agent_accessibility_description"
-    android:isAccessibilityTool="true"
+    android:isAccessibilityTool="false"
     android:notificationTimeout="50"
     android:settingsActivity="io.github.mangi.eta.ui.MainActivity"
     tools:ignore="AccessibilityPolicy,UnusedAttribute" />
