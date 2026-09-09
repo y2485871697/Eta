@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -5,12 +7,25 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-val releaseStoreFile = System.getenv("ETA_RELEASE_STORE_FILE")
-    ?: rootProject.file("app/signing/eta-release.p12").absolutePath
-val releaseStorePassword = System.getenv("ETA_RELEASE_STORE_PASSWORD") ?: "eta-release"
-val releaseKeyAlias = System.getenv("ETA_RELEASE_KEY_ALIAS") ?: "eta"
-val releaseKeyPassword = System.getenv("ETA_RELEASE_KEY_PASSWORD") ?: "eta-release"
-val hasReleaseSigning = true
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.isFile) file.inputStream().use(::load)
+}
+
+fun signingValue(envName: String, propertyName: String): String? =
+    System.getenv(envName)?.takeIf { it.isNotBlank() }
+        ?: keystoreProperties.getProperty(propertyName)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile = signingValue("ETA_RELEASE_STORE_FILE", "storeFile")
+val releaseStorePassword = signingValue("ETA_RELEASE_STORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("ETA_RELEASE_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("ETA_RELEASE_KEY_PASSWORD", "keyPassword")
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
 
 java {
     toolchain {
@@ -33,12 +48,12 @@ android {
     }
 
     signingConfigs {
-        if (true) {
+        if (hasReleaseSigning) {
             create("release") {
                 storeFile = file(requireNotNull(releaseStoreFile))
-                storePassword = releaseStorePassword
-                keyAlias = releaseKeyAlias
-                keyPassword = releaseKeyPassword
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
             }
         }
     }
@@ -47,9 +62,16 @@ android {
         debug {
             isMinifyEnabled = false
             isPseudoLocalesEnabled = true
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         release {
-            signingConfig = if (System.getenv("ETA_DISABLE_RELEASE_SIGNING") == "true") signingConfigs.findByName("debug") else signingConfigs.findByName("release")
+            signingConfig = when {
+                System.getenv("ETA_DISABLE_RELEASE_SIGNING") == "true" -> signingConfigs.getByName("debug")
+                hasReleaseSigning -> signingConfigs.getByName("release")
+                else -> signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

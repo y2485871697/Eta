@@ -43,9 +43,30 @@ jobs:
       - name: 安装 Android SDK 37
         run: sdkmanager --channel=3 "platforms;android-37.0"
 
-      - name: 构建 Release APK（使用 Debug 签名）
+      - name: 还原发布证书
         env:
-          ETA_DISABLE_RELEASE_SIGNING: "true"
+          ETA_RELEASE_KEYSTORE_BASE64: ${{ secrets.ETA_RELEASE_KEYSTORE_BASE64 }}
+          ETA_RELEASE_STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
+          ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
+          ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [[ -z "$ETA_RELEASE_KEYSTORE_BASE64" ||
+                -z "$ETA_RELEASE_STORE_PASSWORD" ||
+                -z "$ETA_RELEASE_KEY_ALIAS" ||
+                -z "$ETA_RELEASE_KEY_PASSWORD" ]]; then
+            echo "::error::缺少 Release 签名 Secrets，请检查仓库的 Actions Secrets。"
+            exit 1
+          fi
+          printf '%s' "$ETA_RELEASE_KEYSTORE_BASE64" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/eta-release.p12"
+
+      - name: 构建 Release APK
+        env:
+          ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-release.p12
+          ETA_RELEASE_STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
+          ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
+          ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
         run: >-
           ./gradlew --no-daemon --no-configuration-cache
           :app:assembleRelease

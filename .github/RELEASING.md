@@ -13,13 +13,13 @@
 macOS 可以用下面的命令复制证书的 Base64 文本：
 
 ```bash
-base64 < /path/to/Eta-release.jks | tr -d '\n' | pbcopy
+base64 < /path/to/eta-release.p12 | tr -d '\n' | pbcopy
 ```
 
 也可以使用 GitHub CLI。密码类 Secret 不要直接写在命令参数中，运行命令后按提示输入：
 
 ```bash
-base64 < /path/to/Eta-release.jks | gh secret set ETA_RELEASE_KEYSTORE_BASE64
+base64 < /path/to/eta-release.p12 | gh secret set ETA_RELEASE_KEYSTORE_BASE64
 gh secret set ETA_RELEASE_STORE_PASSWORD
 gh secret set ETA_RELEASE_KEY_ALIAS
 gh secret set ETA_RELEASE_KEY_PASSWORD
@@ -27,8 +27,9 @@ gh secret set ETA_RELEASE_KEY_PASSWORD
 
 ## 构建与发布
 
-以下情况会在同一次工作流中生成 Debug APK 和经过签名验证的 Release APK，
-并作为两个可直接下载的 Actions Artifact 保存 14 天：
+发布证书不要提交到仓库。本地把 `keystore.properties` 放到仓库根目录，或把同一份 PKCS12 配进 Actions Secrets。
+
+以下情况会构建经过签名验证的 Release APK，并作为 Actions Artifact 保存 14 天：
 
 - 向 `main` 推送提交
 - 推送 `v*` 标签
