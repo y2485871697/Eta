@@ -272,7 +272,18 @@ internal class AgentRuntimeClient(
                 }
 
                 AgentRuntimeWire.MSG_RESULT -> {
-                    onResult(AgentRuntimeWire.runResultFromBundle(msg.data ?: return))
+                    val data = msg.data ?: return
+                    val result = runCatching {
+                        AgentRuntimeWire.runResultFromBundle(data)
+                    }.getOrElse { throwable ->
+                        AgentRuntimeWire.RunResult(
+                            runId = AgentRuntimeWire.runIdFromBundle(data),
+                            ok = false,
+                            content = "",
+                            error = "Agent Runtime 结果解析失败（${throwable.javaClass.simpleName}）",
+                        )
+                    }
+                    onResult(result)
                 }
 
                 AgentRuntimeWire.MSG_REQUEST_INGESTED -> onRequestIngested()
@@ -317,8 +328,20 @@ internal class AgentRuntimeClient(
             when (msg.what) {
                 AgentRuntimeWire.MSG_EVENT ->
                     AgentRuntimeWire.eventFromBundle(msg.data ?: return)?.let(delivery::event)
-                AgentRuntimeWire.MSG_RESULT ->
-                    delivery.result(AgentRuntimeWire.runResultFromBundle(msg.data ?: return))
+                AgentRuntimeWire.MSG_RESULT -> {
+                    val data = msg.data ?: return
+                    val result = runCatching {
+                        AgentRuntimeWire.runResultFromBundle(data)
+                    }.getOrElse { throwable ->
+                        AgentRuntimeWire.RunResult(
+                            runId = AgentRuntimeWire.runIdFromBundle(data),
+                            ok = false,
+                            content = "",
+                            error = "Agent Runtime 结果解析失败（${throwable.javaClass.simpleName}）",
+                        )
+                    }
+                    delivery.result(result)
+                }
                 AgentRuntimeWire.MSG_ATTACH_RUN_RESPONSE ->
                     delivery.attachResponse(AgentRuntimeWire.attachRunSucceeded(msg.data ?: return))
             }

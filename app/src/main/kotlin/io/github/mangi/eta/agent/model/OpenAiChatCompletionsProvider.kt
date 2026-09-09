@@ -6,6 +6,7 @@ import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderSourceTypes
 import io.github.mangi.eta.data.provider.ProviderSourceRegistry
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.InputStreamReader
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -166,7 +167,14 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
         BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
             while (true) {
                 runController.throwIfCancelled()
-                val line = reader.readLine() ?: break
+                val line = try {
+                    reader.readLine()
+                } catch (io: IOException) {
+                    if (recoveredFinishReason(finishReason, content, reasoningContent, toolCalls) != null) {
+                        break
+                    }
+                    throw io
+                } ?: break
                 if (!line.startsWith("data:")) continue
                 sawStreamData = true
                 val payload = line.removePrefix("data:").trim()
@@ -245,7 +253,11 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
         }
 
         if (!sawStreamData) throw AgentModelFailure.incompleteStream("模型接口未返回 SSE data chunk")
-        if (!sawDone && finishReason == null) throw AgentModelFailure.incompleteStream("模型接口 SSE 流未正常结束")
+        val recoveredReason = recoveredFinishReason(finishReason, content, reasoningContent, toolCalls)
+        if (recoveredReason == null) {
+            throw AgentModelFailure.incompleteStream("模型接口 SSE 流未正常结束")
+        }
+        finishReason = recoveredReason
 
         finishActiveVisibleBlock()
         toolCalls.values.sortedBy { it.contentIndex }.forEach { call ->
@@ -280,6 +292,21 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                     )
                 }
             }
+    }
+
+    private fun recoveredFinishReason(
+        finishReason: String?,
+        content: StringBuilder,
+        reasoningContent: StringBuilder,
+        toolCalls: Map<Int, StreamingToolCall>,
+    ): String? {
+        if (!finishReason.isNullOrBlank()) return finishReason
+        if (toolCalls.isNotEmpty()) {
+            val complete = toolCalls.values.all { call -> call.name.toString().isNotBlank() }
+            return if (complete) "tool_calls" else null
+        }
+        if (content.isNotBlank() || reasoningContent.isNotBlank()) return "stop"
+        return null
     }
 
     private data class StreamingToolCall(

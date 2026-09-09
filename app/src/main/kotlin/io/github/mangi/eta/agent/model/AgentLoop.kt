@@ -105,6 +105,19 @@ internal class AgentLoop(
             )
 
             if (toolCalls.isNotEmpty()) {
+                val finishedContent = assistantMessage.optString("content").trim()
+                val finishedNaturally = providerResponse.stopReason != AssistantStopReason.TOOL_USE &&
+                    providerResponse.stopReason != AssistantStopReason.OUTPUT_LIMIT &&
+                    finishedContent.isNotBlank() &&
+                    finishedContent != "null"
+                if (finishedNaturally) {
+                    onEvent(AgentEvent.RunFinished(round = round, contentChars = finishedContent.length))
+                    return Result(
+                        content = finishedContent,
+                        reasoningContent = reasoningSnapshot(),
+                        sensitiveToolCallIds = sensitiveToolCallIds.toSet(),
+                    )
+                }
                 val outcomes = when (providerResponse.stopReason) {
                     AssistantStopReason.TOOL_USE ->
                         toolCalls.map { call -> executeTool(round, call) }

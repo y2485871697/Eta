@@ -274,9 +274,8 @@ internal fun AgentContextUsageButton(
         locale = locale,
     )
     val detail = when {
-        sendBlocked -> stringResource(R.string.context_usage_send_blocked, summary)
-        usage.contextTokens == null -> stringResource(R.string.context_no_previous_usage)
-        else -> stringResource(R.string.context_usage_live, summary)
+        sendBlocked -> "$summary\n${stringResource(R.string.context_window_send_blocked)}"
+        else -> summary
     }
     val usageDescription = stringResource(
         R.string.context_usage_description,

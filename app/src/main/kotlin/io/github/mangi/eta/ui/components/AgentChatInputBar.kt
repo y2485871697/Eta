@@ -327,8 +327,6 @@ internal fun AgentChatInputBar(
                             }
                         } else {
                             AgentAttachmentPickerButton(
-                                popupAnchorTopPx = inputContainerTopPx,
-                                popupMaxHeight = thinkingPopupMaxHeight,
                                 onAttachImage = onAttachImage,
                                 onAttachFiles = onAttachFiles,
                                 onAttachFolder = onAttachFolder,

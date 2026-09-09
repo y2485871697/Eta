@@ -113,6 +113,7 @@ internal class AgentAppState(
     private val runEventFlushJobs = mutableMapOf<String, Job>()
     private var currentRunId: String? = null
     private var currentRunJob: Job? = null
+    private var compressionJob: Job? = null
     private val persistenceLock = Any()
     private var persistenceJob: Job? = null
     private val runtimeRecoveryInProgress = AtomicBoolean(false)
@@ -855,6 +856,14 @@ internal class AgentAppState(
         ) {
             return
         }
+        if (compressionJob?.isActive == true) {
+            Toast.makeText(
+                appContext,
+                appContext.getString(R.string.compress_conversation_in_progress),
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
         val fileReferences = pendingFileReferences.map { it.reference }
         if (
             !AgentFileReferencePolicy.canSend(
@@ -1090,14 +1099,18 @@ internal class AgentAppState(
     private fun tryCompressHistory(
         history: List<AgentModelClient.ConversationMessage>,
         compressModelConfig: AgentModelClient.ModelConfig?,
+        targetTokens: Int = Prefs.getInt(
+            Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
+            AgentContextCompactor.DEFAULT_TARGET_TOKENS,
+        ),
+        keepRecent: Int = Prefs.getInt(
+            Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
+            AgentContextCompactor.DEFAULT_KEEP_RECENT,
+        ),
     ): List<AgentModelClient.ConversationMessage> {
-        val targetTokens = Prefs.getInt(Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS, AgentContextCompactor.DEFAULT_TARGET_TOKENS)
-            .coerceIn(500, 4000)
-        val keepRecent = Prefs.getInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, AgentContextCompactor.DEFAULT_KEEP_RECENT)
-            .coerceAtLeast(0)
         val config = AgentContextCompactor.Config(
-            targetTokens = targetTokens,
-            keepRecentMessages = keepRecent,
+            targetTokens = targetTokens.coerceIn(500, 4000),
+            keepRecentMessages = keepRecent.coerceAtLeast(0),
             compressModelConfig = compressModelConfig,
         )
         return runCatching {
@@ -1108,12 +1121,22 @@ internal class AgentAppState(
         }
     }
 
-    private suspend fun resolveCompressModelConfig(fallback: AgentModelClient.ModelConfig): AgentModelClient.ModelConfig {
-        val prefs = Prefs.localAgentPreferences() ?: return fallback
-        val providerId = prefs.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null) ?: return fallback
-        val modelId = prefs.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null) ?: return fallback
+    private suspend fun resolveCompressModelConfig(
+        fallback: AgentModelClient.ModelConfig?,
+        providerId: String? = null,
+        modelId: String? = null,
+    ): AgentModelClient.ModelConfig? {
+        val prefs = Prefs.localAgentPreferences()
+        val resolvedProviderId = providerId
+            ?: prefs?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null)
+        val resolvedModelId = modelId
+            ?: prefs?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null)
+        if (resolvedProviderId.isNullOrBlank() || resolvedModelId.isNullOrBlank()) {
+            return fallback
+        }
         return try {
-            RuntimeConfigRepository.configForProviderAndModel(providerId, modelId) ?: fallback
+            RuntimeConfigRepository.configForProviderAndModel(resolvedProviderId, resolvedModelId)
+                ?: fallback
         } catch (_: Throwable) {
             fallback
         }
@@ -2184,11 +2207,20 @@ internal class AgentAppState(
             if (targetIndex < 0) {
                 messages + SystemNoticeMessageUi(AgentRunMessageProjector.resultFallbackId(runId, messages), code, detail)
             } else {
-                messages.mapIndexed { index, message ->
-                    if (index == targetIndex && message is AgentMessageUi) {
-                        SystemNoticeMessageUi(message.id, code, detail)
-                    } else {
-                        message
+                val target = messages[targetIndex]
+                // 已完成的回答不能被停止通知覆盖。重试/新一轮生成失败时，
+                // 否则会把上一轮完整回复替换成「已停止」，看起来像对话消失。
+                if (target is AgentMessageUi && !target.isStreaming && target.content.isNotBlank()) {
+                    val noticeId = "interrupted-$runId"
+                    if (messages.any { it.id == noticeId }) messages
+                    else messages + SystemNoticeMessageUi(noticeId, code, detail)
+                } else {
+                    messages.mapIndexed { index, message ->
+                        if (index == targetIndex && message is AgentMessageUi) {
+                            SystemNoticeMessageUi(message.id, code, detail)
+                        } else {
+                            message
+                        }
                     }
                 }
             }
@@ -2413,6 +2445,122 @@ internal class AgentAppState(
     fun updateAutoCompressEnabled(enabled: Boolean) {
         autoCompressEnabled = enabled
         Prefs.putBoolean(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED, enabled)
+    }
+
+    fun compressCurrentConversation(
+        providerId: String?,
+        modelId: String?,
+        targetTokens: Int,
+        keepRecent: Int,
+        onFinished: (Boolean) -> Unit,
+    ) {
+        if (homeState.isStreaming) {
+            Toast.makeText(
+                appContext,
+                appContext.getString(R.string.compress_conversation_streaming),
+                Toast.LENGTH_SHORT,
+            ).show()
+            onFinished(false)
+            return
+        }
+        if (compressionJob?.isActive == true) {
+            Toast.makeText(
+                appContext,
+                appContext.getString(R.string.compress_conversation_in_progress),
+                Toast.LENGTH_SHORT,
+            ).show()
+            onFinished(false)
+            return
+        }
+        val history = homeState.history
+        val keepRecentMessages = keepRecent.coerceIn(0, 100)
+        persistCompressPreferences(providerId, modelId, targetTokens, keepRecentMessages)
+        if (history.size <= keepRecentMessages) {
+            Toast.makeText(
+                appContext,
+                appContext.getString(R.string.compress_conversation_nothing_to_compress),
+                Toast.LENGTH_SHORT,
+            ).show()
+            onFinished(false)
+            return
+        }
+        val conversationId = selectedConversationId
+        val originalHistory = history
+        compressionJob = scope.launch(Dispatchers.IO) {
+            val fallback = RuntimeConfigRepository.currentRuntimeConfig()
+            val modelConfig = resolveCompressModelConfig(
+                fallback = fallback,
+                providerId = providerId,
+                modelId = modelId,
+            )
+            if (modelConfig == null) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        appContext,
+                        appContext.getString(R.string.compress_conversation_failed),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    onFinished(false)
+                }
+                return@launch
+            }
+            val compressed = tryCompressHistory(
+                history = originalHistory,
+                compressModelConfig = modelConfig,
+                targetTokens = targetTokens,
+                keepRecent = keepRecentMessages,
+            )
+            withContext(Dispatchers.Main) {
+                if (compressed == originalHistory) {
+                    Toast.makeText(
+                        appContext,
+                        appContext.getString(R.string.compress_conversation_failed),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    onFinished(false)
+                    return@withContext
+                }
+                applyManualCompressedHistory(conversationId, originalHistory, compressed)
+                Toast.makeText(
+                    appContext,
+                    appContext.getString(R.string.compress_conversation_done),
+                    Toast.LENGTH_SHORT,
+                ).show()
+                onFinished(true)
+            }
+        }
+    }
+
+    private fun persistCompressPreferences(
+        providerId: String?,
+        modelId: String?,
+        targetTokens: Int,
+        keepRecent: Int,
+    ) {
+        Prefs.putInt(
+            Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
+            targetTokens.coerceIn(500, 4000),
+        )
+        Prefs.putInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, keepRecent.coerceIn(0, 100))
+        if (!providerId.isNullOrBlank() && !modelId.isNullOrBlank()) {
+            Prefs.putString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, providerId)
+            Prefs.putString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, modelId)
+        }
+    }
+
+    private fun applyManualCompressedHistory(
+        conversationId: String?,
+        originalHistory: List<AgentModelClient.ConversationMessage>,
+        compressedHistory: List<AgentModelClient.ConversationMessage>,
+    ) {
+        if (conversationId != null) {
+            val current = conversationsById[conversationId] ?: return
+            if (current.history != originalHistory) return
+            updateConversation(conversationId, current.copy(history = compressedHistory))
+        } else if (selectedConversationId == null && homeState.history == originalHistory) {
+            homeState = homeState.copy(history = compressedHistory)
+        }
+        persistConversations()
     }
 }
 

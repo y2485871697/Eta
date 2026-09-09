@@ -2,7 +2,6 @@ package io.github.mangi.eta.ui
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,10 +14,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -30,22 +29,15 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.config.Prefs
-import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.model.AgentModelOptionUi
-import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
-import top.yukonga.miuix.kmp.basic.Card
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
-import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.Text as MiuixText
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 
 @Composable
 internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Unit) {
@@ -59,7 +51,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
     var selectedCompressModel by remember { mutableStateOf<AgentModelOptionUi?>(null) }
     var showModelDialog by remember { mutableStateOf(false) }
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
-    var isLoadingModels by remember { mutableStateOf(false) }
+    var isLoadingModels by remember { mutableStateOf(prefs != null) }
 
     LaunchedEffect(prefs) {
         prefs?.let { currentPrefs ->
@@ -76,8 +68,12 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                 Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED -> enabled = prefs?.getBoolean(key, false) ?: false
                 Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS -> targetTokens = prefs?.getInt(key, AgentContextCompactor.DEFAULT_TARGET_TOKENS) ?: AgentContextCompactor.DEFAULT_TARGET_TOKENS
                 Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT -> {
-                    keepRecent = prefs?.getInt(key, AgentContextCompactor.DEFAULT_KEEP_RECENT) ?: AgentContextCompactor.DEFAULT_KEEP_RECENT
-                    keepRecentInput = keepRecent.toString()
+                    val stored = prefs?.getInt(key, AgentContextCompactor.DEFAULT_KEEP_RECENT)
+                        ?: AgentContextCompactor.DEFAULT_KEEP_RECENT
+                    keepRecent = stored
+                    if (keepRecentInput.isNotEmpty() && keepRecentInput.toIntOrNull() != stored) {
+                        keepRecentInput = stored.toString()
+                    }
                 }
                 Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID,
                 Prefs.Keys.AGENT_COMPRESS_MODEL_ID -> {
@@ -120,22 +116,13 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
         item(key = "compress_model") {
             SmallTitle(stringResource(R.string.ui_compress_model_title))
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showModelDialog = true }
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.ui_compress_model_title), style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            selectedCompressModel?.displayName ?: stringResource(R.string.model_not_selected),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
+                ArrowPreference(
+                    title = stringResource(R.string.ui_compress_model_title),
+                    summary = selectedCompressModel?.displayName
+                        ?: stringResource(R.string.model_not_selected),
+                    onClick = { showModelDialog = true },
+                    holdDownState = showModelDialog,
+                )
             }
         }
 
@@ -171,10 +158,18 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                 OutlinedTextField(
                     value = keepRecentInput,
                     onValueChange = { value ->
-                        keepRecentInput = value
-                        val number = value.toIntOrNull()?.coerceIn(0, 100) ?: keepRecent
-                        prefs?.edit()?.putInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, number)?.apply()
-                        keepRecent = number
+                        val digits = value.filter(Char::isDigit).take(3)
+                        val parsed = digits.toIntOrNull()
+                        if (parsed == null) {
+                            keepRecentInput = digits
+                            return@OutlinedTextField
+                        }
+                        val number = parsed.coerceIn(0, 100)
+                        keepRecentInput = number.toString()
+                        if (number != keepRecent) {
+                            keepRecent = number
+                            prefs?.edit()?.putInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, number)?.apply()
+                        }
                     },
                     label = { Text(stringResource(R.string.ui_compress_keep_recent_title)) },
                     supportingText = { Text(stringResource(R.string.ui_compress_keep_recent_summary)) },
@@ -208,95 +203,4 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
             showModelDialog = false
         },
     )
-}
-
-@Composable
-private fun CompressModelPickerDialog(
-    state: AgentModelPickerUiState,
-    show: Boolean,
-    isLoading: Boolean = false,
-    onDismiss: () -> Unit,
-    onModelSelected: (String, String) -> Unit,
-) {
-    var expandedProviderIds by remember { mutableStateOf(emptySet<String>()) }
-    OverlayDialog(
-        show = show,
-        title = stringResource(R.string.ui_compress_model_title),
-        onDismissRequest = onDismiss,
-    ) {
-        Column {
-            if (isLoading) {
-                MiuixText(
-                    text = "Loading...",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                )
-            } else if (state.providerGroups.isEmpty()) {
-                MiuixText(
-                    text = stringResource(R.string.provider_empty),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                )
-            } else {
-                state.providerGroups.forEachIndexed { index, group ->
-                    if (index > 0) {
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
-                    }
-                    val expanded = group.providerId in expandedProviderIds
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                expandedProviderIds = if (expanded) {
-                                    expandedProviderIds - group.providerId
-                                } else {
-                                    expandedProviderIds + group.providerId
-                                }
-                            }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = group.providerName,
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    if (expanded) {
-                        group.models.forEach { model ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onModelSelected(model.providerId, model.id) }
-                                    .padding(horizontal = 32.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = model.displayName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (model.id == state.selectedModel?.id) {
-                                    Icon(imageVector = Icons.Rounded.Check, contentDescription = null)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private suspend fun buildCompressModelPickerState(prefs: SharedPreferences): AgentModelPickerUiState {
-    val providers = runCatching { ProviderRepository.allProviders() }.getOrNull() ?: emptyList()
-    val providerId = prefs.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null)
-    val modelId = prefs.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null)
-    return AgentModelPickerProjector.project(
-        providers = providers,
-        selectedProviderId = providerId,
-        selectedModelId = modelId,
-    )
-}
-
-private suspend fun readCompressModelSelection(prefs: SharedPreferences): AgentModelOptionUi? {
-    return buildCompressModelPickerState(prefs).selectedModel
 }

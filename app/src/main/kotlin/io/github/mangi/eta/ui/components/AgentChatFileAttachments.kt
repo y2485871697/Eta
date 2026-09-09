@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +39,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -48,19 +48,15 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentFileReference
 import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
-import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleSurface
-import top.yukonga.miuix.kmp.theme.LocalDismissState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
-import top.yukonga.miuix.kmp.window.WindowListPopup
 
 internal val ChatInputPopupMargin = 8.dp
 internal val ChatInputActionSize = 40.dp
@@ -68,8 +64,6 @@ internal val ChatInputActionIconSize = 24.dp
 
 @Composable
 internal fun AgentAttachmentPickerButton(
-    popupAnchorTopPx: Int,
-    popupMaxHeight: Dp,
     onAttachImage: (String) -> Unit,
     onAttachFiles: (List<String>) -> Unit,
     onAttachFolder: (String) -> Unit,
@@ -117,47 +111,38 @@ internal fun AgentAttachmentPickerButton(
                 tint = MiuixTheme.colorScheme.onSurface,
             )
         }
-        WindowListPopup(
-            show = showPopup && popupAnchorTopPx > 0,
-            popupPositionProvider = remember(popupAnchorTopPx) {
-                InputPopupPositionProvider(popupAnchorTopPx)
-            },
-            alignment = PopupPositionProvider.Align.TopStart,
+        EtaDropdownMenu(
+            expanded = showPopup,
             onDismissRequest = { showPopup = false },
-            maxHeight = popupMaxHeight,
         ) {
-            val dismiss = LocalDismissState.current
             val options = listOf(
                 stringResource(R.string.attachment_image),
                 stringResource(R.string.attachment_file),
                 stringResource(R.string.attachment_folder),
                 stringResource(R.string.attachment_enter_path),
             )
-            ListPopupColumn {
-                options.forEachIndexed { index, option ->
-                    DropdownImpl(
-                        text = option,
-                        optionSize = options.size,
-                        isSelected = false,
-                        index = index,
-                        onSelectedIndexChange = {
-                            dismiss?.invoke()
-                            when (index) {
-                                0 -> photoPicker.launch(
-                                    PickVisualMediaRequest(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly
-                                    )
+            options.forEachIndexed { index, option ->
+                DropdownMenuItem(
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    text = { androidx.compose.material3.Text(option) },
+                    onClick = {
+                        showPopup = false
+                        when (index) {
+                            0 -> photoPicker.launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.ImageOnly
                                 )
-                                1 -> filePicker.launch(arrayOf("*/*"))
-                                2 -> folderPicker.launch(null)
-                                3 -> {
-                                    pathInput = ""
-                                    showPathDialog = true
-                                }
+                            )
+                            1 -> filePicker.launch(arrayOf("*/*"))
+                            2 -> folderPicker.launch(null)
+                            3 -> {
+                                pathInput = ""
+                                showPathDialog = true
                             }
-                        },
-                    )
-                }
+                        }
+                    },
+                )
             }
         }
     }

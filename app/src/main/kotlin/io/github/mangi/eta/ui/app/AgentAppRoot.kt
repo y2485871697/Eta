@@ -205,6 +205,15 @@ fun AgentAppRoot(
             onOpenBrowser = { pushRoute(AppRoute.Browser) },
             autoCompressEnabled = agentState.autoCompressEnabled,
             onToggleAutoCompress = { agentState.updateAutoCompressEnabled(it) },
+            onCompressConversation = { providerId, modelId, targetTokens, keepRecent, onFinished ->
+                agentState.compressCurrentConversation(
+                    providerId,
+                    modelId,
+                    targetTokens,
+                    keepRecent,
+                    onFinished,
+                )
+            },
             onSelectConversation = { conversationId -> selectConversation(conversationId) },
             onConversationRename = { conversation ->
                 conversationRenameTarget = conversation

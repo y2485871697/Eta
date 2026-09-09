@@ -144,6 +144,23 @@ class OpenAiChatCompletionsProviderTest {
     }
 
     @Test
+    fun completeTreatsTruncatedStreamWithTextAsNaturalStop() {
+        val body = buildString {
+            append(sseChunk(JSONObject().put("content", "项目介绍已经写完。")))
+        }
+
+        withSseServer(body) { baseUrl ->
+            val response = OpenAiChatCompletionsProvider.complete(
+                request = providerRequest(baseUrl),
+                runController = AgentRunController(),
+            )
+
+            assertEquals("项目介绍已经写完。", response.assistantMessage.getString("content"))
+            assertEquals("stop", response.assistantMessage.getString("finish_reason"))
+        }
+    }
+
+    @Test
     fun completeDoesNotRequestDeprecatedOpenRouterUsageOption() {
         val requestBody = AtomicReference<String>()
         val body = buildString {

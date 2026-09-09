@@ -67,6 +67,13 @@ fun AgentAppShell(
     onOpenBrowser: () -> Unit,
     autoCompressEnabled: Boolean = false,
     onToggleAutoCompress: (Boolean) -> Unit = {},
+    onCompressConversation: (
+        providerId: String?,
+        modelId: String?,
+        targetTokens: Int,
+        keepRecent: Int,
+        onFinished: (Boolean) -> Unit,
+    ) -> Unit = { _, _, _, _, done -> done(false) },
     onSelectConversation: (String) -> Unit,
     onConversationRename: (ConversationSummaryUi) -> Unit,
     onConversationDelete: (ConversationSummaryUi) -> Unit,
@@ -107,6 +114,7 @@ fun AgentAppShell(
                             currentConversationTitle = currentConversationTitle,
                             autoCompressEnabled = autoCompressEnabled,
                             onToggleAutoCompress = onToggleAutoCompress,
+                            onCompressConversation = onCompressConversation,
                         )
                     }
                 }
@@ -167,6 +175,13 @@ private fun AgentTopBar(
     onOpenBrowser: () -> Unit,
     autoCompressEnabled: Boolean = false,
     onToggleAutoCompress: (Boolean) -> Unit = {},
+    onCompressConversation: (
+        providerId: String?,
+        modelId: String?,
+        targetTokens: Int,
+        keepRecent: Int,
+        onFinished: (Boolean) -> Unit,
+    ) -> Unit = { _, _, _, _, done -> done(false) },
 ) {
     val isHome = route is AppRoute.Home
     val navigationIcon: @Composable () -> Unit = {
@@ -194,7 +209,7 @@ private fun AgentTopBar(
                 onOpenBrowser = onOpenBrowser,
                 autoCompressEnabled = autoCompressEnabled,
                 onToggleAutoCompress = onToggleAutoCompress,
-
+                onCompressConversation = onCompressConversation,
             )
         }
     }

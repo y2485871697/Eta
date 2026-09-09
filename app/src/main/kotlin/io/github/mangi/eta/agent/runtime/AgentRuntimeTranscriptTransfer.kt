@@ -58,14 +58,20 @@ internal object AgentRuntimeTranscriptTransfer {
     }
 
     fun readFromBundle(bundle: Bundle): List<AgentModelClient.ConversationMessage> {
-        bundle.getParcelable(AgentRuntimeWire.KEY_TRANSCRIPT_FD, ParcelFileDescriptor::class.java)
-            ?.use { descriptor ->
-                val bytes = ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes() }
+        val fromFd = runCatching {
+            val descriptor = bundle.getParcelable(
+                AgentRuntimeWire.KEY_TRANSCRIPT_FD,
+                ParcelFileDescriptor::class.java,
+            ) ?: return@runCatching null
+            ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
+                val bytes = input.readBytes()
                 if (bytes.size > MAX_TRANSCRIPT_FILE_BYTES) {
                     throw AgentRuntimeWire.PayloadTooLargeException(bytes.size)
                 }
-                return AgentConversationCodec.decodeTranscript(String(bytes, Charsets.UTF_8))
+                AgentConversationCodec.decodeTranscript(String(bytes, Charsets.UTF_8))
             }
+        }.getOrNull()
+        if (fromFd != null) return fromFd
         // 兼容旧 Runtime：transcript 仍内联在 Bundle 中。
         return AgentConversationCodec.decodeTranscript(
             bundle.getString(AgentRuntimeWire.KEY_TRANSCRIPT_JSON),

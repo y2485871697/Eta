@@ -32,6 +32,9 @@
   <string name="action_more">More options</string>
   <string name="action_open_terminal">Open terminal</string>
   <string name="action_open_browser">Open browser</string>
+  <string name="action_search_history">Search history</string>
+  <string name="action_token_usage">Token usage</string>
+  <string name="action_browse_workspace_files">Browse workspace files</string>
   <string name="action_launch_kimi_web">Launch Kimi Web</string>
   <string name="route_chat">Chat</string>
   <string name="route_browser">Agent browser</string>
@@ -1081,10 +1084,6 @@
   <string name="model_expand_provider">Expand %1$s</string>
   <string name="context_no_previous_usage">No conversation context yet</string>
   <string name="context_no_model_limit">The current model does not provide a context limit</string>
-  <string name="context_usage_after_response">%1$s\nEstimated from the current conversation</string>
-  <string name="context_usage_previous_response">%1$s\nEstimated from the current conversation</string>
-  <string name="context_usage_live">%1$s\nEstimated from the current conversation</string>
-  <string name="context_usage_send_blocked">%1$s\nContext is 99% full. Enable auto-compress or start a new conversation</string>
   <string name="context_window_send_blocked">Context is 99% full. Enable auto-compress or start a new conversation</string>
   <string name="context_usage_description">Context usage: %1$s</string>
   <string name="memory_budget_summary">Inject up to %1$s characters per turn. The model reads detailed content as needed</string>
@@ -1191,5 +1190,12 @@
     <string name="ui_compress_keep_recent_summary">压缩时保留最近 N 条消息不压缩</string>
     <string name="ui_compress_model_title">压缩模型</string>
 
-    <string name="action_auto_compress_context">自动压缩上下文</string>
+    <string name="action_auto_compress_context">Auto compact</string>
+    <string name="action_compress_conversation">Compress conversation</string>
+    <string name="compress_conversation_confirm">OK</string>
+    <string name="compress_conversation_nothing_to_compress">Not enough messages to compress</string>
+    <string name="compress_conversation_failed">Failed to compress conversation</string>
+    <string name="compress_conversation_streaming">Cannot compress while a reply is in progress</string>
+    <string name="compress_conversation_done">Conversation compressed</string>
+    <string name="compress_conversation_in_progress">Compressing conversation…</string>
 </resources>
