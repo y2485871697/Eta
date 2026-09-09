@@ -3,6 +3,7 @@ package io.github.mangi.eta.ui.screens.home
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
+import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
 import io.github.mangi.eta.ui.components.AgentChatBody
 import io.github.mangi.eta.ui.components.chatConversationCompositionKey
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
@@ -19,6 +20,7 @@ import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 internal fun AgentHomeScreen(
     state: AgentChatHomeUiState,
     modelPickerState: AgentModelPickerUiState,
+    autoCompressEnabled: Boolean,
     conversationKey: String?,
     onAction: (AgentHomeAction) -> Unit,
     isDrawerOpen: Boolean = false,
@@ -27,7 +29,9 @@ internal fun AgentHomeScreen(
     key(chatConversationCompositionKey(conversationKey)) {
         AgentChatBody(
             messages = state.messages,
+            history = AgentConversationRevisionReducer.outboundHistory(state),
             modelPickerState = modelPickerState,
+            autoCompressEnabled = autoCompressEnabled,
             input = state.input,
             isStreaming = state.isStreaming,
             reasoningEffort = state.reasoningEffort,

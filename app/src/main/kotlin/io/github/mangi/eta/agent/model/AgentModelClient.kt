@@ -93,16 +93,21 @@ internal object AgentModelClient {
         capabilitiesProvider: () -> AgentToolCapabilities = { AgentToolCapabilities(rootAvailable = false) },
         onEvent: (AgentEvent) -> Unit = {},
         linuxEnvironmentLabelProvider: () -> String = { "Linux" },
+        skipHistoryTrimming: Boolean = false,
     ): ModelResponse.Text {
         config.validate()
         val initialCapabilities = capabilitiesProvider()
-        val effectiveContextWindow = config.contextWindow ?: 128_000
-        val historyBudget = AgentContextBudget.historyBudget(
-            contextWindow = effectiveContextWindow,
-            prompt = prompt,
-            images = images,
-        )
-        val trimmedHistory = AgentContextBudget.trimHistory(history, historyBudget)
+        val trimmedHistory = if (skipHistoryTrimming) {
+            history
+        } else {
+            val effectiveContextWindow = config.contextWindow ?: 128_000
+            val historyBudget = AgentContextBudget.historyBudget(
+                contextWindow = effectiveContextWindow,
+                prompt = prompt,
+                images = images,
+            )
+            AgentContextBudget.trimHistory(history, historyBudget)
+        }
         val messages = AgentPromptBuilder.buildInitialMessages(
             config,
             prompt,

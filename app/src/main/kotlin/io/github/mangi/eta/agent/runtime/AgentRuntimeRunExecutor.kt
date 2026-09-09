@@ -196,6 +196,7 @@ internal class AgentRuntimeRunExecutor(
                 toolExecutor = routingExecutor,
                 images = request.images,
                 history = request.history,
+                skipHistoryTrimming = request.historyAlreadyCompacted,
                 runController = runController,
                 skillContext = skillContext,
                 memoryContext = memoryContext,

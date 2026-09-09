@@ -544,4 +544,75 @@ class AgentRuntimeWireTest {
 
         assertEquals(false, handoff.dismissEntrySurfaceOnForegroundOperation)
     }
+
+    @Test
+    fun runRequestBundleRoundTripPreservesHistoryAlreadyCompacted() {
+        val config = AgentModelClient.ModelConfig(
+            baseUrl = "https://example.invalid/v1",
+            apiKey = "test-key",
+            model = "test-model",
+            systemPrompt = "",
+            reasoningEffort = ReasoningEffort.OFF,
+        )
+        val compacted = AgentRuntimeWire.RunRequest(
+            runId = "run-compacted",
+            prompt = "hello",
+            config = config,
+            images = emptyList(),
+            historyAlreadyCompacted = true,
+        )
+        val compactedRoundTrip = AgentRuntimeWire.runRequestFromBundle(
+            AgentRuntimeWire.toLegacyBundle(compacted, emptyHistoryDescriptor()),
+        )
+        assertTrue(compactedRoundTrip.historyAlreadyCompacted)
+
+        val missingKey = AgentRuntimeWire.toLegacyBundle(
+            compacted.copy(runId = "run-legacy"),
+            emptyHistoryDescriptor(),
+        ).apply {
+            remove("history_already_compacted")
+        }
+        val legacyRoundTrip = AgentRuntimeWire.runRequestFromBundle(missingKey)
+        assertFalse(legacyRoundTrip.historyAlreadyCompacted)
+    }
+
+    @Test
+    fun largeResultTranscriptUsesFileDescriptorAndStaysOutOfBinderBundle() {
+        val transcript = List(20) { index ->
+            AgentModelClient.ConversationMessage(
+                role = "assistant",
+                content = "answer-$index-${"x".repeat(20_000)}",
+            )
+        }
+        val result = AgentRuntimeWire.RunResult(
+            runId = "run-large-transcript",
+            ok = true,
+            content = "final-answer",
+            transcript = transcript,
+        )
+
+        AgentRuntimeTranscriptTransfer.prepare(
+            RuntimeEnvironment.getApplication(),
+            transcript,
+        ).use { prepared ->
+            val bundle = AgentRuntimeWire.toBundle(result, prepared.descriptor)
+            val parcel = Parcel.obtain()
+            try {
+                parcel.writeBundle(bundle)
+                assertTrue(parcel.dataSize() < 64_000)
+            } finally {
+                parcel.recycle()
+            }
+
+            assertNull(bundle.getString(AgentRuntimeWire.KEY_TRANSCRIPT_JSON))
+            val roundTripped = AgentRuntimeWire.runResultFromBundle(bundle)
+            assertEquals(result.runId, roundTripped.runId)
+            assertEquals(result.ok, roundTripped.ok)
+            assertEquals(result.content, roundTripped.content)
+            assertEquals(transcript.size, roundTripped.transcript.size)
+            assertEquals(transcript.first().content, roundTripped.transcript.first().content)
+            assertEquals(transcript.last().content, roundTripped.transcript.last().content)
+        }
+    }
+
 }

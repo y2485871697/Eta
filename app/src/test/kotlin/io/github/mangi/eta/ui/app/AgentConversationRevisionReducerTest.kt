@@ -6,6 +6,7 @@ import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityStatusUi
+import io.github.mangi.eta.ui.model.MessageEditUiState
 import io.github.mangi.eta.ui.model.UserMessageUi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -74,6 +75,26 @@ class AgentConversationRevisionReducerTest {
 
         assertEquals(listOf("user-1", "thinking-1", "tool-1", "assistant-1", "user-2"), visible.map { it.id })
         assertEquals(8, messages.size)
+    }
+
+
+    @Test
+    fun outboundHistoryUsesPrefixWhileEditing() {
+        val state = conversationState().copy(
+            messageEdit = MessageEditUiState(
+                targetMessageId = "user-2",
+                previousInput = "",
+                previousImages = emptyList(),
+                previousFileReferences = emptyList(),
+                hasLaterTurns = true,
+            ),
+        )
+
+        val editing = AgentConversationRevisionReducer.outboundHistory(state)
+        val idle = AgentConversationRevisionReducer.outboundHistory(state.copy(messageEdit = null))
+
+        assertEquals(listOf("user", "assistant", "tool", "assistant"), editing.map { it.role })
+        assertEquals(state.history, idle)
     }
 
     @Test

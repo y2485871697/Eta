@@ -70,9 +70,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.model.AgentContextBudget
+import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.ReasoningEffort
-import io.github.mangi.eta.ui.model.AgentContextUsageUi
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
+import io.github.mangi.eta.ui.model.liveContextUsage
+import io.github.mangi.eta.ui.model.shouldBlockSendForContextWindow
+import io.github.mangi.eta.ui.model.shouldShowLiveContextUsage
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
 import io.github.mangi.eta.ui.model.PendingImageUi
 import kotlin.math.roundToInt
@@ -102,7 +106,8 @@ private val InputContainerShape = RoundedCornerShape(20.dp)
 internal fun AgentChatInputBar(
     input: String,
     modelPickerState: AgentModelPickerUiState,
-    contextUsage: AgentContextUsageUi,
+    history: List<AgentModelClient.ConversationMessage>,
+    autoCompressEnabled: Boolean,
     showContextUsage: Boolean,
     isStreaming: Boolean,
     reasoningEffort: ReasoningEffort,
@@ -128,9 +133,33 @@ internal fun AgentChatInputBar(
     val focusRequester = remember { FocusRequester() }
     val textFieldState = rememberTextFieldState(initialText = input)
     var wasEditingMessage by remember { mutableStateOf(isEditingMessage) }
-    val canSend = textFieldState.text.isNotBlank() ||
-        pendingImages.isNotEmpty() ||
-        pendingFileReferences.isNotEmpty()
+    val draftText = textFieldState.text.toString()
+    val historyTokenCount = remember(history) {
+        history.sumOf { AgentContextBudget.countMessage(it) }
+    }
+    val liveUsage = remember(
+        historyTokenCount,
+        draftText,
+        pendingImages,
+        pendingFileReferences,
+        modelPickerState.selectedModel,
+    ) {
+        liveContextUsage(
+            // History tokens are cached above so typing does not rescan the transcript.
+            history = emptyList(),
+            currentInput = draftText,
+            pendingImages = pendingImages,
+            selectedModel = modelPickerState.selectedModel,
+            pendingFileReferences = pendingFileReferences,
+            historyTokenCount = historyTokenCount,
+        )
+    }
+    val contextSendBlocked = shouldBlockSendForContextWindow(autoCompressEnabled, liveUsage)
+    val canSend = !contextSendBlocked && (
+        textFieldState.text.isNotBlank() ||
+            pendingImages.isNotEmpty() ||
+            pendingFileReferences.isNotEmpty()
+        )
     val density = LocalDensity.current
     val statusBarTopPx = WindowInsets.statusBars.getTop(density)
     var inputContainerTopPx by remember { mutableIntStateOf(0) }
@@ -200,6 +229,19 @@ internal fun AgentChatInputBar(
                 },
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(start = 8.dp, bottom = 6.dp),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = contextSendBlocked,
+            enter = fadeIn(tween(160)),
+            exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
+        ) {
+            Text(
+                text = stringResource(R.string.context_window_send_blocked),
+                style = MiuixTheme.textStyles.body2,
+                color = StatusError,
                 modifier = Modifier.padding(start = 8.dp, bottom = 6.dp),
             )
         }
@@ -309,8 +351,11 @@ internal fun AgentChatInputBar(
 
                         Spacer(modifier = Modifier.weight(1f))
 
-                        if (showContextUsage) {
-                            AgentContextUsageButton(usage = contextUsage)
+                        if (shouldShowLiveContextUsage(showContextUsage, contextSendBlocked, liveUsage)) {
+                            AgentContextUsageButton(
+                                usage = liveUsage,
+                                sendBlocked = contextSendBlocked,
+                            )
 
                             Spacer(modifier = Modifier.width(2.dp))
                         }

@@ -50,6 +50,11 @@ internal object AgentConversationRevisionReducer {
         )
     }
 
+    fun outboundHistory(state: AgentChatUiState): List<AgentModelClient.ConversationMessage> {
+        val targetId = state.messageEdit?.targetMessageId ?: return state.history
+        return boundary(state, targetId)?.historyPrefix ?: state.history
+    }
+
     fun visibleMessagesForEdit(
         messages: List<AgentChatMessageUi>,
         targetMessageId: String?,

@@ -620,6 +620,44 @@ class AgentModelClientLoopTest {
         assertEquals(1, events.filterIsInstance<AgentEvent.ToolStarted>().size)
     }
 
+    @Test
+    fun skipHistoryTrimmingKeepsHistoryThatWouldBeDroppedByContextWindow() {
+        val oldHistory = listOf(
+            AgentModelClient.ConversationMessage(
+                role = "user",
+                content = "UNIQUE_OLD_HISTORY_MARKER_ETA",
+            ),
+            AgentModelClient.ConversationMessage(
+                role = "assistant",
+                content = "old reply",
+            ),
+        )
+        val tinyWindow = modelConfig().copy(contextWindow = 100)
+
+        val trimmedProvider = ScriptedProvider(assistant(content = "done", finishReason = "stop"))
+        AgentModelClient.complete(
+            config = tinyWindow,
+            prompt = "current question",
+            history = oldHistory,
+            toolExecutor = AgentModelClient.ToolExecutor { error("tools should not run") },
+            provider = trimmedProvider,
+        )
+        assertEquals(1, trimmedProvider.requests.size)
+        assertFalse(trimmedProvider.requests[0].toString().contains("UNIQUE_OLD_HISTORY_MARKER_ETA"))
+
+        val keptProvider = ScriptedProvider(assistant(content = "done", finishReason = "stop"))
+        AgentModelClient.complete(
+            config = tinyWindow,
+            prompt = "current question",
+            history = oldHistory,
+            toolExecutor = AgentModelClient.ToolExecutor { error("tools should not run") },
+            provider = keptProvider,
+            skipHistoryTrimming = true,
+        )
+        assertEquals(1, keptProvider.requests.size)
+        assertTrue(keptProvider.requests[0].toString().contains("UNIQUE_OLD_HISTORY_MARKER_ETA"))
+    }
+
     private class ScriptedProvider(
         private val responses: List<(ProviderRequest, AgentRunController) -> JSONObject>,
     ) : AgentProviderClient {

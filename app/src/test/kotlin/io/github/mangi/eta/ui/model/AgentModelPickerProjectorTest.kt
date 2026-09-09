@@ -1,10 +1,17 @@
 package io.github.mangi.eta.ui.model
 
+import io.github.mangi.eta.agent.model.AgentContextBudget
+import io.github.mangi.eta.agent.model.AgentFileReference
+import io.github.mangi.eta.agent.model.AgentFileReferenceKind
+import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
+import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ProviderSourceTypes
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentModelPickerProjectorTest {
@@ -120,7 +127,7 @@ class AgentModelPickerProjectorTest {
         assertEquals(1f, contextUsageProgress(120_000, 100_000) ?: -1f, 0f)
         assertEquals("1.05M", formatCompactTokenCount(1_050_000))
         assertEquals(
-            "No usage data from the previous response",
+            "No conversation context yet",
             formatContextUsage(AgentContextUsageUi(contextTokens = null, contextWindow = 100_000)),
         )
         assertEquals(
@@ -137,6 +144,187 @@ class AgentModelPickerProjectorTest {
                 usage = AgentContextUsageUi(contextTokens = 82_000, contextWindow = 100_000),
                 locale = java.util.Locale.GERMANY,
             ),
+        )
+    }
+
+
+    @Test
+    fun liveContextUsage_countsHistoryInputImagesAndFormattedFileReferences() {
+        val selected = AgentModelOptionUi(
+            id = "model",
+            providerId = "provider",
+            providerName = "Provider",
+            providerSourceType = ProviderSourceTypes.CUSTOM,
+            modelId = "model",
+            displayName = "Model",
+            contextWindow = 8_000,
+        )
+        val history = listOf(
+            AgentModelClient.ConversationMessage(role = "user", content = "hello world"),
+            AgentModelClient.ConversationMessage(role = "assistant", content = "hi there"),
+        )
+        val images = listOf(
+            PendingImageUi(
+                id = "img",
+                uri = "content://img",
+                dataUrl = "data:image/png;base64,AA",
+                mimeType = "image/png",
+            ),
+        )
+        val files = listOf(
+            PendingFileReferenceUi(
+                id = "file",
+                reference = AgentFileReference(
+                    displayName = "notes.txt",
+                    absolutePath = "/sdcard/notes.txt",
+                    kind = AgentFileReferenceKind.File,
+                ),
+            ),
+        )
+        val usage = liveContextUsage(
+            history = history,
+            currentInput = "please read this",
+            pendingImages = images,
+            selectedModel = selected,
+            pendingFileReferences = files,
+        )
+        val expectedPrompt = AgentFileReferencePromptCodec.format(
+            "please read this",
+            files.map { it.reference },
+        )
+        val expectedImages = images.map { it.toLiveModelImage() }
+        val expected = history.sumOf { AgentContextBudget.countMessage(it) } +
+            AgentContextBudget.countCurrentTurn(expectedPrompt, expectedImages)
+        assertEquals(expected, usage.contextTokens)
+        assertEquals(8_000, usage.contextWindow)
+        assertTrue(expectedPrompt.contains("/sdcard/notes.txt"))
+        assertTrue(expectedPrompt.contains("please read this"))
+        assertEquals(images.single().dataUrl.length, expectedImages.single().bytes)
+    }
+
+    @Test
+    fun liveContextUsage_emptyDraftDoesNotAddCurrentTurnOverhead() {
+        val selected = AgentModelOptionUi(
+            id = "model",
+            providerId = "provider",
+            providerName = "Provider",
+            providerSourceType = ProviderSourceTypes.CUSTOM,
+            modelId = "model",
+            displayName = "Model",
+            contextWindow = 8_000,
+        )
+        val history = listOf(
+            AgentModelClient.ConversationMessage(role = "user", content = "hello world"),
+        )
+        val usage = liveContextUsage(
+            history = history,
+            currentInput = "",
+            pendingImages = emptyList(),
+            selectedModel = selected,
+        )
+        assertEquals(history.sumOf { AgentContextBudget.countMessage(it) }, usage.contextTokens)
+    }
+
+    @Test
+    fun liveContextUsage_countsImagePayloadAndPrecomputedHistoryTokens() {
+        val selected = AgentModelOptionUi(
+            id = "model",
+            providerId = "provider",
+            providerName = "Provider",
+            providerSourceType = ProviderSourceTypes.CUSTOM,
+            modelId = "model",
+            displayName = "Model",
+            contextWindow = 32_000,
+        )
+        val history = listOf(
+            AgentModelClient.ConversationMessage(role = "user", content = "hello world"),
+        )
+        val image = PendingImageUi(
+            id = "img",
+            uri = "content://img",
+            dataUrl = "data:image/png;base64," + "A".repeat(4_096 * 90),
+            mimeType = "image/png",
+        )
+        val usage = liveContextUsage(
+            history = history,
+            currentInput = "look",
+            pendingImages = listOf(image),
+            selectedModel = selected,
+            historyTokenCount = 1_000,
+        )
+        val expected = 1_000 + AgentContextBudget.countCurrentTurn(
+            "look",
+            listOf(image.toLiveModelImage()),
+        )
+        assertEquals(expected, usage.contextTokens)
+        assertTrue(AgentContextBudget.countImageTokens(image.toLiveModelImage()) > 85)
+    }
+
+    @Test
+    fun isContextWindowExceeded_requiresConfiguredWindowAndNinetyNinePercent() {
+        assertFalse(isContextWindowExceeded(AgentContextUsageUi(contextTokens = 99, contextWindow = null)))
+        assertFalse(isContextWindowExceeded(AgentContextUsageUi(contextTokens = 98, contextWindow = 100)))
+        assertTrue(isContextWindowExceeded(AgentContextUsageUi(contextTokens = 99, contextWindow = 100)))
+        assertTrue(isContextWindowExceeded(AgentContextUsageUi(contextTokens = 120, contextWindow = 100)))
+        assertFalse(
+            shouldBlockSendForContextWindow(
+                autoCompressEnabled = true,
+                usage = AgentContextUsageUi(contextTokens = 99, contextWindow = 100),
+            )
+        )
+        assertTrue(
+            shouldBlockSendForContextWindow(
+                autoCompressEnabled = false,
+                usage = AgentContextUsageUi(contextTokens = 99, contextWindow = 100),
+            )
+        )
+        assertFalse(
+            shouldBlockSendForContextWindow(
+                autoCompressEnabled = false,
+                usage = AgentContextUsageUi(contextTokens = 98, contextWindow = 100),
+            )
+        )
+    }
+
+    @Test
+    fun shouldShowLiveContextUsage_showsRingForEmptyConversationDraft() {
+        val emptyDraft = AgentContextUsageUi(contextTokens = 0, contextWindow = 8_000)
+        val typing = AgentContextUsageUi(contextTokens = 12, contextWindow = 8_000)
+        val noWindow = AgentContextUsageUi(contextTokens = 12, contextWindow = null)
+        assertFalse(
+            shouldShowLiveContextUsage(
+                showContextUsage = false,
+                contextSendBlocked = false,
+                usage = emptyDraft,
+            )
+        )
+        assertTrue(
+            shouldShowLiveContextUsage(
+                showContextUsage = false,
+                contextSendBlocked = false,
+                usage = typing,
+            )
+        )
+        assertFalse(
+            shouldShowLiveContextUsage(
+                showContextUsage = false,
+                contextSendBlocked = false,
+                usage = noWindow,
+            )
+        )
+        assertTrue(
+            shouldShowLiveContextUsage(
+                showContextUsage = true,
+                contextSendBlocked = false,
+                usage = emptyDraft,
+            )
+        )
+        assertTrue(
+            shouldShowLiveContextUsage(
+                showContextUsage = false,
+                contextSendBlocked = true,
+                usage = AgentContextUsageUi(contextTokens = 99, contextWindow = 100),
+            )
         )
     }
 

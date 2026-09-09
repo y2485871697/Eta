@@ -52,6 +52,20 @@ class AgentContextBudgetTest {
     }
 
     @Test
+    fun countCurrentTurnIncludesMessageOverhead() {
+        val prompt = "hello"
+        val image = AgentModelClient.ModelImage(
+            reference = "data:image/png;base64,AA",
+            mimeType = "image/png",
+            bytes = 12_000,
+            source = "user_attach",
+        )
+        val expected = 3 + AgentContextBudget.countTokens(prompt) + AgentContextBudget.countImageTokens(image)
+        assertEquals(expected, AgentContextBudget.countCurrentTurn(prompt, listOf(image)))
+        assertEquals(0, AgentContextBudget.countTokens(""))
+    }
+
+    @Test
     fun historyBudgetRespectsContextWindow() {
         val budget = AgentContextBudget.historyBudget(
             contextWindow = 128_000,

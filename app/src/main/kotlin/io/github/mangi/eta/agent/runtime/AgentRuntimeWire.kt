@@ -22,7 +22,7 @@ import kotlinx.serialization.json.Json
  * 入口进程通过 bind + Messenger 与模块自身进程的 [AgentRuntimeService] 通信：
  * 发送一次运行请求，接收事件流和最终结果。
  *
- * 不引入 AIDL：结构化字段使用 [Bundle]，图片正文与会话历史均使用 [ParcelFileDescriptor]，避免占用 Binder 事务缓冲区。
+ * 不引入 AIDL：结构化字段使用 [Bundle]，图片正文、会话历史与结果 transcript 均使用 [ParcelFileDescriptor]，避免占用 Binder 事务缓冲区。
  */
 internal object AgentRuntimeWire {
     const val AGENT_UI_HANDOFF_SOURCE = "agent_ui"
@@ -122,7 +122,8 @@ internal object AgentRuntimeWire {
     internal const val KEY_REASONING_CONTENT = "reasoning_content"
     private const val KEY_ERROR = "error"
     private const val KEY_RESULT = "result"
-    private const val KEY_TRANSCRIPT_JSON = "transcript_json"
+    internal const val KEY_TRANSCRIPT_JSON = "transcript_json"
+    internal const val KEY_TRANSCRIPT_FD = "transcript_fd"
     private const val KEY_HANDOFF = "handoff"
     private const val KEY_HANDOFF_ID = "handoff_id"
     private const val KEY_HANDOFF_SOURCE = "handoff_source"
@@ -130,6 +131,7 @@ internal object AgentRuntimeWire {
     private const val KEY_HANDOFF_DISMISS_ENTRY_SURFACE_ON_FOREGROUND_OPERATION =
         "handoff_dismiss_entry_surface_on_foreground_operation"
     private const val LEGACY_BREENO_HANDOFF_SOURCE = "breeno"
+    private const val KEY_HISTORY_ALREADY_COMPACTED = "history_already_compacted"
     private const val KEY_CREATED_AT = "created_at"
     private const val KEY_RESULTS = "results"
     private const val MAX_RESULT_CONTENT_CHARS = 64_000
@@ -145,7 +147,8 @@ internal object AgentRuntimeWire {
         val config: AgentModelClient.ModelConfig,
         val images: List<AgentModelClient.ModelImage>,
         val history: List<AgentModelClient.ConversationMessage> = emptyList(),
-        val handoff: EntryHandoff? = null
+        val handoff: EntryHandoff? = null,
+        val historyAlreadyCompacted: Boolean = false,
     )
 
     /**
@@ -272,6 +275,7 @@ internal object AgentRuntimeWire {
         putString(KEY_EXTRA_BODY_JSON, request.config.extraBodyJson)
         putString(KEY_CUSTOM_HEADERS_JSON, json.encodeToString(request.config.customHeaders))
         putString(KEY_CUSTOM_BODY_JSON, json.encodeToString(request.config.customBody))
+        putBoolean(KEY_HISTORY_ALREADY_COMPACTED, request.historyAlreadyCompacted)
         request.handoff?.let { putBundle(KEY_HANDOFF, toBundle(it)) }
         putParcelable(KEY_HISTORY_FD, historyDescriptor)
         putParcelableArrayList(
@@ -393,7 +397,12 @@ internal object AgentRuntimeWire {
             ),
             history = AgentRuntimeHistoryTransfer.readFromBundle(bundle),
             images = images,
-            handoff = bundle.getBundle(KEY_HANDOFF)?.let(::entryHandoffFromBundle)
+            handoff = bundle.getBundle(KEY_HANDOFF)?.let(::entryHandoffFromBundle),
+            historyAlreadyCompacted = if (bundle.containsKey(KEY_HISTORY_ALREADY_COMPACTED)) {
+                bundle.getBoolean(KEY_HISTORY_ALREADY_COMPACTED)
+            } else {
+                false
+            }
         )
 
     fun toBundle(handoff: EntryHandoff): Bundle = Bundle().apply {
@@ -422,9 +431,18 @@ internal object AgentRuntimeWire {
         )
     }
 
-    fun toBundle(result: RunResult): Bundle = result.toBundle(compactForDrain = false)
+    fun toBundle(
+        result: RunResult,
+        transcriptDescriptor: ParcelFileDescriptor? = null,
+    ): Bundle = result.toBundle(
+        compactForDrain = false,
+        transcriptDescriptor = transcriptDescriptor,
+    )
 
-    private fun RunResult.toBundle(compactForDrain: Boolean): Bundle = Bundle().apply {
+    private fun RunResult.toBundle(
+        compactForDrain: Boolean,
+        transcriptDescriptor: ParcelFileDescriptor? = null,
+    ): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)
         putBoolean(KEY_OK, ok)
         putString(
@@ -440,14 +458,13 @@ internal object AgentRuntimeWire {
             ),
         )
         putString(KEY_ERROR, error?.boundedText(MAX_DRAIN_CONTENT_CHARS))
-        putString(
-            KEY_TRANSCRIPT_JSON,
-            if (compactForDrain) {
-                AgentConversationCodec.encodeTranscriptForDrain(transcript)
-            } else {
-                AgentConversationCodec.encodeTranscriptForIpc(transcript)
-            },
-        )
+        if (compactForDrain) {
+            putString(KEY_TRANSCRIPT_JSON, AgentConversationCodec.encodeTranscriptForDrain(transcript))
+        } else if (transcriptDescriptor != null) {
+            putParcelable(KEY_TRANSCRIPT_FD, transcriptDescriptor)
+        } else {
+            putString(KEY_TRANSCRIPT_JSON, AgentConversationCodec.encodeTranscriptForIpc(transcript))
+        }
     }
 
     fun runResultFromBundle(bundle: Bundle): RunResult =
@@ -457,7 +474,7 @@ internal object AgentRuntimeWire {
             content = bundle.getString(KEY_CONTENT).orEmpty(),
             error = bundle.getString(KEY_ERROR),
             reasoningContent = bundle.getString(KEY_REASONING_CONTENT).orEmpty(),
-            transcript = AgentConversationCodec.decodeTranscript(bundle.getString(KEY_TRANSCRIPT_JSON)),
+            transcript = AgentRuntimeTranscriptTransfer.readFromBundle(bundle),
         )
 
     fun toBundle(completedRun: CompletedRun): Bundle = completedRun.toBundle(compactForDrain = false)

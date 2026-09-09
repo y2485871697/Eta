@@ -2,6 +2,8 @@ package io.github.mangi.eta.ui.model
 
 import androidx.compose.runtime.Immutable
 import io.github.mangi.eta.agent.model.AgentContextBudget
+import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
+import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.provider.ProviderSourceRegistry
@@ -120,19 +122,67 @@ internal fun latestContextUsage(
     contextWindow = selectedModel?.contextWindow,
 )
 
-internal fun realtimeContextUsage(
-    messages: List<AgentChatMessageUi>,
+/**
+ * Counts the real outbound context: history + the current turn that would be sent.
+ * Current-turn images use the same payload size as [PendingImageUi.dataUrl], matching
+ * the history image conversion used when a message is actually submitted.
+ */
+internal fun liveContextUsage(
+    history: List<AgentModelClient.ConversationMessage>,
+    currentInput: String,
+    pendingImages: List<PendingImageUi>,
     selectedModel: AgentModelOptionUi?,
-): AgentContextUsageUi = AgentContextUsageUi(
-    contextTokens = messages.sumOf { message ->
-        when (message) {
-            is UserMessageUi -> AgentContextBudget.countTokens(message.content)
-            is AgentMessageUi -> message.usage?.contextTokens ?: AgentContextBudget.countTokens(message.content)
-            else -> 0
-        }
-    },
-    contextWindow = selectedModel?.contextWindow,
-)
+    pendingFileReferences: List<PendingFileReferenceUi> = emptyList(),
+    historyTokenCount: Int? = null,
+): AgentContextUsageUi {
+    val prompt = AgentFileReferencePromptCodec.format(
+        currentInput,
+        pendingFileReferences.map { it.reference },
+    )
+    val images = pendingImages.map { it.toLiveModelImage() }
+    val historyTokens = historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }
+    val currentTurnTokens = if (prompt.isEmpty() && images.isEmpty()) {
+        0
+    } else {
+        AgentContextBudget.countCurrentTurn(prompt, images)
+    }
+    return AgentContextUsageUi(
+        contextTokens = historyTokens + currentTurnTokens,
+        contextWindow = selectedModel?.contextWindow,
+    )
+}
+
+internal fun PendingImageUi.toLiveModelImage(): AgentModelClient.ModelImage =
+    AgentModelClient.ModelImage(
+        reference = dataUrl,
+        mimeType = mimeType,
+        bytes = dataUrl.length,
+        source = uri,
+    )
+
+internal fun isContextWindowExceeded(
+    usage: AgentContextUsageUi,
+    thresholdPercent: Float = 0.99f,
+): Boolean {
+    val tokens = usage.contextTokens ?: return false
+    val window = usage.contextWindow ?: return false
+    return window > 0 && tokens.toFloat() / window.toFloat() >= thresholdPercent
+}
+
+internal fun shouldBlockSendForContextWindow(
+    autoCompressEnabled: Boolean,
+    usage: AgentContextUsageUi,
+): Boolean = !autoCompressEnabled && isContextWindowExceeded(usage)
+
+internal fun shouldShowLiveContextUsage(
+    showContextUsage: Boolean,
+    contextSendBlocked: Boolean,
+    usage: AgentContextUsageUi,
+): Boolean {
+    if (showContextUsage || contextSendBlocked) return true
+    val tokens = usage.contextTokens ?: 0
+    return usage.contextWindow != null && tokens > 0
+}
 
 internal fun contextUsageProgress(contextTokens: Int?, contextWindow: Int?): Float? {
     if (contextTokens == null || contextTokens < 0 || contextWindow == null || contextWindow <= 0) {
@@ -143,7 +193,7 @@ internal fun contextUsageProgress(contextTokens: Int?, contextWindow: Int?): Flo
 
 internal fun formatContextUsage(
     usage: AgentContextUsageUi,
-    noUsageText: String = "No usage data from the previous response",
+    noUsageText: String = "No conversation context yet",
     noLimitText: String = "The current model does not provide a context limit",
     locale: Locale = Locale.getDefault(),
 ): String = when {

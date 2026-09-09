@@ -8,10 +8,12 @@ import org.json.JSONTokener
 
 /** Provider JSON 与 Eta 稳定会话 DTO 之间的唯一转换和容量边界。 */
 internal object AgentConversationCodec {
-    internal const val MAX_IPC_TRANSCRIPT_CHARS = 96_000
     internal const val MAX_DRAIN_TRANSCRIPT_CHARS = 16_000
     internal const val MAX_STORAGE_TRANSCRIPT_CHARS = 1_000_000
-    internal const val MAX_CONVERSATION_CHECKPOINT_CHARS = 96_000
+    // 结果 transcript 走文件描述符，与归档/检查点对齐，不再受 Binder 事务大小限制。
+    internal const val MAX_IPC_TRANSCRIPT_CHARS = MAX_STORAGE_TRANSCRIPT_CHARS
+    // Room 检查点与运行归档同级，避免会话在远低于模型窗口时被截断。
+    internal const val MAX_CONVERSATION_CHECKPOINT_CHARS = MAX_STORAGE_TRANSCRIPT_CHARS
 
     private const val MAX_CONTENT_CHARS = 64_000
     private const val MAX_REASONING_CHARS = 64_000

@@ -248,6 +248,7 @@ fun AgentAppRoot(
                     AgentHomeScreen(
                         state = agentState.homeState,
                         modelPickerState = agentState.modelPickerState,
+                        autoCompressEnabled = agentState.autoCompressEnabled,
                         conversationKey = agentState.conversationPaneState.selectedConversationId,
                         onAction = { action ->
                             when (action) {
@@ -296,6 +297,7 @@ fun AgentAppRoot(
                     AgentChatScreen(
                         state = agentState.homeState,
                         modelPickerState = agentState.modelPickerState,
+                        autoCompressEnabled = agentState.autoCompressEnabled,
                         conversationKey = agentState.conversationPaneState.selectedConversationId,
                         onAction = { action ->
                             when (action) {

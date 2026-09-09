@@ -26,7 +26,6 @@ import io.github.mangi.eta.agent.model.AgentFileReference
 import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.agent.model.AgentFileReferencePolicy
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
-import io.github.mangi.eta.agent.model.AgentContextBudget
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.runtime.AgentEvent
@@ -56,6 +55,9 @@ import io.github.mangi.eta.ui.model.AgentMemoryUiState
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
+import io.github.mangi.eta.ui.model.liveContextUsage
+import io.github.mangi.eta.ui.model.toLiveModelImage
+import io.github.mangi.eta.ui.model.shouldBlockSendForContextWindow
 import io.github.mangi.eta.ui.model.AgentSkillsUiState
 import io.github.mangi.eta.ui.model.AgentToolsUiState
 import io.github.mangi.eta.ui.model.ConversationModeUi
@@ -867,8 +869,6 @@ internal class AgentAppState(
             ).show()
             return
         }
-        val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences)
-
         val edit = homeState.messageEdit
         if (edit == null && selectedConversationId?.isReadOnlyExternalArchiveConversation() == true) {
             moveCurrentDraftToNewConversation()
@@ -882,6 +882,12 @@ internal class AgentAppState(
             return
         }
 
+        val history = editBoundary?.historyPrefix ?: homeState.history
+        if (rejectSendIfContextWindowExceeded(history, prompt, pendingImages, pendingFileReferences)) {
+            return
+        }
+        val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences)
+
         val conversationId = selectedConversationId ?: newConversationId().also {
             selectedConversationId = it
         }
@@ -892,7 +898,6 @@ internal class AgentAppState(
             images = pendingImages.map { it.dataUrl },
             isEdited = editBoundary != null,
         )
-        val history = editBoundary?.historyPrefix ?: homeState.history
         val messages = if (editBoundary == null) {
             homeState.messages + userMessage
         } else {
@@ -1029,6 +1034,9 @@ internal class AgentAppState(
             text = boundary.userMessage.content,
             images = images.toHistoryImages(),
         )
+        if (rejectSendIfContextWindowExceeded(boundary.historyPrefix, boundary.userMessage.content, images)) {
+            return
+        }
         if (boundary.contextWasCompacted) showCompactedRevisionNotice()
         launchConversationRun(
             conversationId = conversationId,
@@ -1043,6 +1051,30 @@ internal class AgentAppState(
         )
     }
 
+
+    private fun rejectSendIfContextWindowExceeded(
+        history: List<AgentModelClient.ConversationMessage>,
+        prompt: String,
+        images: List<PendingImageUi>,
+        fileReferences: List<PendingFileReferenceUi> = emptyList(),
+    ): Boolean {
+        val usage = liveContextUsage(
+            history = history,
+            currentInput = prompt,
+            pendingImages = images,
+            selectedModel = modelPickerState.selectedModel,
+            pendingFileReferences = fileReferences,
+        )
+        if (!shouldBlockSendForContextWindow(autoCompressEnabled, usage)) {
+            return false
+        }
+        Toast.makeText(
+            appContext,
+            appContext.getString(R.string.context_window_send_blocked),
+            Toast.LENGTH_LONG,
+        ).show()
+        return true
+    }
 
     /**
      * 判断是否应自动压缩对话历史。
@@ -1173,8 +1205,12 @@ internal class AgentAppState(
             val historyToSend = if (shouldAutoCompress(history, config.contextWindow ?: 128_000)) {
                 val compressed = tryCompressHistory(history, compressModelConfig)
                 withContext(Dispatchers.Main) {
-                    updateConversation(conversationId, state.copy(history = compressed + userHistoryMessage))
-                    showCompactedRevisionNotice()
+                    applyCompressedHistoryToConversation(
+                        conversationId = conversationId,
+                        originalHistory = history,
+                        compressedHistory = compressed,
+                        userHistoryMessage = userHistoryMessage,
+                    )
                 }
                 compressed
             } else {
@@ -1188,6 +1224,8 @@ internal class AgentAppState(
                         config = config,
                         images = modelImages,
                         history = historyToSend,
+                        // UI owns context via auto-compress / 99% send block; Runtime must not trimHistory.
+                        historyAlreadyCompacted = true,
                         handoff = AgentRuntimeWire.EntryHandoff(
                             id = runId,
                             source = AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE,
@@ -1225,14 +1263,7 @@ internal class AgentAppState(
     }
 
     private fun List<PendingImageUi>.toHistoryImages(): List<AgentModelClient.ModelImage> =
-        map { image ->
-            AgentModelClient.ModelImage(
-                reference = image.dataUrl,
-                mimeType = image.mimeType,
-                bytes = image.dataUrl.length,
-                source = image.uri,
-            )
-        }
+        map { it.toLiveModelImage() }
 
     private fun String.imageMimeType(): String =
         takeIf { startsWith("data:") }
@@ -1254,6 +1285,26 @@ internal class AgentAppState(
     private fun String.defaultConversationTitleFromMessage(): String {
         val parsed = AgentFileReferencePromptCodec.parse(this)
         return defaultConversationTitle(parsed.request, parsed.references)
+    }
+
+    /**
+     * 压缩成功后只补丁当前会话 history，避免用发送前快照覆盖 isStreaming / messages。
+     * 失败或原样返回时不提示、不落盘。
+     */
+    private fun applyCompressedHistoryToConversation(
+        conversationId: String,
+        originalHistory: List<AgentModelClient.ConversationMessage>,
+        compressedHistory: List<AgentModelClient.ConversationMessage>,
+        userHistoryMessage: AgentModelClient.ConversationMessage,
+    ) {
+        if (compressedHistory == originalHistory) return
+        val current = conversationsById[conversationId] ?: return
+        updateConversation(
+            conversationId,
+            current.copy(history = compressedHistory + userHistoryMessage),
+        )
+        showCompactedRevisionNotice()
+        persistConversations()
     }
 
     private fun showCompactedRevisionNotice() {

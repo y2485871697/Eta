@@ -58,18 +58,18 @@ class AgentConversationCodecTest {
     @Test
     fun ipcTranscriptHasHardBudgetAndNeverStartsWithOrphanToolResult() {
         val messages = buildList {
-            repeat(20) { index ->
+            repeat(30) { index ->
                 add(
                     AgentModelClient.ConversationMessage(
                         role = "assistant",
-                        content = "回答-$index-${"x".repeat(20_000)}",
+                        content = "回答-$index-${"x".repeat(40_000)}",
                     )
                 )
                 add(
                     AgentModelClient.ConversationMessage(
                         role = "tool",
                         toolCallId = "call-$index",
-                        content = "结果-${"y".repeat(20_000)}",
+                        content = "结果-${"y".repeat(40_000)}",
                     )
                 )
             }
@@ -89,11 +89,11 @@ class AgentConversationCodecTest {
     @Test
     fun conversationCheckpointHasHardBudgetAndKeepsNewestContext() {
         val messages = buildList {
-            repeat(20) { index ->
+            repeat(30) { index ->
                 add(
                     AgentModelClient.ConversationMessage(
                         role = "assistant",
-                        content = "回答-$index-${"x".repeat(20_000)}",
+                        content = "回答-$index-${"x".repeat(50_000)}",
                     )
                 )
             }

@@ -47,6 +47,7 @@ import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.ModuleConfig
 import io.github.mangi.eta.core.safeLogType
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
 import kotlinx.coroutines.runBlocking
 import top.yukonga.miuix.kmp.squircle.LocalSquircleEnabled
@@ -101,6 +102,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     @Volatile
     private var lastCompletedRunContext: CompletedRunContext? = null
     private val hideToken = Any()
+    private val pendingResultTranscripts =
+        ConcurrentHashMap<String, AgentRuntimeTranscriptTransfer.PreparedTranscript>()
 
     override fun onCreate() {
         super.onCreate()
@@ -163,6 +166,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         orbParams = null
         glowParams = null
         windowManager = null
+        pendingResultTranscripts.values.forEach { prepared -> runCatching { prepared.close() } }
+        pendingResultTranscripts.clear()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         super.onDestroy()
     }
@@ -206,10 +211,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 }
 
                 AgentRuntimeWire.MSG_ACK_RESULT -> {
-                    AgentRuntimeResultStore.remove(
-                        this@AgentRuntimeService,
-                        AgentRuntimeWire.runIdFromBundle(msg.data ?: return)
-                    )
+                    val runId = AgentRuntimeWire.runIdFromBundle(msg.data ?: return)
+                    AgentRuntimeResultStore.remove(this@AgentRuntimeService, runId)
+                    releaseResultTranscript(runId)
                 }
 
                 AgentRuntimeWire.MSG_DRAIN_RESULTS -> {
@@ -504,15 +508,33 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         target: Messenger?,
         result: AgentRuntimeWire.RunResult,
     ) {
+        if (target == null) return
+        val prepared = runCatching {
+            AgentRuntimeTranscriptTransfer.prepare(this, result.transcript)
+        }.onFailure { throwable ->
+            AndroidAgentLogger.warnThrottled("runtime_result_transcript_prepare_failed") {
+                "Agent runtime result transcript prepare failed: type=${throwable.safeLogType()}"
+            }
+        }.getOrNull()
         runCatching {
             val msg = Message.obtain(null, AgentRuntimeWire.MSG_RESULT)
-            msg.data = AgentRuntimeWire.toBundle(result)
-            target?.send(msg)
+            msg.data = AgentRuntimeWire.toBundle(result, prepared?.descriptor)
+            target.send(msg)
+            if (prepared != null) {
+                val key = result.runId.ifBlank { "anonymous-${System.nanoTime()}" }
+                pendingResultTranscripts.put(key, prepared)?.close()
+            }
         }.onFailure { throwable ->
+            prepared?.close()
             AndroidAgentLogger.warnThrottled("runtime_result_delivery_failed") {
                 "Agent runtime result delivery failed: type=${throwable.safeLogType()}"
             }
         }
+    }
+
+    private fun releaseResultTranscript(runId: String) {
+        if (runId.isBlank()) return
+        pendingResultTranscripts.remove(runId)?.close()
     }
 
     private fun sendRequestIngestedTo(

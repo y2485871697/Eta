@@ -74,11 +74,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.browser.AgentBrowserSession
+import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
 import io.github.mangi.eta.ui.app.LocalBlurEnabled
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
-import io.github.mangi.eta.ui.model.AgentContextUsageUi
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.MessageEditUiState
@@ -88,8 +88,6 @@ import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
-import io.github.mangi.eta.ui.model.latestContextUsage
-import io.github.mangi.eta.ui.model.realtimeContextUsage
 import kotlin.math.exp
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
@@ -124,7 +122,9 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 @OptIn(ExperimentalLayoutApi::class)
 internal fun AgentChatBody(
     messages: List<AgentChatMessageUi>,
+    history: List<AgentModelClient.ConversationMessage>,
     modelPickerState: AgentModelPickerUiState,
+    autoCompressEnabled: Boolean = false,
     input: String,
     isStreaming: Boolean,
     reasoningEffort: ReasoningEffort,
@@ -158,10 +158,6 @@ internal fun AgentChatBody(
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     val isKeyboardVisible = imeBottomPx > 0
     val browserSnapshot by AgentBrowserSession.snapshots.collectAsState()
-    val contextUsage = remember(messages, modelPickerState.selectedModel) {
-        realtimeContextUsage(messages, modelPickerState.selectedModel)
-    }
-
     val visibleMessages = remember(messages, messageEdit?.targetMessageId) {
         AgentConversationRevisionReducer.visibleMessagesForEdit(
             messages = messages,
@@ -211,7 +207,8 @@ internal fun AgentChatBody(
         scrollState = scrollState,
         input = input,
         modelPickerState = modelPickerState,
-        contextUsage = contextUsage,
+        history = history,
+        autoCompressEnabled = autoCompressEnabled,
         isStreaming = isStreaming,
         reasoningEffort = reasoningEffort,
         availableReasoningEfforts = availableReasoningEfforts,
@@ -257,7 +254,8 @@ private fun AgentChatScaffold(
     scrollState: LazyListState,
     input: String,
     modelPickerState: AgentModelPickerUiState,
-    contextUsage: AgentContextUsageUi,
+    history: List<AgentModelClient.ConversationMessage>,
+    autoCompressEnabled: Boolean,
     isStreaming: Boolean,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
@@ -309,7 +307,8 @@ private fun AgentChatScaffold(
                 messageBackdrop = messageBackdrop.takeIf { frostEnabled },
                 input = input,
                 modelPickerState = modelPickerState,
-                contextUsage = contextUsage,
+                history = history,
+                autoCompressEnabled = autoCompressEnabled,
                 showContextUsage = hasMessages,
                 isStreaming = isStreaming,
                 reasoningEffort = reasoningEffort,
@@ -807,7 +806,8 @@ private fun AgentChatBottomBar(
     messageBackdrop: LayerBackdrop?,
     input: String,
     modelPickerState: AgentModelPickerUiState,
-    contextUsage: AgentContextUsageUi,
+    history: List<AgentModelClient.ConversationMessage>,
+    autoCompressEnabled: Boolean,
     showContextUsage: Boolean,
     isStreaming: Boolean,
     reasoningEffort: ReasoningEffort,
@@ -888,7 +888,8 @@ private fun AgentChatBottomBar(
             AgentChatInputBar(
                 input = input,
                 modelPickerState = modelPickerState,
-                contextUsage = contextUsage,
+                history = history,
+                autoCompressEnabled = autoCompressEnabled,
                 showContextUsage = showContextUsage,
                 isStreaming = isStreaming,
                 reasoningEffort = reasoningEffort,
