@@ -9,8 +9,12 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: android-build-debug-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-debug:
+  build-debug-signed-release:
     name: 构建 Debug 签名 Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -42,10 +46,9 @@ jobs:
       - name: 构建 Release APK（使用 Debug 签名）
         env:
           ETA_DISABLE_RELEASE_SIGNING: "true"
-        run: |
-          ./gradlew --no-daemon --no-configuration-cache \
-            -x :eta-accessibility-provider:preBuild \
-            :app:assembleRelease
+        run: >-
+          ./gradlew --no-daemon --no-configuration-cache
+          :app:assembleRelease
 
       - name: 上传 Release APK
         uses: actions/upload-artifact@v4

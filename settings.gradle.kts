@@ -23,4 +23,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Eta"
-include(":app", ":eta-accessibility-provider")
+include(":app")

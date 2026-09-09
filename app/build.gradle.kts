@@ -99,7 +99,6 @@ android {
 }
 
 dependencies {
-    implementation(project(":eta-accessibility-provider"))
     implementation(libs.commons.compress)
     implementation(libs.xz)
     compileOnly(libs.libxposed.api)
