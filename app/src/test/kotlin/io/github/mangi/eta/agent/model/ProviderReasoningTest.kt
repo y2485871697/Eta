@@ -79,6 +79,20 @@ class ProviderReasoningTest {
     }
 
     @Test
+    fun openAiGpt56AcceptsMaxEffort() {
+        val request = JSONObject()
+        ProviderReasoning.applyOpenAiCompatibleRequest(
+            request,
+            config(
+                source = ProviderSourceTypes.OPENAI,
+                effort = ReasoningEffort.MAX,
+                model = "gpt-5.6-sol",
+            ),
+        )
+        assertEquals("max", request.getString("reasoning_effort"))
+    }
+
+    @Test
     fun openAiOffUsesDocumentedNoneValue() {
         val request = JSONObject()
 

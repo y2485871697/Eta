@@ -112,6 +112,13 @@ fun AgentAppTheme(
                 errorContainer = miuixColors.errorContainer,
                 onErrorContainer = miuixColors.onErrorContainer,
                 outline = miuixColors.outline,
+                outlineVariant = miuixColors.outline,
+                surfaceTint = miuixColors.primary,
+                surfaceContainer = miuixColors.surfaceContainer,
+                surfaceContainerHigh = miuixColors.surfaceContainerHigh,
+                surfaceContainerHighest = miuixColors.surfaceContainerHigh,
+                surfaceContainerLow = miuixColors.surface,
+                surfaceContainerLowest = miuixColors.surface,
             )
         } else {
             lightColorScheme(
@@ -134,6 +141,13 @@ fun AgentAppTheme(
                 errorContainer = miuixColors.errorContainer,
                 onErrorContainer = miuixColors.onErrorContainer,
                 outline = miuixColors.outline,
+                outlineVariant = miuixColors.outline,
+                surfaceTint = miuixColors.primary,
+                surfaceContainer = miuixColors.surfaceContainer,
+                surfaceContainerHigh = miuixColors.surfaceContainerHigh,
+                surfaceContainerHighest = miuixColors.surfaceContainerHigh,
+                surfaceContainerLow = miuixColors.surface,
+                surfaceContainerLowest = miuixColors.surface,
             )
         }
 

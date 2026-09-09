@@ -172,7 +172,7 @@ internal object AgentConversationStore {
     }
 
     private val ConversationMetadata.reasoningEffortValue: ReasoningEffort
-        get() = ReasoningEffort.fromWireValue(reasoningEffort) ?: ReasoningEffort.DEFAULT
+        get() = ReasoningEffort.fromWireValue(reasoningEffort) ?: ReasoningEffort.OFF
 
     private fun AgentChatMessageUi.toEntityOrNull(
         conversationId: String,

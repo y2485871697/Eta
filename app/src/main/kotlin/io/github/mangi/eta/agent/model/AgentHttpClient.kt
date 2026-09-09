@@ -31,3 +31,17 @@ internal object AgentHttpClient {
             .build()
     }
 }
+
+/**
+ * 流式响应读完后，对端可能已经重置连接。关闭 Response / Reader 时的 IO 异常
+ * 不能再当成请求失败，否则会把已经完整展示的回答重试成新一轮生成。
+ */
+internal inline fun <T : AutoCloseable, R> T.useIgnoringCloseErrors(
+    block: (T) -> R,
+): R {
+    try {
+        return block(this)
+    } finally {
+        runCatching { close() }
+    }
+}

@@ -3,6 +3,7 @@ package io.github.mangi.eta.agent.model
 import io.github.mangi.eta.data.model.ProviderSourceTypes
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.provider.ProviderSourceRegistry
+import io.github.mangi.eta.data.provider.ReasoningCapabilityResolver
 import kotlin.math.max
 import org.json.JSONObject
 
@@ -30,11 +31,11 @@ internal object ProviderReasoning {
             ProviderSourceTypes.SILICONFLOW -> applySiliconFlow(request, config, effort)
             ProviderSourceTypes.DEEPSEEK -> applyDeepSeek(request, effort)
             ProviderSourceTypes.MOONSHOT -> applyMoonshot(request, config, effort)
-            ProviderSourceTypes.MIMO -> applyToggleOnlyProvider(request, "MiMo", effort)
+            ProviderSourceTypes.MIMO -> applyMimo(request, effort)
             ProviderSourceTypes.MINIMAX -> unsupportedEffort("MiniMax", effort)
             ProviderSourceTypes.OPENROUTER -> applyOpenRouter(request, effort)
             ProviderSourceTypes.STEPFUN -> applyStepFun(request, effort)
-            ProviderSourceTypes.OPENAI -> applyOpenAi(request, effort)
+            ProviderSourceTypes.OPENAI -> applyOpenAi(request, config.model, effort)
             ProviderSourceTypes.CUSTOM -> applyNamedReasoningEffort(request, effort)
         }
     }
@@ -45,7 +46,11 @@ internal object ProviderReasoning {
     ) {
         if (config.reasoningCapabilities == null) return
         val effort = validatedEffort(config)
-        if (sourceType(config) == ProviderSourceTypes.OPENAI && effort == ReasoningEffort.MAX) {
+        if (
+            sourceType(config) == ProviderSourceTypes.OPENAI &&
+            effort == ReasoningEffort.MAX &&
+            !supportsOpenAiMax(config.model)
+        ) {
             unsupportedEffort("OpenAI", effort)
         }
         request.put(
@@ -70,7 +75,7 @@ internal object ProviderReasoning {
         val model = config.model.trim().lowercase()
         if (
             (sourceType == ProviderSourceTypes.MOONSHOT || sourceType == ProviderSourceTypes.BAILIAN) &&
-            model.startsWith("kimi-k2.6")
+            ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-6")
         ) {
             request.put(
                 "thinking",
@@ -119,16 +124,16 @@ internal object ProviderReasoning {
     ) {
         val model = config.model.trim().lowercase()
         when {
-            model.startsWith("qwen3.7-") -> applyQwenBudget(request, config, effort)
-            model.startsWith("qwen3.8-") -> applyNamedReasoningEffort(request, effort)
-            "deepseek" in model || model.startsWith("kimi-k3") ->
+            ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "qwen3-7") -> applyQwenBudget(request, config, effort)
+            ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "qwen3-8") -> applyNamedReasoningEffort(request, effort)
+            "deepseek" in model || ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k3") ->
                 applyNamedReasoningEffort(request, effort)
-            model.startsWith("kimi-k2.6") || model.startsWith("kimi-k2.5") ->
+            ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-6") || ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-5") ->
                 applyToggleOnlyProvider(
                     request = request,
                     providerName = "百炼 Kimi",
                     effort = effort,
-                    keepAll = model.startsWith("kimi-k2.6"),
+                    keepAll = ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-6"),
                 )
             else -> applyNamedReasoningEffort(request, effort)
         }
@@ -220,19 +225,19 @@ internal object ProviderReasoning {
     ) {
         val model = config.model.trim().lowercase()
         when {
-            model.startsWith("kimi-k3") -> {
+            ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k3") -> {
                 require(effort in setOf(ReasoningEffort.LOW, ReasoningEffort.HIGH, ReasoningEffort.MAX)) {
                     "Kimi K3 不支持 ${effort.displayName} thinking effort"
                 }
                 applyNamedReasoningEffort(request, effort)
             }
-            model.startsWith("kimi-k2.7-code") -> unsupportedEffort("Kimi K2.7 Code", effort)
-            model.startsWith("kimi-k2.6") || model.startsWith("kimi-k2.5") ->
+            ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-7-code") -> unsupportedEffort("Kimi K2.7 Code", effort)
+            ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-6") || ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-5") ->
                 applyToggleOnlyProvider(
                     request = request,
                     providerName = "Kimi",
                     effort = effort,
-                    keepAll = model.startsWith("kimi-k2.6"),
+                    keepAll = ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-6"),
                 )
             else -> applyNamedReasoningEffort(request, effort)
         }
@@ -272,10 +277,30 @@ internal object ProviderReasoning {
         request.put("reasoning", reasoning)
     }
 
-    private fun applyOpenAi(request: JSONObject, effort: ReasoningEffort) {
-        if (effort == ReasoningEffort.MAX) unsupportedEffort("OpenAI", effort)
+    private fun applyMimo(request: JSONObject, effort: ReasoningEffort) {
+        applyThinkingToggle(request, effort)
+        if (effort == ReasoningEffort.OFF || effort == ReasoningEffort.DEFAULT) {
+            request.remove("reasoning_effort")
+            return
+        }
+        val clamped = when (effort) {
+            ReasoningEffort.MINIMAL, ReasoningEffort.LOW -> ReasoningEffort.LOW
+            ReasoningEffort.MEDIUM -> ReasoningEffort.MEDIUM
+            ReasoningEffort.HIGH, ReasoningEffort.XHIGH, ReasoningEffort.MAX -> ReasoningEffort.HIGH
+            ReasoningEffort.OFF, ReasoningEffort.DEFAULT -> return
+        }
+        request.put("reasoning_effort", clamped.wireValue)
+    }
+
+    private fun applyOpenAi(request: JSONObject, modelId: String, effort: ReasoningEffort) {
+        if (effort == ReasoningEffort.MAX && !supportsOpenAiMax(modelId)) {
+            unsupportedEffort("OpenAI", effort)
+        }
         applyNamedReasoningEffort(request, effort)
     }
+
+    private fun supportsOpenAiMax(modelId: String): Boolean =
+        ReasoningCapabilityResolver.modelIdMatchesPrefix(modelId, "gpt-5-6")
 
     private fun applyNamedReasoningEffort(request: JSONObject, effort: ReasoningEffort) {
         request.put("reasoning_effort", if (effort == ReasoningEffort.OFF) "none" else effort.wireValue)
@@ -287,13 +312,11 @@ internal object ProviderReasoning {
     private fun validatedEffort(config: AgentModelClient.ModelConfig): ReasoningEffort {
         val effort = config.effectiveReasoningEffort
         val capabilities = config.reasoningCapabilities ?: return effort
-        require(effort in capabilities.selectableEfforts) {
-            "当前模型不支持 ${effort.displayName} thinking effort"
-        }
-        require(!capabilities.mandatory || effort != ReasoningEffort.OFF) {
+        val normalized = capabilities.normalize(effort)
+        require(!capabilities.mandatory || normalized != ReasoningEffort.OFF) {
             "当前模型强制启用推理，不能选择 Off"
         }
-        return effort
+        return normalized
     }
 
     private fun sourceType(config: AgentModelClient.ModelConfig): String =
@@ -307,17 +330,26 @@ internal object ProviderReasoning {
     private fun isLegacyReasoningModel(sourceType: String, modelId: String): Boolean {
         val model = modelId.trim().lowercase()
         return when (sourceType) {
-            ProviderSourceTypes.OPENAI -> model.startsWith("gpt-5") || model.startsWith("o")
-            ProviderSourceTypes.ANTHROPIC -> model.startsWith("claude-")
+            ProviderSourceTypes.OPENAI ->
+                ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "gpt-5") ||
+                    ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "o1") ||
+                    ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "o3") ||
+                    ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "o4")
+            ProviderSourceTypes.ANTHROPIC ->
+                ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "claude-")
             ProviderSourceTypes.BAILIAN ->
-                model.startsWith("qwen3.7-") ||
-                    model.startsWith("qwen3.8-") ||
-                    model.startsWith("kimi-") ||
-                    "deepseek" in model
+                ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "qwen3-7") ||
+                    ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "qwen3-8") ||
+                    ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-") ||
+                    ReasoningCapabilityResolver.modelIdContains(model, "deepseek")
             ProviderSourceTypes.DEEPSEEK -> true
-            ProviderSourceTypes.MOONSHOT -> model.startsWith("kimi-")
-            ProviderSourceTypes.MIMO -> model.startsWith("mimo-v2.5")
-            ProviderSourceTypes.STEPFUN -> model.startsWith("step-3.5-flash-2603")
+            ProviderSourceTypes.MOONSHOT ->
+                ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-")
+            ProviderSourceTypes.MIMO ->
+                ReasoningCapabilityResolver.modelIdContains(model, "mimo") ||
+                    ReasoningCapabilityResolver.modelIdContains(model, "agnes")
+            ProviderSourceTypes.STEPFUN ->
+                ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "step-")
             ProviderSourceTypes.OPENROUTER -> true
             ProviderSourceTypes.MINIMAX,
             ProviderSourceTypes.SILICONFLOW,

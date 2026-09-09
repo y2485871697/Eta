@@ -26,6 +26,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -49,7 +51,6 @@ import io.github.mangi.eta.agent.model.AgentFileReference
 import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -98,15 +99,18 @@ internal fun AgentAttachmentPickerButton(
         if (uri != null) onAttachFolder(uri.toString())
     }
 
+    val keepIme = rememberKeepImeWhenOpeningMenu()
     Box(modifier = modifier) {
-        IconButton(
-            onClick = { showPopup = true },
-            minWidth = ChatInputActionSize,
-            minHeight = ChatInputActionSize,
+        ChatInputNonFocusableIconButton(
+            onClick = {
+                keepIme()
+                showPopup = true
+            },
+            contentDescription = stringResource(R.string.ui_add_attachment_dba9e8),
         ) {
             Icon(
                 imageVector = Icons.Rounded.Add,
-                contentDescription = stringResource(R.string.ui_add_attachment_dba9e8),
+                contentDescription = null,
                 modifier = Modifier.size(ChatInputActionIconSize),
                 tint = MiuixTheme.colorScheme.onSurface,
             )
@@ -114,18 +118,28 @@ internal fun AgentAttachmentPickerButton(
         EtaDropdownMenu(
             expanded = showPopup,
             onDismissRequest = { showPopup = false },
+            preferAbove = true,
+            minWidth = 0.dp,
+            focusable = false,
         ) {
             val options = listOf(
-                stringResource(R.string.attachment_image),
-                stringResource(R.string.attachment_file),
-                stringResource(R.string.attachment_folder),
-                stringResource(R.string.attachment_enter_path),
+                Triple(stringResource(R.string.attachment_image), Icons.Outlined.Image, 0),
+                Triple(stringResource(R.string.attachment_file), Icons.Rounded.Description, 1),
+                Triple(stringResource(R.string.attachment_folder), Icons.Rounded.FolderOpen, 2),
+                Triple(stringResource(R.string.attachment_enter_path), Icons.Outlined.Link, 3),
             )
-            options.forEachIndexed { index, option ->
+            options.forEach { (option, icon, index) ->
                 DropdownMenuItem(
                     modifier = Modifier.height(40.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                     text = { androidx.compose.material3.Text(option) },
+                    leadingIcon = {
+                        androidx.compose.material3.Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    },
                     onClick = {
                         showPopup = false
                         when (index) {

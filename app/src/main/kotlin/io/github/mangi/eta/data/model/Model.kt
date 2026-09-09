@@ -21,6 +21,7 @@ data class Model(
     val reasoningCapabilities: ModelReasoningCapabilities? = null,
     val reasoningOverride: Boolean? = null,
     val reasoningCapabilitiesOverride: ModelReasoningCapabilities? = null,
+    val preferredReasoningEffort: ReasoningEffort? = null,
     val structuredOutput: Boolean? = null,
     val supportsTemperature: Boolean? = null,
     val customHeaders: List<CustomHeader> = emptyList(),

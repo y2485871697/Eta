@@ -233,7 +233,6 @@ class RemoteModelFetcherTest {
         assertTrue(model.supportsReasoning)
         assertEquals(
             listOf(
-                ReasoningEffort.DEFAULT,
                 ReasoningEffort.MINIMAL,
                 ReasoningEffort.LOW,
                 ReasoningEffort.MEDIUM,
@@ -265,7 +264,6 @@ class RemoteModelFetcherTest {
         assertEquals(
             listOf(
                 ReasoningEffort.OFF,
-                ReasoningEffort.DEFAULT,
                 ReasoningEffort.LOW,
                 ReasoningEffort.MEDIUM,
                 ReasoningEffort.HIGH,
@@ -313,7 +311,6 @@ class RemoteModelFetcherTest {
         assertEquals(
             listOf(
                 ReasoningEffort.OFF,
-                ReasoningEffort.DEFAULT,
                 ReasoningEffort.LOW,
                 ReasoningEffort.MEDIUM,
                 ReasoningEffort.HIGH,
@@ -407,4 +404,30 @@ class RemoteModelFetcherTest {
 
     private fun modelWithId(modelId: String): Model =
         Model(id = modelId, modelId = modelId, displayName = modelId)
+
+    @Test
+    fun parsesModelsDevReasoningOptionsEffortValues() {
+        val model = RemoteModelFetcher.parseOpenAiModels(
+            """
+            {
+              "data":[
+                {
+                  "id":"zhipuai/glm-5.2",
+                  "reasoning": true,
+                  "reasoning_options":[
+                    {"type":"effort","values":["high","max"]}
+                  ]
+                }
+              ]
+            }
+            """.trimIndent()
+        ).single()
+
+        assertTrue(model.supportsReasoning)
+        assertEquals(
+            listOf(ReasoningEffort.HIGH, ReasoningEffort.MAX),
+            model.reasoningCapabilities?.supportedEfforts,
+        )
+    }
+
 }

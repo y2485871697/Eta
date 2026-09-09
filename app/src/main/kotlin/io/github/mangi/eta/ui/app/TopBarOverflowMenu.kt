@@ -1,12 +1,11 @@
 package io.github.mangi.eta.ui.app
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Compress
-import androidx.compose.material.icons.outlined.Compress
+import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Description
@@ -28,7 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.DpOffset
@@ -36,7 +35,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.components.EtaDropdownMenu
 import io.github.mangi.eta.ui.CompressConversationDialog
-import io.github.mangi.eta.data.model.AppearanceThemeMode
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val TopBarMenuIconSize = 24.dp
 private val CompactMenuItemModifier = Modifier.height(40.dp)
@@ -64,12 +63,6 @@ internal fun TopBarOverflowMenu(
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showCompressDialog by remember { mutableStateOf(false) }
-    val appearance = LocalAppearanceSettings.current
-    val isDark = when (appearance.themeMode) {
-        AppearanceThemeMode.SYSTEM -> isSystemInDarkTheme()
-        AppearanceThemeMode.LIGHT -> false
-        AppearanceThemeMode.DARK -> true
-    }
 
     androidx.compose.foundation.layout.Box {
         IconButton(
@@ -87,7 +80,8 @@ internal fun TopBarOverflowMenu(
         EtaDropdownMenu(
             expanded = showMenu,
             onDismissRequest = { showMenu = false },
-            offset = DpOffset(x = (-8).dp, y = 10.dp),
+            offset = DpOffset(x = (-2).dp, y = 10.dp),
+            alignEnd = true,
         ) {
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -115,7 +109,7 @@ internal fun TopBarOverflowMenu(
                 },
                 onClick = { showMenu = false },
             )
-            MenuSectionDivider(isDark)
+            MenuSectionDivider()
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
                 contentPadding = CompactMenuItemPadding,
@@ -168,7 +162,7 @@ internal fun TopBarOverflowMenu(
                 },
                 onClick = { showMenu = false; onLaunchKimiWeb() },
             )
-            MenuSectionDivider(isDark)
+            MenuSectionDivider()
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
                 contentPadding = CompactMenuItemPadding,
@@ -188,7 +182,7 @@ internal fun TopBarOverflowMenu(
                 text = { Text(stringResource(R.string.action_compress_conversation)) },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Outlined.Compress,
+                        imageVector = Icons.Filled.Summarize,
                         contentDescription = null,
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
@@ -213,6 +207,7 @@ internal fun TopBarOverflowMenu(
                     Switch(
                         checked = autoCompressEnabled,
                         onCheckedChange = null,
+                        modifier = Modifier.scale(0.72f),
                     )
                 },
                 onClick = {
@@ -220,7 +215,7 @@ internal fun TopBarOverflowMenu(
                 },
             )
             if (canStopKimiWeb) {
-                MenuSectionDivider(isDark)
+                MenuSectionDivider()
                 DropdownMenuItem(
                     modifier = CompactMenuItemModifier,
                     contentPadding = CompactMenuItemPadding,
@@ -246,11 +241,10 @@ internal fun TopBarOverflowMenu(
 }
 
 @Composable
-private fun MenuSectionDivider(isDark: Boolean) {
-    val tint = if (isDark) Color.White else Color.Black
+private fun MenuSectionDivider() {
     HorizontalDivider(
         modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
         thickness = 1.dp,
-        color = tint.copy(alpha = 0.12f),
+        color = MiuixTheme.colorScheme.outline.copy(alpha = 0.35f),
     )
 }

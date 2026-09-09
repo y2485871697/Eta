@@ -779,7 +779,7 @@ private fun ModelEditDialog(
             model.effectiveReasoningCapabilities
                 ?.selectableEfforts
                 ?.toSet()
-                .orEmpty() + ReasoningEffort.DEFAULT
+                .orEmpty()
         )
     }
     val contextError = contextWindowInputError(
@@ -793,7 +793,7 @@ private fun ModelEditDialog(
         selectedReasoningEfforts = model.reasoningCapabilities
             ?.selectableEfforts
             ?.toSet()
-            .orEmpty() + ReasoningEffort.DEFAULT
+            .orEmpty()
     }
 
     fun updated(): Model = model.copy(
@@ -934,14 +934,6 @@ private fun ModelEditDialog(
                     )
                     if (reasoningEnabled) {
                         HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                        CheckboxPreference(
-                            title = ReasoningEffort.DEFAULT.displayName,
-                            summary = stringResource(R.string.ui_determined_by_model_or_provider_06c326),
-                            checked = true,
-                            onCheckedChange = null,
-                            checkboxLocation = CheckboxLocation.End,
-                            enabled = false,
-                        )
                         editableReasoningEfforts.forEach { effort ->
                             HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
                             CheckboxPreference(

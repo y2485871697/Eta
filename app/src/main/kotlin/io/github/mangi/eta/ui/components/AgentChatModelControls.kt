@@ -22,7 +22,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,7 +44,6 @@ import io.github.mangi.eta.ui.model.AgentModelOptionUi
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.defaultExpandedModelProviderIds
 import io.github.mangi.eta.ui.model.formatContextUsage
-import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
@@ -53,10 +51,7 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
-import top.yukonga.miuix.kmp.basic.RichTooltipBox
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TooltipAnchorPosition
-import top.yukonga.miuix.kmp.basic.rememberTooltipState
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -257,8 +252,7 @@ internal fun AgentContextUsageButton(
     sendBlocked: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val scope = rememberCoroutineScope()
-    val tooltipState = rememberTooltipState(isPersistent = true)
+    var showDetail by remember { mutableStateOf(false) }
     val progress = usage.progress
     val progressColor = when {
         progress == null -> MiuixTheme.colorScheme.onSurfaceVariantActions
@@ -281,17 +275,13 @@ internal fun AgentContextUsageButton(
         R.string.context_usage_description,
         summary.replace('\n', ' '),
     )
-    RichTooltipBox(
-        title = stringResource(R.string.ui_contextual_usage_d12810),
-        text = detail,
-        state = tooltipState,
-        positioning = TooltipAnchorPosition.Above,
-        modifier = modifier,
-    ) {
-        IconButton(
-            onClick = { scope.launch { tooltipState.show() } },
-            minWidth = ChatInputActionSize,
-            minHeight = ChatInputActionSize,
+    val keepIme = rememberKeepImeWhenOpeningMenu()
+    Box(modifier = modifier) {
+        ChatInputNonFocusableIconButton(
+            onClick = {
+                keepIme()
+                showDetail = !showDetail
+            },
         ) {
             CircularProgressIndicator(
                 progress = progress ?: 0f,
@@ -305,6 +295,27 @@ internal fun AgentContextUsageButton(
                 modifier = Modifier.semantics {
                     contentDescription = usageDescription
                 },
+            )
+        }
+        EtaDropdownMenu(
+            expanded = showDetail,
+            onDismissRequest = { showDetail = false },
+            alignEnd = true,
+            preferAbove = true,
+            focusable = false,
+            minWidth = 0.dp,
+            maxWidth = 220.dp,
+        ) {
+            Text(
+                text = stringResource(R.string.ui_contextual_usage_d12810),
+                style = MiuixTheme.textStyles.body1,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+            Text(
+                text = detail,
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
             )
         }
     }

@@ -25,7 +25,6 @@ class ReasoningCapabilityResolverTest {
         assertEquals(
             listOf(
                 ReasoningEffort.OFF,
-                ReasoningEffort.DEFAULT,
                 ReasoningEffort.LOW,
                 ReasoningEffort.HIGH,
                 ReasoningEffort.MAX,
@@ -35,7 +34,6 @@ class ReasoningCapabilityResolverTest {
         assertEquals(
             listOf(
                 ReasoningEffort.OFF,
-                ReasoningEffort.DEFAULT,
                 ReasoningEffort.HIGH,
                 ReasoningEffort.MAX,
             ),
@@ -48,7 +46,6 @@ class ReasoningCapabilityResolverTest {
     fun mandatoryKimiModelsNeverExposeOff() {
         assertEquals(
             listOf(
-                ReasoningEffort.DEFAULT,
                 ReasoningEffort.LOW,
                 ReasoningEffort.HIGH,
                 ReasoningEffort.MAX,
@@ -56,24 +53,86 @@ class ReasoningCapabilityResolverTest {
             resolve(ProviderSourceTypes.MOONSHOT, "kimi-k3").selectableEfforts,
         )
         assertEquals(
-            listOf(ReasoningEffort.DEFAULT),
+            emptyList<ReasoningEffort>(),
             resolve(ProviderSourceTypes.MOONSHOT, "kimi-k2.7-code").selectableEfforts,
         )
     }
 
     @Test
-    fun unverifiedModelsDegradeToSafeDefault() {
+    fun unverifiedModelsUseOpenMinisCeilingInsteadOfLoneDefault() {
         assertEquals(
-            listOf(ReasoningEffort.DEFAULT),
+            emptyList<ReasoningEffort>(),
             resolve(ProviderSourceTypes.MINIMAX, "MiniMax-M3").selectableEfforts,
         )
         assertEquals(
-            listOf(ReasoningEffort.DEFAULT),
+            listOf(
+                ReasoningEffort.OFF,
+                ReasoningEffort.LOW,
+                ReasoningEffort.HIGH,
+            ),
             resolve(ProviderSourceTypes.STEPFUN, "step-3.7-flash").selectableEfforts,
         )
         assertEquals(
-            listOf(ReasoningEffort.DEFAULT),
+            listOf(
+                ReasoningEffort.OFF,
+                ReasoningEffort.LOW,
+                ReasoningEffort.MEDIUM,
+                ReasoningEffort.HIGH,
+                ReasoningEffort.XHIGH,
+            ),
             resolve(ProviderSourceTypes.CUSTOM, "unknown-thinking-model").selectableEfforts,
+        )
+    }
+
+    @Test
+    fun openMinisCatalogMatchesHyphenDotAndProviderPrefix() {
+        assertEquals(
+            listOf(
+                ReasoningEffort.OFF,
+                ReasoningEffort.MINIMAL,
+                ReasoningEffort.LOW,
+                ReasoningEffort.MEDIUM,
+                ReasoningEffort.HIGH,
+                ReasoningEffort.XHIGH,
+                ReasoningEffort.MAX,
+            ),
+            resolve(ProviderSourceTypes.OPENAI, "openai/gpt-5.6-sol").selectableEfforts,
+        )
+        assertEquals(
+            ReasoningEffort.MAX,
+            resolve(ProviderSourceTypes.ANTHROPIC, "claude-opus-4.6").supportedEfforts.last(),
+        )
+        assertEquals(
+            ReasoningEffort.MAX,
+            resolve(ProviderSourceTypes.OPENROUTER, "anthropic/claude-opus-4-8").supportedEfforts.last(),
+        )
+        assertEquals(
+            listOf(
+                ReasoningEffort.OFF,
+                ReasoningEffort.LOW,
+                ReasoningEffort.MEDIUM,
+                ReasoningEffort.HIGH,
+            ),
+            resolve(ProviderSourceTypes.MIMO, "mimo-v2.5").selectableEfforts,
+        )
+        assertEquals(
+            listOf(
+                ReasoningEffort.HIGH,
+                ReasoningEffort.MAX,
+            ),
+            ReasoningCapabilityResolver.resolve(
+                sourceType = ProviderSourceTypes.CUSTOM,
+                model = Model(
+                    id = "glm",
+                    modelId = "glm-5.2",
+                    displayName = "GLM",
+                    reasoning = true,
+                    reasoningCapabilities = ModelReasoningCapabilities(
+                        supportedEfforts = listOf(ReasoningEffort.HIGH, ReasoningEffort.MAX),
+                        mandatory = true,
+                    ),
+                ),
+            )?.selectableEfforts,
         )
     }
 
@@ -97,7 +156,7 @@ class ReasoningCapabilityResolverTest {
 
         assertEquals(remote, resolved)
         assertEquals(
-            listOf(ReasoningEffort.DEFAULT, ReasoningEffort.MEDIUM),
+            listOf(ReasoningEffort.MEDIUM),
             resolved?.selectableEfforts,
         )
     }

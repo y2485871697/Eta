@@ -69,7 +69,7 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
             runController.throwIfCancelled()
             onEvent(ProviderEvent.RequestStarted)
 
-            call.execute().use { response ->
+            call.execute().useIgnoringCloseErrors { response ->
                 val code = response.code
                 onEvent(ProviderEvent.ResponseHeaders(code))
                 runController.throwIfCancelled()
@@ -164,7 +164,7 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
             onEvent(ProviderEvent.BlockDelta(kind, block.contentIndex, delta))
         }
 
-        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).useIgnoringCloseErrors { reader ->
             while (true) {
                 runController.throwIfCancelled()
                 val line = try {

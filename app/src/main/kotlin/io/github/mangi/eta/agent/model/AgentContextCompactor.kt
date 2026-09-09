@@ -5,6 +5,8 @@ import io.github.mangi.eta.agent.tool.AgentToolCapabilities
 internal object AgentContextCompactor {
     const val DEFAULT_KEEP_RECENT = 4
     const val DEFAULT_TARGET_TOKENS = 2000
+    internal const val SUMMARY_PREFIX = "[Conversation summary]"
+    internal const val SUMMARY_PREFIX_ZH = "[\u5bf9\u8bdd\u6458\u8981]"
     private const val MAX_MESSAGES_PER_CHUNK = 256
 
     data class Config(
@@ -16,9 +18,10 @@ internal object AgentContextCompactor {
     fun shouldCompress(
         history: List<AgentModelClient.ConversationMessage>,
         contextWindow: Int,
+        keepRecentMessages: Int = DEFAULT_KEEP_RECENT,
         thresholdPercent: Int = 80,
     ): Boolean {
-        if (history.size <= DEFAULT_KEEP_RECENT) return false
+        if (recentKeepStartIndex(history, keepRecentMessages) <= 0) return false
         val estimated = history.sumOf { AgentContextBudget.countMessage(it) }
         return estimated >= contextWindow * thresholdPercent / 100
     }
@@ -30,10 +33,11 @@ internal object AgentContextCompactor {
         capabilitiesProvider: () -> AgentToolCapabilities = { AgentToolCapabilities(rootAvailable = false) },
     ): List<AgentModelClient.ConversationMessage> {
         if (history.isEmpty()) return history
-        if (history.size <= config.keepRecentMessages.coerceAtLeast(0)) return history
+        val keepStart = recentKeepStartIndex(history, config.keepRecentMessages)
+        if (keepStart <= 0) return history
 
-        val messagesToCompress = history.dropLast(config.keepRecentMessages)
-        val messagesToKeep = history.takeLast(config.keepRecentMessages)
+        val messagesToCompress = history.subList(0, keepStart).toList()
+        val messagesToKeep = history.subList(keepStart, history.size).toList()
 
         val chunks = splitMessages(messagesToCompress)
         val summaries = chunks.map { chunk ->
@@ -42,12 +46,64 @@ internal object AgentContextCompactor {
 
         val summaryMessages = summaries.map { summary ->
             AgentModelClient.ConversationMessage(
-                role = "user",
-                content = summary,
+                role = "system",
+                content = normalizeSummary(summary),
             )
         }
 
         return summaryMessages + messagesToKeep
+    }
+
+    /**
+     * Index of the first message that must stay uncompressed.
+     *
+     * "Keep recent N" is N user turns, not N raw API records. Tool calls,
+     * empty assistant stubs and previous summaries do not consume the quota,
+     * otherwise a 10-turn setting collapses to two or three visible replies.
+     */
+    fun recentKeepStartIndex(
+        history: List<AgentModelClient.ConversationMessage>,
+        keepRecentTurns: Int,
+    ): Int {
+        val keep = keepRecentTurns.coerceAtLeast(0)
+        if (keep == 0) return history.size
+        var remaining = keep
+        for (index in history.indices.reversed()) {
+            if (!isUserTurnStart(history[index])) continue
+            remaining--
+            if (remaining == 0) return index
+        }
+        return 0
+    }
+
+    internal fun isUserTurnStart(message: AgentModelClient.ConversationMessage): Boolean =
+        message.role.equals("user", ignoreCase = true) && !isCompressionSummary(message)
+
+    internal fun isCompressionSummary(message: AgentModelClient.ConversationMessage): Boolean {
+        if (message.role.equals("system", ignoreCase = true)) {
+            val content = message.content.trimStart()
+            return content.startsWith(SUMMARY_PREFIX) ||
+                content.startsWith(SUMMARY_PREFIX_ZH) ||
+                content.startsWith("[Summary") ||
+                content.contains("previous conversation")
+        }
+        val content = message.content.trimStart()
+        return content.startsWith(SUMMARY_PREFIX) ||
+            content.startsWith(SUMMARY_PREFIX_ZH) ||
+            content.startsWith("[Summary of previous conversation]")
+    }
+
+    private fun normalizeSummary(summary: String): String {
+        val trimmed = summary.trim()
+        return if (
+            trimmed.startsWith(SUMMARY_PREFIX) ||
+            trimmed.startsWith(SUMMARY_PREFIX_ZH) ||
+            trimmed.startsWith("[Summary")
+        ) {
+            trimmed
+        } else {
+            "$SUMMARY_PREFIX_ZH\n$trimmed"
+        }
     }
 
     private fun splitMessages(
@@ -69,7 +125,7 @@ internal object AgentContextCompactor {
         val contentToCompress = messages.joinToString("\n\n") { messageToSummaryText(it) }
         val prompt = buildCompressPrompt(contentToCompress, config.targetTokens)
 
-        val modelConfig = config.compressModelConfig ?: throw IllegalStateException("未配置压缩模型")
+        val modelConfig = config.compressModelConfig ?: throw IllegalStateException("\u672a\u914d\u7f6e\u538b\u7f29\u6a21\u578b")
 
         val response = AgentModelClient.complete(
             config = modelConfig,
@@ -79,13 +135,13 @@ internal object AgentContextCompactor {
         )
 
         return response.content.trim().takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("压缩历史时模型返回空")
+            ?: throw IllegalStateException("\u538b\u7f29\u5386\u53f2\u65f6\u6a21\u578b\u8fd4\u56de\u7a7a")
     }
 
     private fun messageToSummaryText(message: AgentModelClient.ConversationMessage): String {
         val role = message.role
         val content = message.content.takeIf { it.isNotBlank() }?.let { "\n$it" } ?: ""
-        val reasoning = message.reasoningContent.takeIf { it.isNotBlank() }?.let { "\n[思考] $it" } ?: ""
+        val reasoning = message.reasoningContent.takeIf { it.isNotBlank() }?.let { "\n[thinking] $it" } ?: ""
         return "[$role]$content$reasoning".trim()
     }
 
@@ -98,7 +154,7 @@ Requirements:
 3. Target approximately $targetTokens tokens.
 4. Output the summary directly without any explanations or meta-commentary.
 5. Format the summary as context information that can be used to continue the conversation.
-6. Start the output with a clear indicator that this is a summary (e.g., "[Summary of previous conversation]" or equivalent in the target language).
+6. Start the output with $SUMMARY_PREFIX_ZH or "$SUMMARY_PREFIX".
 
 <conversation>
 $content
@@ -107,7 +163,7 @@ $content
 
     private object NoOpToolExecutor : AgentModelClient.ToolExecutor {
         override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult {
-            throw UnsupportedOperationException("压缩历史时不应调用工具")
+            throw UnsupportedOperationException("\u538b\u7f29\u5386\u53f2\u65f6\u4e0d\u5e94\u8c03\u7528\u5de5\u5177")
         }
     }
 }

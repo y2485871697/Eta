@@ -260,7 +260,7 @@ internal object OfficialModelCatalog {
             .orEmpty()
         if (officialById.isEmpty()) return models
         return models.map { model ->
-            val official = officialById[model.modelId.lowercase()] ?: return@map model
+            val official = findOfficialModel(officialById, model.modelId) ?: return@map model
             model.copy(
                 displayName = model.displayName
                     .takeUnless { it.isBlank() || it == model.modelId }
@@ -282,6 +282,20 @@ internal object OfficialModelCatalog {
                 supportsTemperature = model.supportsTemperature ?: official.supportsTemperature,
             )
         }
+    }
+
+
+    private fun findOfficialModel(
+        officialById: Map<String, Model>,
+        modelId: String,
+    ): Model? {
+        val key = modelId.trim().lowercase()
+        officialById[key]?.let { return it }
+        officialById[key.substringAfterLast('/')]?.let { return it }
+        val normalized = key.substringAfterLast('/').replace('.', '-')
+        return officialById.entries.firstOrNull { (id, _) ->
+            id.replace('.', '-') == normalized
+        }?.value
     }
 
     private fun modelsForCatalogId(catalogId: String?): List<Model> =

@@ -23,7 +23,7 @@ import androidx.room.migration.Migration
         SkillRegistryEntity::class,
         McpServerEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = false,
 )
 internal abstract class EtaDatabase : RoomDatabase() {
@@ -57,6 +57,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_15_16,
                         MIGRATION_16_17,
                         MIGRATION_17_18,
+                        MIGRATION_18_19,
                     )
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
@@ -101,6 +102,12 @@ internal abstract class EtaDatabase : RoomDatabase() {
 
         internal val MIGRATION_17_18 = Migration(17, 18) { database ->
             database.execSQL("ALTER TABLE mcp_servers ADD COLUMN tools_expire_at INTEGER")
+        }
+
+        internal val MIGRATION_18_19 = Migration(18, 19) { database ->
+            database.execSQL(
+                "ALTER TABLE provider_models ADD COLUMN preferred_reasoning_effort TEXT"
+            )
         }
 
         internal val MIGRATION_7_8 = Migration(7, 8) { database ->

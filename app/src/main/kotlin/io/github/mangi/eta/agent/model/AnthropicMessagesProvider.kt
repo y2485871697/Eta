@@ -3,6 +3,7 @@ package io.github.mangi.eta.agent.model
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.InputStream
 import java.io.InputStreamReader
 import okhttp3.MediaType.Companion.toMediaType
@@ -60,7 +61,7 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
         try {
             runController.throwIfCancelled()
             onEvent(ProviderEvent.RequestStarted)
-            call.execute().use { response ->
+            call.execute().useIgnoringCloseErrors { response ->
                 onEvent(ProviderEvent.ResponseHeaders(response.code))
                 runController.throwIfCancelled()
                 if (!response.isSuccessful) {
@@ -251,10 +252,15 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
             data.setLength(0)
         }
 
-        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).useIgnoringCloseErrors { reader ->
             while (true) {
                 runController.throwIfCancelled()
-                val line = reader.readLine() ?: break
+                val line = try {
+                    reader.readLine()
+                } catch (io: IOException) {
+                    val hasToolCalls = blocks.values.any { it.type == "tool_use" && it.name.isNotBlank() }
+                    if (content.isNotBlank() || reasoning.isNotBlank() || hasToolCalls) break else throw io
+                } ?: break
                 when {
                     line.isEmpty() -> dispatch()
                     line.startsWith("event:") -> currentEvent = line.removePrefix("event:").trim()
@@ -266,7 +272,15 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
             }
         }
         dispatch()
-        if (!sawMessageStop) throw AgentModelFailure.incompleteStream("Anthropic SSE 流未正常结束")
+        if (!sawMessageStop) {
+            val hasToolCalls = blocks.values.any { it.type == "tool_use" && it.name.isNotBlank() }
+            if (content.isBlank() && reasoning.isBlank() && !hasToolCalls) {
+                throw AgentModelFailure.incompleteStream("Anthropic SSE 流未正常结束")
+            }
+            if (finishReason.isNullOrBlank()) {
+                finishReason = if (hasToolCalls) "tool_calls" else "end_turn"
+            }
+        }
 
         return JSONObject()
             .put("role", "assistant")

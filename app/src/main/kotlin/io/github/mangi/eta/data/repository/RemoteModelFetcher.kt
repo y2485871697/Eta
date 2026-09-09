@@ -182,6 +182,7 @@ internal object RemoteModelFetcher {
                 )
                 ?: reasoningMetadata?.let { true },
             reasoningCapabilities = parseReasoningCapabilities(
+                modelObject = this,
                 metadata = reasoningMetadata,
                 supportedParameters = supportedParameters,
             ),
@@ -230,7 +231,8 @@ internal object RemoteModelFetcher {
         )
     }
 
-    private fun JsonObject.parseReasoningCapabilities(
+    private fun parseReasoningCapabilities(
+        modelObject: JsonObject,
         metadata: JsonObject?,
         supportedParameters: List<String>,
     ): ModelReasoningCapabilities? {
@@ -238,25 +240,44 @@ internal object RemoteModelFetcher {
             it == "thinking_budget" || it == "reasoning_budget"
         }
         val supportsToggle = "enable_thinking" in supportedParameters
-        if (metadata == null && !supportsBudget && !supportsToggle) return null
-        val supportedEfforts = metadata
-            ?.stringList("supported_efforts", "supportedEfforts")
-            .orEmpty()
-            .mapNotNull(ReasoningEffort::fromWireValue)
-            .filter { it != ReasoningEffort.DEFAULT }
-            .ifEmpty {
-                if (supportsBudget) {
-                    listOf(
-                        ReasoningEffort.LOW,
-                        ReasoningEffort.MEDIUM,
-                        ReasoningEffort.HIGH,
-                        ReasoningEffort.XHIGH,
-                        ReasoningEffort.MAX,
-                    )
-                } else {
-                    emptyList()
-                }
+        val optionEfforts = modelObject.reasoningOptionEffortValues()
+        val declaresNoEffortTiers = modelObject.containsKey("reasoning_options") &&
+            optionEfforts.isNullOrEmpty()
+        if (
+            metadata == null &&
+            !supportsBudget &&
+            !supportsToggle &&
+            optionEfforts.isNullOrEmpty() &&
+            !declaresNoEffortTiers
+        ) {
+            return null
+        }
+        val declaredEfforts = buildList {
+            metadata
+                ?.stringList("supported_efforts", "supportedEfforts")
+                .orEmpty()
+                .mapNotNull(ReasoningEffort::fromWireValue)
+                .forEach(::add)
+            optionEfforts
+                .orEmpty()
+                .mapNotNull(ReasoningEffort::fromWireValue)
+                .forEach(::add)
+        }
+            .filter { it != ReasoningEffort.DEFAULT && it != ReasoningEffort.OFF }
+            .distinct()
+        val supportedEfforts = declaredEfforts.ifEmpty {
+            if (supportsBudget && !declaresNoEffortTiers) {
+                listOf(
+                    ReasoningEffort.LOW,
+                    ReasoningEffort.MEDIUM,
+                    ReasoningEffort.HIGH,
+                    ReasoningEffort.XHIGH,
+                    ReasoningEffort.MAX,
+                )
+            } else {
+                emptyList()
             }
+        }
         val mandatory = metadata?.boolean("mandatory") == true
         return ModelReasoningCapabilities(
             supportedEfforts = supportedEfforts.filter { it != ReasoningEffort.OFF },
@@ -268,6 +289,8 @@ internal object RemoteModelFetcher {
             canDisable = !mandatory && (
                 metadata != null ||
                     supportsToggle ||
+                    declaresNoEffortTiers ||
+                    optionEfforts != null ||
                     supportedEfforts.contains(ReasoningEffort.OFF)
                 ),
             supportsBudget = supportsBudget,
@@ -278,6 +301,17 @@ internal object RemoteModelFetcher {
             ),
             supportsMaxTokens = metadata?.boolean("supports_max_tokens", "supportsMaxTokens"),
         )
+    }
+
+
+    private fun JsonObject.reasoningOptionEffortValues(): List<String>? {
+        val options = this["reasoning_options"]?.jsonArrayOrNull() ?: return null
+        options.forEach { element ->
+            val option = element.jsonObjectOrNull() ?: return@forEach
+            if (option.string("type") != "effort") return@forEach
+            option.stringList("values")?.let { return it }
+        }
+        return emptyList()
     }
 
     private fun JsonObject.string(vararg names: String): String? =

@@ -146,7 +146,7 @@ class ModelRepositoryTest {
         assertEquals(1_000_000, restored.getValue("manual-model").contextWindow)
         assertEquals(256_000, restored.getValue("manual-model").effectiveContextWindow)
         assertEquals(
-            listOf(ReasoningEffort.OFF, ReasoningEffort.DEFAULT, ReasoningEffort.MINIMAL),
+            listOf(ReasoningEffort.OFF, ReasoningEffort.MINIMAL),
             restored.getValue("manual-model").effectiveReasoningCapabilities?.selectableEfforts,
         )
         assertEquals(ModelSource.CATALOG, restored.getValue("catalog-model").source)

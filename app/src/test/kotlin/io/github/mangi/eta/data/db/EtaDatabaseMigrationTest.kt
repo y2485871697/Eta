@@ -51,6 +51,7 @@ class EtaDatabaseMigrationTest {
                 EtaDatabase.MIGRATION_15_16,
                 migration16To17WithMcpData,
                 EtaDatabase.MIGRATION_17_18,
+                EtaDatabase.MIGRATION_18_19,
             )
             .build()
         try {

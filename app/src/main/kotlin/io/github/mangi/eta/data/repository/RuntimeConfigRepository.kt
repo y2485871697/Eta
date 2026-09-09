@@ -110,6 +110,9 @@ internal object RuntimeConfigRepository {
             model = model,
             inferExactCatalogModel = inferOpenAiCatalog,
         )
+        val reasoningEffort = reasoningCapabilities?.normalize(
+            model.preferredReasoningEffort ?: ReasoningEffort.OFF,
+        ) ?: ReasoningEffort.OFF
         return AgentModelClient.ModelConfig(
             providerId = provider.id,
             providerName = provider.name,
@@ -125,9 +128,8 @@ internal object RuntimeConfigRepository {
                 ?: AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION,
             openAiEndpointMode = endpointMode,
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
-            thinkingEnabled = reasoningCapabilities != null,
-            reasoningEffort = reasoningCapabilities?.let { ReasoningEffort.DEFAULT }
-                ?: ReasoningEffort.OFF,
+            thinkingEnabled = reasoningEffort.enablesReasoning,
+            reasoningEffort = reasoningEffort,
             reasoningCapabilities = reasoningCapabilities,
             customHeaders = provider.customHeaders + model.customHeaders,
             customBody = provider.customBody + model.customBody,

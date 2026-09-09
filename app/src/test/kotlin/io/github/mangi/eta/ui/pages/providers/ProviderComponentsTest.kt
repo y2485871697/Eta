@@ -2,6 +2,7 @@ package io.github.mangi.eta.ui.pages.providers
 
 import androidx.compose.runtime.saveable.SaverScope
 import io.github.mangi.eta.R
+import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ProviderSourceTypes
@@ -22,6 +23,7 @@ class ProviderComponentsTest {
             endpointMode = "responses",
             hostedWebSearchEnabled = true,
             anthropicVersion = "2023-06-01",
+            balanceOption = BalanceOption(),
         )
 
         val saved = with(ProviderConfigDraftSaver) {

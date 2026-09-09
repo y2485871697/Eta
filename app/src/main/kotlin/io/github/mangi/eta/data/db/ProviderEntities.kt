@@ -19,6 +19,7 @@ import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.ProviderTypes
+import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.provider.ProviderSourceRegistry
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -84,6 +85,8 @@ internal data class ProviderModelEntity(
     @ColumnInfo(name = "reasoning_override") val reasoningOverride: Boolean?,
     @ColumnInfo(name = "reasoning_capabilities_override_json", defaultValue = "'null'")
     val reasoningCapabilitiesOverrideJson: String = "null",
+    @ColumnInfo(name = "preferred_reasoning_effort")
+    val preferredReasoningEffort: String? = null,
     @ColumnInfo(name = "structured_output") val structuredOutput: Boolean?,
     @ColumnInfo(name = "supports_temperature") val supportsTemperature: Boolean?,
     @ColumnInfo(name = "custom_headers_json") val customHeadersJson: String,
@@ -230,6 +233,7 @@ private fun Model.toEntity(providerId: String): ProviderModelEntity =
         reasoningCapabilitiesOverrideJson = ProviderJson.encodeReasoningCapabilities(
             reasoningCapabilitiesOverride
         ),
+        preferredReasoningEffort = preferredReasoningEffort?.wireValue,
         structuredOutput = structuredOutput,
         supportsTemperature = supportsTemperature,
         customHeadersJson = ProviderJson.encodeHeaders(customHeaders),
@@ -263,6 +267,7 @@ private fun ProviderModelEntity.toDomain(): Model =
         reasoningCapabilitiesOverride = ProviderJson.decodeReasoningCapabilities(
             reasoningCapabilitiesOverrideJson
         ),
+        preferredReasoningEffort = ReasoningEffort.fromWireValue(preferredReasoningEffort),
         structuredOutput = structuredOutput,
         supportsTemperature = supportsTemperature,
         customHeaders = ProviderJson.decodeHeaders(customHeadersJson),

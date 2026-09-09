@@ -4,6 +4,7 @@ import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.InputStreamReader
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -58,7 +59,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
         try {
             runController.throwIfCancelled()
             onEvent(ProviderEvent.RequestStarted)
-            call.execute().use { response ->
+            call.execute().useIgnoringCloseErrors { response ->
                 onEvent(ProviderEvent.ResponseHeaders(response.code))
                 runController.throwIfCancelled()
                 if (!response.isSuccessful) {
@@ -199,7 +200,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
             }
         }
 
-        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).useIgnoringCloseErrors { reader ->
             val dataLines = mutableListOf<String>()
             fun consumeFrame() {
                 if (dataLines.isEmpty()) return
@@ -350,7 +351,15 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
 
             while (true) {
                 runController.throwIfCancelled()
-                val line = reader.readLine()
+                val line = try {
+                    reader.readLine()
+                } catch (io: IOException) {
+                    if (streamedText.isNotBlank() || streamedReasoning.isNotBlank() || toolCalls.isNotEmpty()) {
+                        consumeFrame()
+                        break
+                    }
+                    throw io
+                }
                 if (line == null) {
                     consumeFrame()
                     break
@@ -364,13 +373,20 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
         }
 
         if (!sawEvent) throw AgentModelFailure.incompleteStream("模型接口未返回 SSE data chunk")
-        val finalResponse = terminal ?: throw AgentModelFailure.incompleteStream("模型接口 Responses SSE 流缺少合法终止事件")
+        val recoveredFromStream = terminal == null &&
+            (streamedText.isNotBlank() || streamedReasoning.isNotBlank() || toolCalls.isNotEmpty())
+        val finalResponse = terminal ?: if (recoveredFromStream) {
+            JSONObject()
+        } else {
+            throw AgentModelFailure.incompleteStream("模型接口 Responses SSE 流缺少合法终止事件")
+        }
         if (terminalType == "response.failed") throwResponseFailure(finalResponse)
+        if (recoveredFromStream) terminalType = "response.completed"
 
         val terminalOutput = finalResponse.optJSONArray("output")
         val hasTerminalOutput = terminalOutput != null && terminalOutput.length() > 0
         val output = terminalOutput ?: JSONArray()
-        val finalResult = if (terminalType == "response.completed" && !hasTerminalOutput) {
+        val finalResult = if (recoveredFromStream || (terminalType == "response.completed" && !hasTerminalOutput)) {
             // 部分兼容接口只流式下发正文，终态 output 为空。这里只恢复本轮已经收到的
             // 标准增量；不对非空终态做字段级拼补，也不把本地结果冒充为 opaque items。
             finalOutputFromStream(streamedText, streamedReasoning, toolCalls.values)

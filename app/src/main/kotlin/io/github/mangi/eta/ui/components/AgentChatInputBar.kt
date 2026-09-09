@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -61,7 +62,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
@@ -129,7 +129,6 @@ internal fun AgentChatInputBar(
     onCancelMessageEdit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val keyboard = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
     val textFieldState = rememberTextFieldState(initialText = input)
     var wasEditingMessage by remember { mutableStateOf(isEditingMessage) }
@@ -174,10 +173,6 @@ internal fun AgentChatInputBar(
         if (isEditingMessage || wasEditingMessage) {
             textFieldState.setTextAndPlaceCursorAtEnd(input)
         }
-        if (isEditingMessage) {
-            focusRequester.requestFocus()
-            keyboard?.show()
-        }
         wasEditingMessage = isEditingMessage
     }
 
@@ -188,6 +183,7 @@ internal fun AgentChatInputBar(
         }
     }
 
+    CompositionLocalProvider(LocalChatInputFocusRequester provides focusRequester) {
     Column(
         modifier = modifier
             .fillMaxWidth(),
@@ -432,6 +428,7 @@ internal fun AgentChatInputBar(
                 }
             }
         }
+    }
     }
 
 }

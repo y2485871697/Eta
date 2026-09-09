@@ -68,7 +68,7 @@ object ReasoningEffortSerializer : KSerializer<ReasoningEffort> {
     }
 
     override fun deserialize(decoder: Decoder): ReasoningEffort =
-        ReasoningEffort.fromWireValue(decoder.decodeString()) ?: ReasoningEffort.DEFAULT
+        ReasoningEffort.fromWireValue(decoder.decodeString()) ?: ReasoningEffort.OFF
 }
 
 @Serializable
@@ -85,7 +85,6 @@ data class ModelReasoningCapabilities(
     val selectableEfforts: List<ReasoningEffort>
         get() = buildList {
             if (canDisable && !mandatory) add(ReasoningEffort.OFF)
-            add(ReasoningEffort.DEFAULT)
             supportedEfforts
                 .asSequence()
                 .filter { it != ReasoningEffort.OFF && it != ReasoningEffort.DEFAULT }
@@ -98,11 +97,16 @@ data class ModelReasoningCapabilities(
         val selectable = selectableEfforts
         if (requested in selectable) return requested
         if (requested == ReasoningEffort.OFF || requested == ReasoningEffort.DEFAULT) {
-            return ReasoningEffort.DEFAULT
+            return when {
+                canDisable && !mandatory -> ReasoningEffort.OFF
+                supportedEfforts.isEmpty() && mandatory -> ReasoningEffort.DEFAULT
+                else -> selectable.firstOrNull { it != ReasoningEffort.OFF } ?: ReasoningEffort.OFF
+            }
         }
         return selectable
             .filter { it != ReasoningEffort.OFF && it.rank <= requested.rank }
             .maxByOrNull(ReasoningEffort::rank)
-            ?: ReasoningEffort.DEFAULT
+            ?: selectable.firstOrNull { it != ReasoningEffort.OFF }
+            ?: if (mandatory) ReasoningEffort.DEFAULT else ReasoningEffort.OFF
     }
 }

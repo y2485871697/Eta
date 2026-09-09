@@ -46,6 +46,7 @@ import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
 import io.github.mangi.eta.data.repository.EtaBackupRepository
 import io.github.mangi.eta.data.repository.EtaBackupSummary
+import io.github.mangi.eta.data.repository.ModelRepository
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 
@@ -123,6 +124,7 @@ internal class AgentAppState(
     private var pendingSkillZipUri: Uri? = null
     private var pendingSkillZipSha256: String? = null
     private var currentReasoningCapabilities: ModelReasoningCapabilities? = null
+    private var lastAppliedReasoningModelId: String? = null
     private var fileAttachmentOwnerVersion = 0L
 
     private var selectedConversationId: String? = initialConversations.selectedConversationId
@@ -131,7 +133,7 @@ internal class AgentAppState(
     private var conversationUpdatedAt: Map<String, Long> = initialConversations.updatedAt
 
     var homeState by mutableStateOf(
-        selectedConversationId?.let(conversationsById::get) ?: emptyChatState(defaultThinkingEnabled)
+        selectedConversationId?.let(conversationsById::get) ?: emptyChatState(false)
     )
         private set
 
@@ -219,12 +221,51 @@ internal class AgentAppState(
     }
 
     private fun applyReasoningCapabilities(capabilities: ModelReasoningCapabilities?) {
+        val selectedModelId = modelPickerState.selectedModel?.id
+        val firstApply = lastAppliedReasoningModelId == null
+        val modelChanged = selectedModelId != lastAppliedReasoningModelId
+        lastAppliedReasoningModelId = selectedModelId
         currentReasoningCapabilities = capabilities
-        val next = homeState.withCurrentReasoningCapabilities()
+        val next = when {
+            firstApply -> {
+                val restored = currentReasoningCapabilities?.normalize(
+                    homeState.reasoningEffort.takeUnless { it == ReasoningEffort.DEFAULT }
+                        ?: ReasoningEffort.OFF,
+                ) ?: ReasoningEffort.OFF
+                if (
+                    modelPickerState.selectedModel?.preferredReasoningEffort == null &&
+                    restored != ReasoningEffort.OFF
+                ) {
+                    persistPreferredReasoningEffort(restored)
+                }
+                homeState.copy(
+                    thinkingEnabled = restored.enablesReasoning,
+                    reasoningEffort = restored,
+                    availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
+                )
+            }
+            modelChanged -> homeState.withPreferredReasoningEffort()
+            else -> homeState.withCurrentReasoningCapabilities()
+        }
         val changed = next.reasoningEffort != homeState.reasoningEffort ||
             next.availableReasoningEfforts != homeState.availableReasoningEfforts
         updateCurrentConversation(next)
         if (changed && selectedConversationId != null) persistConversations()
+    }
+
+    private fun preferredReasoningEffortForCurrentModel(): ReasoningEffort {
+        val preferred = modelPickerState.selectedModel?.preferredReasoningEffort
+            ?: ReasoningEffort.OFF
+        return currentReasoningCapabilities?.normalize(preferred) ?: ReasoningEffort.OFF
+    }
+
+    private fun AgentChatHomeUiState.withPreferredReasoningEffort(): AgentChatHomeUiState {
+        val normalized = preferredReasoningEffortForCurrentModel()
+        return copy(
+            thinkingEnabled = normalized.enablesReasoning,
+            reasoningEffort = normalized,
+            availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
+        )
     }
 
     private fun AgentChatHomeUiState.withCurrentReasoningCapabilities(): AgentChatHomeUiState {
@@ -234,6 +275,20 @@ internal class AgentAppState(
             reasoningEffort = normalized,
             availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
         )
+    }
+
+    private fun persistPreferredReasoningEffort(effort: ReasoningEffort) {
+        val selected = modelPickerState.selectedModel ?: return
+        scope.launch(Dispatchers.IO) {
+            val provider = ProviderRepository.providerById(selected.providerId) ?: return@launch
+            val model = provider.models.firstOrNull { it.id == selected.id } ?: return@launch
+            runCatching {
+                ModelRepository.saveModel(
+                    selected.providerId,
+                    model.copy(preferredReasoningEffort = effort),
+                )
+            }
+        }
     }
 
     fun refreshRuntimeResults() {
@@ -431,7 +486,7 @@ internal class AgentAppState(
             homeState = selectedConversationId
                 ?.let(conversationsById::get)
                 ?.withCurrentReasoningCapabilities()
-                ?: emptyChatState(defaultThinkingEnabled).withCurrentReasoningCapabilities()
+                ?: emptyChatState(false).withPreferredReasoningEffort()
             conversationPaneState = conversationPaneState.copy(
                 selectedConversationId = selectedConversationId,
                 searchQuery = "",
@@ -752,6 +807,7 @@ internal class AgentAppState(
             )
         )
         if (selectedConversationId != null) persistConversations()
+        persistPreferredReasoningEffort(normalized)
     }
 
     fun selectModel(modelId: String) {
@@ -790,13 +846,7 @@ internal class AgentAppState(
         val state = conversationsById[conversationId] ?: return
         fileAttachmentOwnerVersion += 1
         selectedConversationId = conversationId
-        val normalized = currentReasoningCapabilities?.normalize(state.reasoningEffort)
-            ?: ReasoningEffort.OFF
-        val resolvedState = state.copy(
-            thinkingEnabled = normalized.enablesReasoning,
-            reasoningEffort = normalized,
-            availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
-        )
+        val resolvedState = state.withPreferredReasoningEffort()
         conversationsById = conversationsById + (conversationId to resolvedState)
         homeState = resolvedState
         conversationPaneState = conversationPaneState.copy(selectedConversationId = conversationId)
@@ -807,7 +857,7 @@ internal class AgentAppState(
         if (homeState.messageEdit != null) cancelMessageEdit()
         fileAttachmentOwnerVersion += 1
         selectedConversationId = null
-        homeState = emptyChatState(defaultThinkingEnabled).withCurrentReasoningCapabilities()
+        homeState = emptyChatState(false).withPreferredReasoningEffort()
         conversationPaneState = conversationPaneState.copy(
             selectedConversationId = null,
             searchQuery = "",
@@ -829,7 +879,7 @@ internal class AgentAppState(
                 conversationsById = conversationsById + (nextId to homeState)
             } else {
                 selectedConversationId = null
-                homeState = emptyChatState(defaultThinkingEnabled).withCurrentReasoningCapabilities()
+                homeState = emptyChatState(false).withPreferredReasoningEffort()
             }
         }
         conversationPaneState = conversationPaneState.copy(selectedConversationId = selectedConversationId)
@@ -1015,7 +1065,7 @@ internal class AgentAppState(
             conversationUpdatedAt = conversationUpdatedAt - conversationId
             fileAttachmentOwnerVersion += 1
             selectedConversationId = null
-            homeState = emptyChatState(defaultThinkingEnabled).withCurrentReasoningCapabilities()
+            homeState = emptyChatState(false).withPreferredReasoningEffort()
             conversationPaneState = conversationPaneState.copy(selectedConversationId = null)
             refreshConversationSummaries()
             persistConversations()
@@ -1090,7 +1140,15 @@ internal class AgentAppState(
      */
     private fun shouldAutoCompress(history: List<AgentModelClient.ConversationMessage>, contextWindow: Int): Boolean {
         if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return false
-        return AgentContextCompactor.shouldCompress(history, contextWindow)
+        val keepRecent = Prefs.getInt(
+            Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
+            AgentContextCompactor.DEFAULT_KEEP_RECENT,
+        )
+        return AgentContextCompactor.shouldCompress(
+            history = history,
+            contextWindow = contextWindow,
+            keepRecentMessages = keepRecent,
+        )
     }
 
     /**
@@ -2475,7 +2533,7 @@ internal class AgentAppState(
         val history = homeState.history
         val keepRecentMessages = keepRecent.coerceIn(0, 100)
         persistCompressPreferences(providerId, modelId, targetTokens, keepRecentMessages)
-        if (history.size <= keepRecentMessages) {
+        if (AgentContextCompactor.recentKeepStartIndex(history, keepRecentMessages) <= 0) {
             Toast.makeText(
                 appContext,
                 appContext.getString(R.string.compress_conversation_nothing_to_compress),

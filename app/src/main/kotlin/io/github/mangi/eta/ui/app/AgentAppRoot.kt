@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -104,13 +105,22 @@ fun AgentAppRoot(
         agentState.refreshPermissionHealth()
     }
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    DisposableEffect(lifecycleOwner, focusManager, keyboard) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                RootAccess.refresh(context)
-                appViewModel.refreshKimiWeb()
-                agentState.refreshPermissionHealth()
-                agentState.refreshRuntimeResults()
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> {
+                    keyboard?.hide()
+                    focusManager.clearFocus(force = true)
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    RootAccess.refresh(context)
+                    appViewModel.refreshKimiWeb()
+                    agentState.refreshPermissionHealth()
+                    agentState.refreshRuntimeResults()
+                }
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -122,7 +132,6 @@ fun AgentAppRoot(
     var conversationDeleteTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var messageDeleteTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
     var messageRegenerateTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
-    val focusManager = LocalFocusManager.current
 
     LaunchedEffect(Unit) {
         RuntimeConfigRepository.ensureDefaults(EtaApp.serviceInstance)

@@ -27,9 +27,19 @@ internal class AgentModelRetry(
             onEvent(AgentEvent.RoundStarted(round, request.messages.length()))
             var hostedToolStarted = false
             var callbackFailed = false
+            var sawCompleted = false
+            var sawVisibleText = false
             try {
                 val response = provider.complete(request, controller) { event ->
                     if (event is ProviderEvent.HostedToolStarted) hostedToolStarted = true
+                    if (event is ProviderEvent.Completed) sawCompleted = true
+                    if (
+                        event is ProviderEvent.BlockDelta &&
+                        event.kind == AssistantBlockKind.TEXT &&
+                        event.delta.isNotBlank()
+                    ) {
+                        sawVisibleText = true
+                    }
                     try {
                         onProviderEvent(round, event)
                     } catch (failure: Exception) {
@@ -42,7 +52,9 @@ internal class AgentModelRetry(
                 controller.throwIfCancelled()
                 if (callbackFailed || Thread.currentThread().isInterrupted) throw failure
                 val classified = AgentModelFailure.transport(failure) ?: throw failure
-                if (!classified.retryable || hostedToolStarted) throw classified
+                if (!classified.retryable || hostedToolStarted || sawCompleted || sawVisibleText) {
+                    throw classified
+                }
                 if (retries == MAX_RETRIES) {
                     throw AgentModelFailure(
                         classified.code, false,
