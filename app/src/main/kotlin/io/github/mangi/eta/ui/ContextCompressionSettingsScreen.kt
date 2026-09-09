@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,10 +36,13 @@ import io.github.mangi.eta.ui.model.AgentModelOptionUi
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import top.yukonga.miuix.kmp.basic.Card
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -51,14 +55,18 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
     var keepRecent by remember { mutableIntStateOf(prefs?.getInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, AgentContextCompactor.DEFAULT_KEEP_RECENT) ?: AgentContextCompactor.DEFAULT_KEEP_RECENT) }
     var keepRecentInput by remember { mutableStateOf(keepRecent.toString()) }
 
+    val scope = rememberCoroutineScope()
     var selectedCompressModel by remember { mutableStateOf<AgentModelOptionUi?>(null) }
     var showModelDialog by remember { mutableStateOf(false) }
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
+    var isLoadingModels by remember { mutableStateOf(false) }
 
     LaunchedEffect(prefs) {
         prefs?.let { currentPrefs ->
-            selectedCompressModel = readCompressModelSelection(currentPrefs)
-            modelPickerState = buildCompressModelPickerState(currentPrefs)
+            isLoadingModels = true
+            selectedCompressModel = withContext(Dispatchers.IO) { readCompressModelSelection(currentPrefs) }
+            modelPickerState = withContext(Dispatchers.IO) { buildCompressModelPickerState(currentPrefs) }
+            isLoadingModels = false
         }
     }
 
@@ -74,8 +82,10 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                 Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID,
                 Prefs.Keys.AGENT_COMPRESS_MODEL_ID -> {
                     prefs?.let { currentPrefs ->
-                        selectedCompressModel = readCompressModelSelection(currentPrefs)
-                        modelPickerState = buildCompressModelPickerState(currentPrefs)
+                        scope.launch {
+                            selectedCompressModel = withContext(Dispatchers.IO) { readCompressModelSelection(currentPrefs) }
+                            modelPickerState = withContext(Dispatchers.IO) { buildCompressModelPickerState(currentPrefs) }
+                        }
                     }
                 }
             }
@@ -182,12 +192,19 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
     CompressModelPickerDialog(
         state = modelPickerState,
         show = showModelDialog,
+        isLoading = isLoadingModels,
         onDismiss = { showModelDialog = false },
         onModelSelected = { providerId, modelId ->
             prefs?.edit()?.apply {
                 putString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, providerId)
                 putString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, modelId)
             }?.apply()
+            scope.launch {
+                prefs?.let { currentPrefs ->
+                    selectedCompressModel = withContext(Dispatchers.IO) { readCompressModelSelection(currentPrefs) }
+                    modelPickerState = withContext(Dispatchers.IO) { buildCompressModelPickerState(currentPrefs) }
+                }
+            }
             showModelDialog = false
         },
     )
@@ -197,6 +214,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
 private fun CompressModelPickerDialog(
     state: AgentModelPickerUiState,
     show: Boolean,
+    isLoading: Boolean = false,
     onDismiss: () -> Unit,
     onModelSelected: (String, String) -> Unit,
 ) {
@@ -207,46 +225,58 @@ private fun CompressModelPickerDialog(
         onDismissRequest = onDismiss,
     ) {
         Column {
-            state.providerGroups.forEachIndexed { index, group ->
-                if (index > 0) {
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
-                }
-                val expanded = group.providerId in expandedProviderIds
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            expandedProviderIds = if (expanded) {
-                                expandedProviderIds - group.providerId
-                            } else {
-                                expandedProviderIds + group.providerId
+            if (isLoading) {
+                MiuixText(
+                    text = "Loading...",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            } else if (state.providerGroups.isEmpty()) {
+                MiuixText(
+                    text = stringResource(R.string.provider_empty),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            } else {
+                state.providerGroups.forEachIndexed { index, group ->
+                    if (index > 0) {
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
+                    }
+                    val expanded = group.providerId in expandedProviderIds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                expandedProviderIds = if (expanded) {
+                                    expandedProviderIds - group.providerId
+                                } else {
+                                    expandedProviderIds + group.providerId
+                                }
                             }
-                        }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = group.providerName,
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                if (expanded) {
-                    group.models.forEach { model ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onModelSelected(model.providerId, model.id) }
-                                .padding(horizontal = 32.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = model.displayName,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (model.id == state.selectedModel?.id) {
-                                Icon(imageVector = Icons.Rounded.Check, contentDescription = null)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = group.providerName,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    if (expanded) {
+                        group.models.forEach { model ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onModelSelected(model.providerId, model.id) }
+                                    .padding(horizontal = 32.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = model.displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (model.id == state.selectedModel?.id) {
+                                    Icon(imageVector = Icons.Rounded.Check, contentDescription = null)
+                                }
                             }
                         }
                     }
@@ -256,17 +286,17 @@ private fun CompressModelPickerDialog(
     }
 }
 
-private fun buildCompressModelPickerState(prefs: SharedPreferences): AgentModelPickerUiState = runBlocking {
+private suspend fun buildCompressModelPickerState(prefs: SharedPreferences): AgentModelPickerUiState {
     val providers = runCatching { ProviderRepository.allProviders() }.getOrNull() ?: emptyList()
     val providerId = prefs.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null)
     val modelId = prefs.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null)
-    AgentModelPickerProjector.project(
+    return AgentModelPickerProjector.project(
         providers = providers,
         selectedProviderId = providerId,
         selectedModelId = modelId,
     )
 }
 
-private fun readCompressModelSelection(prefs: SharedPreferences): AgentModelOptionUi? {
+private suspend fun readCompressModelSelection(prefs: SharedPreferences): AgentModelOptionUi? {
     return buildCompressModelPickerState(prefs).selectedModel
 }

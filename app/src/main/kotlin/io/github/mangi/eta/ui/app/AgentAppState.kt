@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
@@ -161,6 +162,7 @@ internal class AgentAppState(
     init {
         refreshConversationSummaries()
         observeRuntimeSelection()
+        observeAutoCompressEnabled()
         scope.launch {
             RootAccess.state.collectLatest { refreshPermissionHealth() }
         }
@@ -173,6 +175,16 @@ internal class AgentAppState(
                 runtimeRecoveryInProgress.set(false)
             }
         }
+    }
+
+    private fun observeAutoCompressEnabled() {
+        val prefs = Prefs.localAgentPreferences() ?: return
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED) {
+                autoCompressEnabled = Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
     }
 
     private fun observeRuntimeSelection() {

@@ -89,6 +89,7 @@ import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
 import io.github.mangi.eta.ui.model.latestContextUsage
+import io.github.mangi.eta.ui.model.realtimeContextUsage
 import kotlin.math.exp
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
@@ -158,7 +159,7 @@ internal fun AgentChatBody(
     val isKeyboardVisible = imeBottomPx > 0
     val browserSnapshot by AgentBrowserSession.snapshots.collectAsState()
     val contextUsage = remember(messages, modelPickerState.selectedModel) {
-        latestContextUsage(messages, modelPickerState.selectedModel)
+        realtimeContextUsage(messages, modelPickerState.selectedModel)
     }
 
     val visibleMessages = remember(messages, messageEdit?.targetMessageId) {

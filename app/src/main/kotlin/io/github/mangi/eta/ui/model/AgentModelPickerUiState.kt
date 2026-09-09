@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.model
 
 import androidx.compose.runtime.Immutable
+import io.github.mangi.eta.agent.model.AgentContextBudget
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.provider.ProviderSourceRegistry
@@ -116,6 +117,20 @@ internal fun latestContextUsage(
         .filterIsInstance<AgentMessageUi>()
         .mapNotNull { it.usage?.contextTokens }
         .firstOrNull(),
+    contextWindow = selectedModel?.contextWindow,
+)
+
+internal fun realtimeContextUsage(
+    messages: List<AgentChatMessageUi>,
+    selectedModel: AgentModelOptionUi?,
+): AgentContextUsageUi = AgentContextUsageUi(
+    contextTokens = messages.sumOf { message ->
+        when (message) {
+            is UserMessageUi -> AgentContextBudget.countTokens(message.content)
+            is AgentMessageUi -> message.usage?.contextTokens ?: AgentContextBudget.countTokens(message.content)
+            else -> 0
+        }
+    },
     contextWindow = selectedModel?.contextWindow,
 )
 
