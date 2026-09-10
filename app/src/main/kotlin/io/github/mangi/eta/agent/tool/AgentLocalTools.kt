@@ -43,6 +43,7 @@ import io.github.mangi.eta.core.HookSupport
 import io.github.mangi.eta.data.repository.AgentMemoryException
 import io.github.mangi.eta.data.repository.AgentMemoryMutation
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
+import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.data.repository.AgentMemoryWriteResult
 import io.github.mangi.eta.data.repository.LinuxEnvironmentSettingsRepository
 import java.util.Locale
@@ -51,7 +52,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlinx.coroutines.runBlocking
 
 internal class AgentLocalTools(
     private val context: Context,
@@ -73,7 +73,7 @@ internal class AgentLocalTools(
         Prefs.isEnabled(Prefs.Keys.AGENT_DEVICE_SENSITIVE_ACTION_TOOLS)
     },
     private val memoryToolsEnabled: () -> Boolean = {
-        runBlocking { AgentMemoryRepository.isEnabled() }
+        AssistantRepository.active().memoryEnabled
     },
     private val screenshotExcludedPackages: () -> Set<String> = { emptySet() },
     private val screenObservationProvider: (
@@ -273,7 +273,7 @@ internal class AgentLocalTools(
     private fun memoryToolPermissionError(toolName: String): AgentModelClient.ToolResult? {
         if (toolName !in MEMORY_TOOL_NAMES || memoryToolsEnabled()) return null
         return AgentModelClient.ToolResult(
-            content = errorResult("MEMORY_DISABLED", "记忆已在设置中关闭"),
+            content = errorResult("MEMORY_DISABLED", "当前助手未启用记忆"),
             sensitive = true,
         )
     }

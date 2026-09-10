@@ -25,6 +25,7 @@ import io.github.mangi.eta.agent.voice.EtaAssistantOverlayService
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
+import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.data.repository.LinuxEnvironmentSettingsRepository
 import io.github.mangi.eta.agent.terminal.LinuxDistribution
 import kotlinx.coroutines.runBlocking
@@ -88,11 +89,14 @@ internal class AgentRuntimeRunExecutor(
                 cacheRoot = appContext.cacheDir,
                 baseClient = AgentHttpClient.client,
             )
+            val assistant = AssistantRepository.active()
+            val enabledSkillIds = assistant.enabledSkillIds.toSet()
             val skillContext = SkillContext(
-                installedSkills = skillIndexService.listInstalledSkills()
+                installedSkills = skillIndexService.listSkillsForManagement()
+                    .filter { it.installed && it.id in enabledSkillIds }
                     .filter { SkillCompatibilityChecker.evaluate(it).available },
             )
-            val memoryEnabled = runBlocking { AgentMemoryRepository.isEnabled() }
+            val memoryEnabled = assistant.memoryEnabled
             val memoryContext = if (memoryEnabled) {
                 runCatching {
                     AgentMemoryContextBuilder.build(
@@ -139,9 +143,7 @@ internal class AgentRuntimeRunExecutor(
                     request.config.deviceSensitiveActionTools &&
                         currentPermissions().deviceSensitiveActionTools
                 },
-                memoryToolsEnabled = {
-                    runBlocking { AgentMemoryRepository.isEnabled() }
-                },
+                memoryToolsEnabled = { assistant.memoryEnabled },
                 screenshotExcludedPackages = {
                     entrySurfaceGuard?.consumeScreenshotExcludedPackages().orEmpty()
                 },

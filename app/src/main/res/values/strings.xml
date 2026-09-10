@@ -1127,6 +1127,8 @@
   <string name="chat_stop">Stop</string>
   <string name="chat_send">Send</string>
   <string name="chat_continue">Continue</string>
+  <string name="chat_paused_run_abandoned">Paused reply ended</string>
+  <string name="chat_continue_abort">Long press to end the paused reply</string>
   <string name="chat_continue_prompt">Continue from where you left off. Do not repeat content already written.</string>
   <string name="chat_reasoning_effort">思考强度：%1$s</string>
   <string name="status_unsupported">Unsupported</string>
@@ -1250,5 +1252,7 @@
     <string name="assistant_change_avatar">Change avatar</string>
     <string name="assistant_crop_title">Crop avatar</string>
     <string name="assistant_selector">Assistant</string>
+    <string name="assistant_memory_summary">Only affects this assistant. MEMORY.md is shared. Turning this off skips injection and memory tools, but keeps existing notes.</string>
+    <string name="assistant_skills_summary">Only affects this assistant. The three built-in skills start on; newly installed skills stay off until you enable them here.</string>
     <string name="settings_assistants">Assistants</string>
 </resources>

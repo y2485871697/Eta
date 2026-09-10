@@ -117,9 +117,7 @@ fun AgentSkillsScreen(
                         SkillSwitchRow(
                             skill = skill,
                             enabled = !operationPending,
-                            onToggle = { enabled ->
-                                onAction(AgentSkillsAction.ToggleSkill(skill.id, enabled))
-                            },
+                            showSwitch = false,
                         )
                     }
                 }
@@ -138,9 +136,7 @@ fun AgentSkillsScreen(
                         SkillSwitchRow(
                             skill = skill,
                             enabled = !operationPending,
-                            onToggle = { enabled ->
-                                onAction(AgentSkillsAction.ToggleSkill(skill.id, enabled))
-                            },
+                            showSwitch = false,
                             onDelete = { deleteTarget = skill },
                         )
                     }

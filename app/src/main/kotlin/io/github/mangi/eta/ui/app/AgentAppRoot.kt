@@ -284,6 +284,8 @@ fun AgentAppRoot(
                                 is AgentHomeAction.SubmitMessage -> { requestExecutionNotifications(); agentState.sendCurrentMessage(action.text) }
                                 AgentHomeAction.StopRun -> agentState.pauseCurrentRun()
                                 AgentHomeAction.ContinueRun -> agentState.continuePausedGeneration()
+                                AgentHomeAction.AbortPausedRun -> agentState.abandonPausedRun()
+                                is AgentHomeAction.AssistantSelected -> agentState.selectAssistant(action.id)
                                 is AgentHomeAction.ImageAttached -> agentState.attachImage(action.uri)
                                 is AgentHomeAction.RemoveImage -> agentState.removePendingImage(action.id)
                                 is AgentHomeAction.FilesAttached -> agentState.attachFiles(action.uris)
@@ -312,7 +314,7 @@ fun AgentAppRoot(
                                 AgentHomeAction.OpenSystemEnhance -> pushRoute(AppRoute.SystemEnhance)
                                 AgentHomeAction.OpenSettings -> pushRoute(AppRoute.Settings)
                                 AgentHomeAction.OpenBrowser -> pushRoute(AppRoute.Browser)
-                                AgentHomeAction.OpenAssistantPicker -> pushRoute(AppRoute.Assistants(picker = true))
+                                is AgentHomeAction.EditAssistant -> pushRoute(AppRoute.AssistantEdit(action.id))
                                 AgentHomeAction.ExpandRunTrace -> Unit
                             }
                         },
@@ -338,8 +340,10 @@ fun AgentAppRoot(
                                 is AgentChatAction.SubmitMessage -> { requestExecutionNotifications(); agentState.sendCurrentMessage(action.text) }
                                 AgentChatAction.StopRun -> agentState.pauseCurrentRun()
                                 AgentChatAction.ContinueRun -> agentState.continuePausedGeneration()
+                                AgentChatAction.AbortPausedRun -> agentState.abandonPausedRun()
+                                is AgentChatAction.AssistantSelected -> agentState.selectAssistant(action.id)
                                 AgentChatAction.OpenBrowser -> pushRoute(AppRoute.Browser)
-                                AgentChatAction.OpenAssistantPicker -> pushRoute(AppRoute.Assistants(picker = true))
+                                is AgentChatAction.EditAssistant -> pushRoute(AppRoute.AssistantEdit(action.id))
                                 is AgentChatAction.ImageAttached -> agentState.attachImage(action.uri)
                                 is AgentChatAction.RemoveImage -> agentState.removePendingImage(action.id)
                                 is AgentChatAction.FilesAttached -> agentState.attachFiles(action.uris)

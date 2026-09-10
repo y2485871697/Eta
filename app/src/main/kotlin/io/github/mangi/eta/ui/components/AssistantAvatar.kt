@@ -13,15 +13,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.data.model.AssistantProfile
 import io.github.mangi.eta.data.repository.AssistantRepository
-import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -57,11 +54,11 @@ internal fun AssistantAvatar(
                 contentScale = ContentScale.Crop,
             )
         } else {
-            Icon(
-                imageVector = ImageVector.vectorResource(R.drawable.ic_assistant_default),
+            Image(
+                painter = painterResource(R.mipmap.ic_launcher),
                 contentDescription = null,
-                modifier = Modifier.size(size * 0.56f),
-                tint = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
             )
         }
     }

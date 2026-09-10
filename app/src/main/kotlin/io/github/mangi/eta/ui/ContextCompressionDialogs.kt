@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.SharedPreferences
 import android.view.ViewTreeObserver
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -37,6 +38,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -104,6 +107,23 @@ private fun rememberActivityImeBottomDp(): Dp {
     return with(density) { maxOf(composeImePx, viewImePx).toDp() }
 }
 
+
+private fun storedCompressTargetTokens(): Int {
+    val stored = Prefs.getInt(
+        Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
+        AgentContextCompactor.DEFAULT_TARGET_TOKENS,
+    )
+    return CompressTargetTokenOptions.firstOrNull { it == stored }
+        ?: CompressTargetTokenOptions.minBy { kotlin.math.abs(it - stored) }
+}
+
+private fun storedCompressKeepRecent(): Int {
+    return Prefs.getInt(
+        Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
+        AgentContextCompactor.DEFAULT_KEEP_RECENT,
+    ).coerceIn(0, 100)
+}
+
 private val CompressTargetTokenOptions = listOf(500, 1000, 2000, 4000)
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -146,10 +166,10 @@ internal fun CompressConversationDialog(
             compressing = false
             return@LaunchedEffect
         }
-        targetTokens = AgentContextCompactor.DEFAULT_TARGET_TOKENS
-        keepRecent = AgentContextCompactor.DEFAULT_KEEP_RECENT
-        val seed = keepRecent.toString()
-        keepRecentField = TextFieldValue(seed, TextRange(0, seed.length))
+        targetTokens = storedCompressTargetTokens()
+        keepRecent = storedCompressKeepRecent()
+        keepRecentField = TextFieldValue(keepRecent.toString())
+        keepRecentFocused = false
         isLoadingModels = true
         val pickerState = withContext(Dispatchers.IO) {
             buildManualCompressModelPickerState()
@@ -173,8 +193,16 @@ internal fun CompressConversationDialog(
                 scrollState.animateScrollTo(scrollState.maxValue)
             }
         }
+        val dialogFocus = remember { FocusRequester() }
+        LaunchedEffect(Unit) {
+            dialogFocus.requestFocus()
+            keyboard?.hide()
+        }
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(dialogFocus)
+                .focusable(),
         ) {
             Column(
                 modifier = Modifier

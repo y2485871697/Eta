@@ -1118,6 +1118,8 @@
   <string name="chat_stop">停止</string>
   <string name="chat_send">发送</string>
   <string name="chat_continue">继续</string>
+  <string name="chat_paused_run_abandoned">已结束暂停的回复</string>
+  <string name="chat_continue_abort">长按结束暂停的回复</string>
   <string name="chat_continue_prompt">请从上次中断处继续输出，不要重复已经给出的内容。</string>
   <string name="chat_reasoning_effort">推理强度，当前为 %1$s</string>
   <string name="status_unsupported">不支持</string>
@@ -1223,5 +1225,7 @@
     <string name="assistant_change_avatar">更换头像</string>
     <string name="assistant_crop_title">裁切头像</string>
     <string name="assistant_selector">助手</string>
+    <string name="assistant_memory_summary">只对当前助手生效。MEMORY.md 为所有助手共用。关闭后不注入、不允许读写，已有内容会保留。</string>
+    <string name="assistant_skills_summary">只对当前助手生效。三个内置 Skills 默认开启，新安装的需要在这里手动打开。</string>
     <string name="settings_assistants">助手</string>
 </resources>

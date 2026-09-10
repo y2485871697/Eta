@@ -11,7 +11,7 @@ class ChatComposerSendModeTest {
             resolveChatComposerSendMode(
                 isStreaming = true,
                 isPaused = false,
-                hasSteerText = false,
+                hasSteerContent = false,
                 canStartNewSend = false,
             ),
         )
@@ -24,7 +24,7 @@ class ChatComposerSendModeTest {
             resolveChatComposerSendMode(
                 isStreaming = true,
                 isPaused = false,
-                hasSteerText = true,
+                hasSteerContent = true,
                 canStartNewSend = true,
             ),
         )
@@ -37,7 +37,7 @@ class ChatComposerSendModeTest {
             resolveChatComposerSendMode(
                 isStreaming = true,
                 isPaused = true,
-                hasSteerText = false,
+                hasSteerContent = false,
                 canStartNewSend = false,
             ),
         )
@@ -50,7 +50,7 @@ class ChatComposerSendModeTest {
             resolveChatComposerSendMode(
                 isStreaming = true,
                 isPaused = true,
-                hasSteerText = true,
+                hasSteerContent = true,
                 canStartNewSend = true,
             ),
         )
@@ -63,7 +63,7 @@ class ChatComposerSendModeTest {
             resolveChatComposerSendMode(
                 isStreaming = false,
                 isPaused = false,
-                hasSteerText = false,
+                hasSteerContent = false,
                 canStartNewSend = false,
             ),
         )
@@ -76,7 +76,33 @@ class ChatComposerSendModeTest {
             resolveChatComposerSendMode(
                 isStreaming = false,
                 isPaused = false,
-                hasSteerText = true,
+                hasSteerContent = true,
+                canStartNewSend = true,
+            ),
+        )
+    }
+
+    @Test
+    fun streamingWithAttachmentsShowsSend() {
+        assertEquals(
+            "send",
+            resolveChatComposerSendMode(
+                isStreaming = true,
+                isPaused = false,
+                hasSteerContent = true,
+                canStartNewSend = true,
+            ),
+        )
+    }
+
+    @Test
+    fun pausedWithAttachmentsShowsSend() {
+        assertEquals(
+            "send",
+            resolveChatComposerSendMode(
+                isStreaming = true,
+                isPaused = true,
+                hasSteerContent = true,
                 canStartNewSend = true,
             ),
         )

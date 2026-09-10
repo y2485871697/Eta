@@ -9,7 +9,6 @@ import android.service.voice.VoiceInteractionService
 import android.widget.Toast
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -207,15 +206,6 @@ internal fun SettingsScreen(
                 SmallTitle(stringResource(R.string.settings_llm_providers))
                 Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                     ArrowPreference(
-                        title = stringResource(R.string.settings_assistants),
-                        startAction = {
-                            PreferenceIcon(
-                                icon = Icons.Rounded.AutoAwesome,
-                            )
-                        },
-                        onClick = { onNavigate(AppRoute.Assistants()) },
-                    )
-                    ArrowPreference(
                         title = stringResource(R.string.ui_model_provider_e8c7f5),
                         summary = providerSummary,
                         startAction = {
@@ -241,15 +231,14 @@ internal fun SettingsScreen(
                 SmallTitle(stringResource(R.string.settings_context_extensions))
                 Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                     ArrowPreference(
-                        title = stringResource(R.string.ui_memory_b55ff5),
+                        title = stringResource(R.string.settings_assistants),
                         startAction = {
                             PreferenceIcon(
-                                icon = Icons.AutoMirrored.Rounded.MenuBook,
+                                icon = Icons.Rounded.AutoAwesome,
                             )
                         },
-                        onClick = { onNavigate(AppRoute.Memory) },
+                        onClick = { onNavigate(AppRoute.Assistants()) },
                     )
-
                     ArrowPreference(
                         title = stringResource(R.string.route_context_compression),
                         startAction = {

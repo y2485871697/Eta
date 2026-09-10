@@ -3,6 +3,7 @@ package io.github.mangi.eta.data.repository
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import io.github.mangi.eta.data.model.AssistantDefaults
 import io.github.mangi.eta.data.model.AssistantProfile
 import io.github.mangi.eta.data.model.AssistantPrompt
 import java.io.File
@@ -39,7 +40,7 @@ internal object AssistantRepository {
         applicationContext = context.applicationContext
         directory().mkdirs()
         avatarsDirectory().mkdirs()
-        val snapshot = readIndex() ?: seedDefault()
+        val snapshot = migrateDefaultPrompt(readIndex() ?: seedDefault())
         publish(snapshot)
     }
 
@@ -68,7 +69,13 @@ internal object AssistantRepository {
     }
 
     @Synchronized
-    fun create(name: String = "新助手", prompt: String = "", avatarFileName: String? = null): AssistantProfile {
+    fun create(
+        name: String = "新助手",
+        prompt: String = "",
+        avatarFileName: String? = null,
+        memoryEnabled: Boolean = true,
+        enabledSkillIds: List<String> = AssistantDefaults.ENABLED_SKILL_IDS,
+    ): AssistantProfile {
         ensureReady()
         val id = UUID.randomUUID().toString()
         val created = AssistantProfile(
@@ -77,6 +84,8 @@ internal object AssistantRepository {
             prompt = prompt,
             avatarFileName = avatarFileName,
             createdAt = System.currentTimeMillis(),
+            memoryEnabled = memoryEnabled,
+            enabledSkillIds = enabledSkillIds,
         )
         val snapshot = Snapshot(activeId.value, profiles.value + created)
         writeIndex(snapshot)
@@ -89,7 +98,12 @@ internal object AssistantRepository {
         ensureReady()
         val source = requireNotNull(profile(id)) { "助手不存在" }
         val copyName = source.name.trim().ifBlank { AssistantPrompt.DEFAULT_NAME } + " 副本"
-        val created = create(name = copyName, prompt = source.prompt)
+        val created = create(
+            name = copyName,
+            prompt = source.prompt,
+            memoryEnabled = source.memoryEnabled,
+            enabledSkillIds = source.enabledSkillIds,
+        )
         source.avatarFileName?.let { copyAvatar(it, created.id) }?.let { fileName ->
             return update(created.copy(avatarFileName = fileName))
         }
@@ -166,9 +180,27 @@ internal object AssistantRepository {
     private fun defaultProfile(createdAt: Long = 0L) = AssistantProfile(
         id = AssistantPrompt.DEFAULT_ID,
         name = AssistantPrompt.DEFAULT_NAME,
-        prompt = AssistantPrompt.DEFAULT_BODY,
+        prompt = "",
         createdAt = createdAt,
     )
+
+    private fun migrateDefaultPrompt(snapshot: Snapshot): Snapshot {
+        val profiles = snapshot.profiles.map { profile ->
+            if (profile.id != AssistantPrompt.DEFAULT_ID) return@map profile
+            var next = profile
+            if (next.prompt == AssistantPrompt.DEFAULT_BODY) {
+                next = next.copy(prompt = "")
+            }
+            if (next.name == "Eta") {
+                next = next.copy(name = AssistantPrompt.DEFAULT_NAME)
+            }
+            next
+        }
+        if (profiles == snapshot.profiles) return snapshot
+        val migrated = snapshot.copy(profiles = profiles)
+        writeIndex(migrated)
+        return migrated
+    }
 
     private fun publish(snapshot: Snapshot) {
         _profiles.value = snapshot.profiles

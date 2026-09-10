@@ -38,46 +38,52 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal fun SkillSwitchRow(
     skill: SkillItemUi,
     enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
+    onToggle: (Boolean) -> Unit = {},
     onDelete: (() -> Unit)? = null,
+    showSwitch: Boolean = true,
+    showMenu: Boolean = true,
 ) {
     var showDescription by remember(skill.id) { mutableStateOf(false) }
     val description = skill.description.ifBlank { stringResource(R.string.skills_no_description) }
     BasicComponent(
         startAction = { PreferenceIcon(iconForSkill(skill.id), enabled = enabled) },
         endActions = {
-            OverlayIconDropdownMenu(
-                modifier = Modifier.align(Alignment.CenterVertically),
-                entry = DropdownEntry(
-                    items = listOfNotNull(
-                        DropdownItem(
-                            text = stringResource(R.string.ui_view_description),
-                            onClick = { showDescription = true },
-                        ),
-                        onDelete?.let { delete ->
+            if (showMenu) {
+                OverlayIconDropdownMenu(
+                    modifier = Modifier.align(Alignment.CenterVertically),
+                    entry = DropdownEntry(
+                        items = listOfNotNull(
                             DropdownItem(
-                                text = stringResource(R.string.ui_delete_3755f5),
-                                enabled = enabled,
-                                onClick = { if (enabled) delete() },
-                            )
-                        },
+                                text = stringResource(R.string.ui_view_description),
+                                onClick = { showDescription = true },
+                            ),
+                            onDelete?.let { delete ->
+                                DropdownItem(
+                                    text = stringResource(R.string.ui_delete_3755f5),
+                                    enabled = enabled,
+                                    onClick = { if (enabled) delete() },
+                                )
+                            },
+                        ),
                     ),
-                ),
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.MoreHoriz,
-                    contentDescription = stringResource(R.string.skills_more_named, skill.name),
-                    modifier = Modifier.size(20.dp),
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreHoriz,
+                        contentDescription = stringResource(R.string.skills_more_named, skill.name),
+                        modifier = Modifier.size(20.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                    )
+                }
+            }
+            if (showSwitch) {
+                if (showMenu) Spacer(modifier = Modifier.width(4.dp))
+                Switch(
+                    checked = skill.enabled,
+                    onCheckedChange = onToggle,
+                    enabled = enabled,
+                    modifier = Modifier.align(Alignment.CenterVertically),
                 )
             }
-            Spacer(modifier = Modifier.width(4.dp))
-            Switch(
-                checked = skill.enabled,
-                onCheckedChange = onToggle,
-                enabled = enabled,
-                modifier = Modifier.align(Alignment.CenterVertically),
-            )
         },
     ) {
         Text(

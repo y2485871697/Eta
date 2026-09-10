@@ -51,6 +51,7 @@ import io.github.mangi.eta.data.repository.EtaBackupSummary
 import io.github.mangi.eta.data.repository.ModelRepository
 import io.github.mangi.eta.data.repository.ProviderBalanceStore
 import io.github.mangi.eta.data.repository.ProviderRepository
+import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
@@ -813,7 +814,10 @@ internal class AgentAppState(
     }
 
     fun updateReasoningEffort(effort: ReasoningEffort) {
+        if (homeState.isStreaming && !homeState.isPaused) return
         val normalized = currentReasoningCapabilities?.normalize(effort) ?: ReasoningEffort.OFF
+        if (normalized == homeState.reasoningEffort) return
+        if (homeState.isPaused) abandonPausedRun()
         updateCurrentConversation(
             homeState.copy(
                 thinkingEnabled = normalized.enablesReasoning,
@@ -825,13 +829,14 @@ internal class AgentAppState(
     }
 
     fun selectModel(modelId: String) {
+        if (homeState.isStreaming && !homeState.isPaused) return
         if (
-            homeState.isStreaming ||
             modelPickerState.isChanging ||
             modelPickerState.selectedModel?.id == modelId
         ) {
             return
         }
+        if (homeState.isPaused) abandonPausedRun()
         modelPickerState = modelPickerState.copy(isChanging = true)
         scope.launch(Dispatchers.IO) {
             try {
@@ -950,7 +955,13 @@ internal class AgentAppState(
         val pendingImages = homeState.pendingImages
         val pendingFileReferences = homeState.pendingFileReferences
         if (homeState.isStreaming || homeState.isPaused) {
-            if (prompt.isNotBlank()) steerCurrentRun(prompt)
+            if (
+                prompt.isNotBlank() ||
+                pendingImages.isNotEmpty() ||
+                pendingFileReferences.isNotEmpty()
+            ) {
+                steerCurrentRun(prompt)
+            }
             return
         }
         if (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty()) {
@@ -1750,16 +1761,38 @@ internal class AgentAppState(
         )
     }
 
+    fun abandonPausedRun() {
+        if (!homeState.isPaused) return
+        abortActiveRunForRevision()
+        Toast.makeText(
+            appContext,
+            appContext.getString(R.string.chat_paused_run_abandoned),
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    fun selectAssistant(id: String) {
+        if (homeState.isStreaming && !homeState.isPaused) return
+        if (AssistantRepository.activeId.value == id) return
+        if (homeState.isPaused) abandonPausedRun()
+        scope.launch(Dispatchers.IO) {
+            AssistantRepository.select(id)
+            RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+        }
+    }
+
     private fun abortActiveRunForRevision() {
-        val runId = currentRunId ?: return
+        val runId = currentRunId
         currentRunJob?.cancel()
         currentRunJob = null
         currentRunId = null
-        scope.launch(Dispatchers.IO) {
-            AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
+        if (runId != null) {
+            scope.launch(Dispatchers.IO) {
+                AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
+            }
+            runMessageProjector.clearRun(runId)
+            runConversationIds.remove(runId)
         }
-        runMessageProjector.clearRun(runId)
-        runConversationIds.remove(runId)
         updateCurrentConversation(
             homeState.copy(
                 isStreaming = false,
@@ -1781,9 +1814,41 @@ internal class AgentAppState(
     fun steerCurrentRun(text: String) {
         val runId = currentRunId ?: return
         val prompt = text.trim()
-        if (prompt.isBlank()) return
+        val pendingImages = homeState.pendingImages
+        val pendingFileReferences = homeState.pendingFileReferences
+        if (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty()) return
+        val fileReferences = pendingFileReferences.map { it.reference }
+        if (
+            !AgentFileReferencePolicy.canSend(
+                references = fileReferences,
+                terminalToolsEnabled = agentBooleanForUi(Prefs.Keys.AGENT_TERMINAL_TOOLS),
+            )
+        ) {
+            Toast.makeText(
+                appContext,
+                appContext.getString(R.string.state_ui_file_path_reference_requires_opening_the_termina_deca4c),
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+        val conversationId = selectedConversationId
+        updateCurrentConversation(
+            homeState.copy(
+                pendingImages = emptyList(),
+                pendingFileReferences = emptyList(),
+            ),
+        )
         scope.launch(Dispatchers.IO) {
-            AgentRuntimeClient(appContext, AndroidAgentLogger).steerRun(runId, prompt)
+            val staged = if (conversationId != null && pendingImages.isNotEmpty()) {
+                stageChatImages(conversationId, pendingImages)
+            } else {
+                emptyList()
+            }
+            val steerText = AgentFileReferencePromptCodec.format(
+                prompt,
+                fileReferences + staged,
+            ).ifBlank { "请查看我补充的附件。" }
+            AgentRuntimeClient(appContext, AndroidAgentLogger).steerRun(runId, steerText)
         }
         if (homeState.isPaused) {
             continuePausedGeneration()
@@ -2769,6 +2834,7 @@ internal class AgentAppState(
         keepRecent: Int,
         onFinished: (Boolean) -> Unit,
     ) {
+        persistCompressPreferences(providerId, modelId, targetTokens, keepRecent)
         if (homeState.isStreaming) {
             Toast.makeText(
                 appContext,

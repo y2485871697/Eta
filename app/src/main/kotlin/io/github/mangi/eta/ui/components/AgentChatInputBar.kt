@@ -1,5 +1,7 @@
 package io.github.mangi.eta.ui.components
 
+import android.view.HapticFeedbackConstants
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -10,9 +12,12 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -81,6 +87,7 @@ import io.github.mangi.eta.agent.model.AgentContextBudget
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.repository.AssistantRepository
+import io.github.mangi.eta.ui.screens.assistants.AssistantPickerDialog
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.liveContextUsage
 import io.github.mangi.eta.ui.model.shouldBlockSendForContextWindow
@@ -105,6 +112,7 @@ private val InputContainerShape = RoundedCornerShape(20.dp)
 /**
  * Agent 输入器始终保持同一空间结构，聚焦、输入和执行过程只改变状态，不搬动操作入口。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun AgentChatInputBar(
     input: String,
@@ -124,6 +132,7 @@ internal fun AgentChatInputBar(
     onSubmit: (String) -> Unit,
     onStop: () -> Unit,
     onContinue: () -> Unit = {},
+    onAbortPausedRun: () -> Unit = {},
     isPaused: Boolean = false,
     onAttachImage: (String) -> Unit,
     onRemoveImage: (String) -> Unit,
@@ -132,7 +141,8 @@ internal fun AgentChatInputBar(
     onAttachFilePath: (String) -> Unit,
     onRemoveFileReference: (String) -> Unit,
     onCancelMessageEdit: () -> Unit,
-    onOpenAssistantPicker: () -> Unit,
+    onEditAssistant: (String) -> Unit,
+    onAssistantSelected: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -346,7 +356,7 @@ internal fun AgentChatInputBar(
                                 ThinkingEffortChip(
                                     effort = reasoningEffort,
                                     options = availableReasoningEfforts,
-                                    enabled = !isStreaming,
+                                    enabled = !isStreaming || isPaused,
                                     onEffortChange = onReasoningEffortChange,
                                 )
                             }
@@ -354,8 +364,9 @@ internal fun AgentChatInputBar(
                             Spacer(modifier = Modifier.width(2.dp))
 
                             AssistantPickerButton(
-                                enabled = !isStreaming,
-                                onClick = onOpenAssistantPicker,
+                                enabled = !isStreaming || isPaused,
+                                onEditAssistant = onEditAssistant,
+                                onAssistantSelected = onAssistantSelected,
                             )
                         }
 
@@ -373,6 +384,7 @@ internal fun AgentChatInputBar(
                         AgentModelPickerButton(
                             state = modelPickerState,
                             isStreaming = isStreaming,
+                            isPaused = isPaused,
                             popupAnchorTopPx = inputContainerTopPx,
                             popupMaxHeight = thinkingPopupMaxHeight,
                             onModelSelected = onModelSelected,
@@ -381,29 +393,42 @@ internal fun AgentChatInputBar(
                         val sendMode = resolveChatComposerSendMode(
                             isStreaming = isStreaming,
                             isPaused = isPaused,
-                            hasSteerText = textFieldState.text.isNotBlank(),
+                            hasSteerContent = textFieldState.text.isNotBlank() ||
+                                pendingImages.isNotEmpty() ||
+                                pendingFileReferences.isNotEmpty(),
                             canStartNewSend = canSend,
                         )
-                        IconButton(
-                            onClick = {
-                                when (sendMode) {
-                                    "stop" -> onStop()
-                                    "continue" -> onContinue()
-                                    "send" -> {
-                                        val submittedText = textFieldState.text.toString()
-                                        textFieldState.clearText()
-                                        onSubmit(submittedText)
-                                    }
-                                }
-                            },
-                            enabled = sendMode != "idle",
-                            minWidth = ChatInputActionSize,
-                            minHeight = ChatInputActionSize,
+                        val sendInteraction = remember { MutableInteractionSource() }
+                        Box(
+                            modifier = Modifier
+                                .size(ChatInputActionSize)
+                                .focusProperties { canFocus = false }
+                                .combinedClickable(
+                                    enabled = sendMode != "idle",
+                                    indication = null,
+                                    interactionSource = sendInteraction,
+                                    onClick = {
+                                        when (sendMode) {
+                                            "stop" -> onStop()
+                                            "continue" -> onContinue()
+                                            "send" -> {
+                                                val submittedText = textFieldState.text.toString()
+                                                textFieldState.clearText()
+                                                onSubmit(submittedText)
+                                            }
+                                        }
+                                    },
+                                    onLongClick = {
+                                        if (sendMode != "continue") return@combinedClickable
+                                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                        onAbortPausedRun()
+                                    },
+                                ),
+                            contentAlignment = Alignment.Center,
                         ) {
                             val sendButtonColor by animateColorAsState(
                                 targetValue = when (sendMode) {
-                                    "stop" -> MiuixTheme.colorScheme.onSurface
-                                    "continue", "send" -> MiuixTheme.colorScheme.primary
+                                    "stop", "continue", "send" -> MiuixTheme.colorScheme.onSurface
                                     else -> MiuixTheme.colorScheme.surfaceContainerHigh
                                 },
                                 animationSpec = tween(durationMillis = 160),
@@ -435,15 +460,15 @@ internal fun AgentChatInputBar(
                                         },
                                         contentDescription = when (mode) {
                                             "stop" -> stringResource(R.string.chat_stop)
-                                            "continue" -> stringResource(R.string.chat_continue)
+                                            "continue" -> stringResource(R.string.chat_continue) +
+                                                "，" + stringResource(R.string.chat_continue_abort)
                                             else -> stringResource(R.string.chat_send)
                                         },
                                         modifier = Modifier.size(
                                             if (mode == "stop") StopIconSize else SendIconSize
                                         ),
                                         tint = when (mode) {
-                                            "stop" -> MiuixTheme.colorScheme.surface
-                                            "continue", "send" -> MiuixTheme.colorScheme.onPrimary
+                                            "stop", "continue", "send" -> MiuixTheme.colorScheme.surface
                                             else -> MiuixTheme.colorScheme.onSurfaceVariantActions
                                         },
                                     )
@@ -616,14 +641,19 @@ private fun PendingImageStrip(
 @Composable
 private fun AssistantPickerButton(
     enabled: Boolean,
-    onClick: () -> Unit,
+    onEditAssistant: (String) -> Unit,
+    onAssistantSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val profiles by AssistantRepository.profiles.collectAsState()
     val activeId by AssistantRepository.activeId.collectAsState()
+    var showPicker by remember { mutableStateOf(false) }
     val assistant = profiles.firstOrNull { it.id == activeId } ?: profiles.firstOrNull()
+    LaunchedEffect(enabled) {
+        if (!enabled) showPicker = false
+    }
     ChatInputNonFocusableIconButton(
-        onClick = { if (enabled) onClick() },
+        onClick = { if (enabled) showPicker = true },
         contentDescription = stringResource(R.string.assistant_selector),
         modifier = modifier,
     ) {
@@ -635,15 +665,27 @@ private fun AssistantPickerButton(
             )
         }
     }
+    AssistantPickerDialog(
+        show = showPicker && enabled,
+        onDismiss = { showPicker = false },
+        onSelect = { id ->
+            showPicker = false
+            onAssistantSelected(id)
+        },
+        onEdit = { id ->
+            showPicker = false
+            onEditAssistant(id)
+        },
+    )
 }
 
 internal fun resolveChatComposerSendMode(
     isStreaming: Boolean,
     isPaused: Boolean,
-    hasSteerText: Boolean,
+    hasSteerContent: Boolean,
     canStartNewSend: Boolean,
 ): String = when {
-    (isStreaming || isPaused) && hasSteerText -> "send"
+    (isStreaming || isPaused) && hasSteerContent -> "send"
     isPaused -> "continue"
     isStreaming -> "stop"
     canStartNewSend -> "send"

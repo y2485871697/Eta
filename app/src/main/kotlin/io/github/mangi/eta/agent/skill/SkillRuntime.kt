@@ -258,12 +258,12 @@ class SkillIndexService(
         }
 
     fun listInstalledSkills(): List<SkillIndexEntry> =
-        listSkillsForManagement().filter { it.installed && it.enabled }
+        listSkillsForManagement().filter { it.installed }
 
     fun findInstalledSkill(identifier: String): SkillIndexEntry? {
         val normalized = SkillParser.normalizeSkillLookup(identifier)
         if (normalized.isBlank()) return null
-        val entries = listSkillsForManagement().filter { it.installed && it.enabled }
+        val entries = listSkillsForManagement().filter { it.installed }
         return entries.firstOrNull { SkillParser.normalizeSkillLookup(it.id) == normalized }
             ?: entries.firstOrNull { SkillParser.normalizeSkillLookup(it.name) == normalized }
             ?: entries.firstOrNull { SkillParser.normalizeSkillLookup(it.skillFilePath) == normalized }

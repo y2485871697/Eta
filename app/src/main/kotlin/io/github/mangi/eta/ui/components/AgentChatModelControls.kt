@@ -49,7 +49,6 @@ import io.github.mangi.eta.ui.model.formatContextUsage
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.squircle.squircleSurface
@@ -59,6 +58,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal fun AgentModelPickerButton(
     state: AgentModelPickerUiState,
     isStreaming: Boolean,
+    isPaused: Boolean = false,
     popupAnchorTopPx: Int,
     popupMaxHeight: Dp,
     onModelSelected: (String) -> Unit,
@@ -67,30 +67,26 @@ internal fun AgentModelPickerButton(
     val menuState = rememberEtaMenuState()
     var expandedProviderIds by remember { mutableStateOf(emptySet<String>()) }
     val selected = state.selectedModel
-    val enabled = !isStreaming && !state.isChanging && state.providerGroups.isNotEmpty()
+    val enabled = (!isStreaming || isPaused) && !state.isChanging && state.providerGroups.isNotEmpty()
     LaunchedEffect(enabled) {
         if (!enabled) menuState.dismiss()
     }
     val currentModel = selected?.displayName ?: stringResource(R.string.model_not_selected)
     val switchModelDescription = stringResource(R.string.model_switch_current, currentModel)
     Box(modifier = modifier) {
-        IconButton(
+        ChatInputNonFocusableIconButton(
             onClick = {
-                if (!enabled) return@IconButton
+                if (!enabled) return@ChatInputNonFocusableIconButton
                 expandedProviderIds = defaultExpandedModelProviderIds(state.selectedModel)
                 menuState.onAnchorClick()
             },
-            enabled = enabled,
-            minWidth = ChatInputActionSize,
-            minHeight = ChatInputActionSize,
-            modifier = Modifier.semantics {
-                contentDescription = switchModelDescription
-            },
+            contentDescription = switchModelDescription,
         ) {
             ModelBrandMark(
                 modelId = selected?.modelId,
                 sourceType = selected?.providerSourceType,
                 size = ChatInputActionIconSize,
+                modifier = Modifier.graphicsLayer(alpha = if (enabled) 1f else 0.38f),
             )
         }
 
@@ -321,6 +317,7 @@ private fun ModelBrandMark(
     modelId: String?,
     sourceType: String?,
     size: Dp,
+    modifier: Modifier = Modifier,
 ) {
     val logo = modelOrProviderBrandLogoRes(modelId, sourceType)
     if (logo != null) {
@@ -328,13 +325,13 @@ private fun ModelBrandMark(
             painter = painterResource(logo),
             contentDescription = null,
             contentScale = ContentScale.Fit,
-            modifier = Modifier
+            modifier = modifier
                 .size(size)
                 .clip(CircleShape),
         )
     } else {
         Box(
-            modifier = Modifier
+            modifier = modifier
                 .size(size)
                 .background(MiuixTheme.colorScheme.primaryContainer, CircleShape),
             contentAlignment = Alignment.Center,

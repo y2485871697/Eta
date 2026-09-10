@@ -1118,6 +1118,8 @@
   <string name="chat_stop">停止</string>
   <string name="chat_send">傳送</string>
   <string name="chat_continue">繼續</string>
+  <string name="chat_paused_run_abandoned">已結束暫停的回覆</string>
+  <string name="chat_continue_abort">長按結束暫停的回覆</string>
   <string name="chat_continue_prompt">請從上次中斷處繼續輸出，不要重複已經給出的內容。</string>
   <string name="chat_reasoning_effort">推理強度，目前為 %1$s</string>
   <string name="status_unsupported">不支援</string>
@@ -1223,5 +1225,7 @@
     <string name="assistant_change_avatar">更換頭像</string>
     <string name="assistant_crop_title">裁切頭像</string>
     <string name="assistant_selector">助手</string>
+    <string name="assistant_memory_summary">只對目前助手生效。MEMORY.md 為所有助手共用。關閉後不注入、不允許讀寫，既有內容會保留。</string>
+    <string name="assistant_skills_summary">只對目前助手生效。三個內建 Skills 預設開啟，新安裝的需要在這裡手動打開。</string>
     <string name="settings_assistants">助手</string>
 </resources>
