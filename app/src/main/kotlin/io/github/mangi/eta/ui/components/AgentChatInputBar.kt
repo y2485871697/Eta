@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +61,7 @@ import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -80,6 +82,7 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentContextBudget
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.ReasoningEffort
+import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.liveContextUsage
 import io.github.mangi.eta.ui.model.shouldBlockSendForContextWindow
@@ -131,6 +134,7 @@ internal fun AgentChatInputBar(
     onAttachFilePath: (String) -> Unit,
     onRemoveFileReference: (String) -> Unit,
     onCancelMessageEdit: () -> Unit,
+    onOpenAssistantPicker: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -348,6 +352,13 @@ internal fun AgentChatInputBar(
                                     onEffortChange = onReasoningEffortChange,
                                 )
                             }
+
+                            Spacer(modifier = Modifier.width(2.dp))
+
+                            AssistantPickerButton(
+                                enabled = !isStreaming,
+                                onClick = onOpenAssistantPicker,
+                            )
                         }
 
                         Spacer(modifier = Modifier.weight(1f))
@@ -570,6 +581,31 @@ private fun PendingImageStrip(
                     )
                 }
             }
+        }
+    }
+}
+
+
+@Composable
+private fun AssistantPickerButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val profiles by AssistantRepository.profiles.collectAsState()
+    val activeId by AssistantRepository.activeId.collectAsState()
+    val assistant = profiles.firstOrNull { it.id == activeId } ?: profiles.firstOrNull()
+    ChatInputNonFocusableIconButton(
+        onClick = { if (enabled) onClick() },
+        contentDescription = stringResource(R.string.assistant_selector),
+        modifier = modifier,
+    ) {
+        Box(modifier = Modifier.size(ThinkingIconSize)) {
+            AssistantAvatar(
+                assistant = assistant,
+                size = ThinkingIconSize,
+                modifier = Modifier.graphicsLayer(alpha = if (enabled) 1f else 0.38f),
+            )
         }
     }
 }

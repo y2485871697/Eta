@@ -59,6 +59,8 @@ import io.github.mangi.eta.ui.navigation.AgentNavigator
 import io.github.mangi.eta.ui.navigation.AppRoute
 import io.github.mangi.eta.ui.pages.providers.ModelProviderDetailScreen
 import io.github.mangi.eta.ui.pages.providers.ModelProviderListScreen
+import io.github.mangi.eta.ui.screens.assistants.AssistantEditScreen
+import io.github.mangi.eta.ui.screens.assistants.AssistantsScreen
 import io.github.mangi.eta.ui.screens.backup.DataBackupScreen
 import io.github.mangi.eta.ui.screens.browser.AgentBrowserScreen
 import io.github.mangi.eta.ui.screens.chat.AgentChatScreen
@@ -310,6 +312,7 @@ fun AgentAppRoot(
                                 AgentHomeAction.OpenSystemEnhance -> pushRoute(AppRoute.SystemEnhance)
                                 AgentHomeAction.OpenSettings -> pushRoute(AppRoute.Settings)
                                 AgentHomeAction.OpenBrowser -> pushRoute(AppRoute.Browser)
+                                AgentHomeAction.OpenAssistantPicker -> pushRoute(AppRoute.Assistants(picker = true))
                                 AgentHomeAction.ExpandRunTrace -> Unit
                             }
                         },
@@ -336,6 +339,7 @@ fun AgentAppRoot(
                                 AgentChatAction.StopRun -> agentState.pauseCurrentRun()
                                 AgentChatAction.ContinueRun -> agentState.continuePausedGeneration()
                                 AgentChatAction.OpenBrowser -> pushRoute(AppRoute.Browser)
+                                AgentChatAction.OpenAssistantPicker -> pushRoute(AppRoute.Assistants(picker = true))
                                 is AgentChatAction.ImageAttached -> agentState.attachImage(action.uri)
                                 is AgentChatAction.RemoveImage -> agentState.removePendingImage(action.id)
                                 is AgentChatAction.FilesAttached -> agentState.attachFiles(action.uris)
@@ -617,6 +621,19 @@ fun AgentAppRoot(
             entry<AppRoute.ContextCompression>(swipeDismiss = swipeDismiss) {
                 ContextCompressionSettingsScreen(
                     context = context,
+                    onBack = ::popRoute,
+                )
+            }
+            entry<AppRoute.Assistants>(swipeDismiss = swipeDismiss) { route ->
+                AssistantsScreen(
+                    picker = route.picker,
+                    onNavigate = { destination -> pushRoute(destination) },
+                    onBack = ::popRoute,
+                )
+            }
+            entry<AppRoute.AssistantEdit>(swipeDismiss = swipeDismiss) { route ->
+                AssistantEditScreen(
+                    assistantId = route.assistantId,
                     onBack = ::popRoute,
                 )
             }

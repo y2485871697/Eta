@@ -62,6 +62,7 @@ internal fun AgentHomeScreen(
             },
             onRunTraceClick = { onAction(AgentHomeAction.ExpandRunTrace) },
             onOpenBrowser = { onAction(AgentHomeAction.OpenBrowser) },
+            onOpenAssistantPicker = { onAction(AgentHomeAction.OpenAssistantPicker) },
             isDrawerOpen = isDrawerOpen,
             scrollToMessageId = scrollToMessageId,
             onScrollToMessageConsumed = onScrollToMessageConsumed,

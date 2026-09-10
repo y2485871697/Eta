@@ -207,6 +207,15 @@ internal fun SettingsScreen(
                 SmallTitle(stringResource(R.string.settings_llm_providers))
                 Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                     ArrowPreference(
+                        title = stringResource(R.string.settings_assistants),
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.AutoAwesome,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.Assistants()) },
+                    )
+                    ArrowPreference(
                         title = stringResource(R.string.ui_model_provider_e8c7f5),
                         summary = providerSummary,
                         startAction = {

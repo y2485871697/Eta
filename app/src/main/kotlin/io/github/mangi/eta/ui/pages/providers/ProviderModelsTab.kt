@@ -789,11 +789,17 @@ private fun ModelEditDialog(
     }
     var selectedReasoningEfforts by remember(model.id, isNew) {
         mutableStateOf(
-            model.effectiveReasoningCapabilities
-                ?.selectableEfforts
-                ?.takeIf { efforts -> efforts.any { it != ReasoningEffort.OFF } }
-                ?.toSet()
-                ?: suggestedReasoning.selectableEfforts.toSet()
+            if (model.reasoningOverride != null || model.reasoningCapabilitiesOverride != null) {
+                model.effectiveReasoningCapabilities
+                    ?.selectableEfforts
+                    ?.takeIf { efforts -> efforts.any { it != ReasoningEffort.OFF } }
+                    ?.toSet()
+                    ?: editableReasoningEfforts.toSet()
+            } else if (reasoningEnabled) {
+                editableReasoningEfforts.toSet()
+            } else {
+                emptySet()
+            }
         )
     }
     val contextError = contextWindowInputError(
@@ -804,7 +810,7 @@ private fun ModelEditDialog(
     fun resetAutomaticReasoning() {
         reasoningOverrideActive = false
         reasoningEnabled = automaticReasoning != null
-        selectedReasoningEfforts = automaticReasoning?.selectableEfforts?.toSet().orEmpty()
+        selectedReasoningEfforts = if (reasoningEnabled) editableReasoningEfforts.toSet() else emptySet()
     }
 
     fun updated(): Model = model.copy(
@@ -930,8 +936,8 @@ private fun ModelEditDialog(
                         onCheckedChange = { enabled ->
                             reasoningOverrideActive = true
                             reasoningEnabled = enabled
-                            if (enabled && selectedReasoningEfforts.none { it != ReasoningEffort.OFF }) {
-                                selectedReasoningEfforts = suggestedReasoning.selectableEfforts.toSet()
+                            if (enabled) {
+                                selectedReasoningEfforts = editableReasoningEfforts.toSet()
                             }
                         },
                         title = stringResource(R.string.ui_support_thinking_5b9e4c),

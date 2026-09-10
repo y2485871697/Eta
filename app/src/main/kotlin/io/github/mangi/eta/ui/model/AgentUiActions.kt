@@ -24,6 +24,7 @@ sealed interface AgentHomeAction {
     data object OpenSystemEnhance : AgentHomeAction
     data object OpenSettings : AgentHomeAction
     data object OpenBrowser : AgentHomeAction
+    data object OpenAssistantPicker : AgentHomeAction
     data object ExpandRunTrace : AgentHomeAction
 }
 
@@ -40,6 +41,7 @@ sealed interface AgentChatAction {
     data object StopRun : AgentChatAction
     data object ContinueRun : AgentChatAction
     data object OpenBrowser : AgentChatAction
+    data object OpenAssistantPicker : AgentChatAction
     data class ImageAttached(val uri: String) : AgentChatAction
     data class RemoveImage(val id: String) : AgentChatAction
     data class FilesAttached(val uris: List<String>) : AgentChatAction

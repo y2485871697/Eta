@@ -72,6 +72,12 @@ sealed interface AppRoute : NavKey {
     data object ContextCompression : AppRoute
 
     @Serializable
+    data class Assistants(val picker: Boolean = false) : AppRoute
+
+    @Serializable
+    data class AssistantEdit(val assistantId: String) : AppRoute
+
+    @Serializable
     data object UsageStats : AppRoute
 }
 

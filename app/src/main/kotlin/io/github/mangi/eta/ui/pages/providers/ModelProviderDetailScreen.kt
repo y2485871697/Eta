@@ -423,24 +423,6 @@ private fun ProviderConfigTab(
                     checked = draft.isEnabled,
                     onCheckedChange = { onDraftChange(draft.copy(isEnabled = it)) }
                 )
-                HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                Column(modifier = Modifier.padding(16.dp)) {
-                    TextField(
-                        value = draft.systemPrompt,
-                        onValueChange = { onDraftChange(draft.copy(systemPrompt = it)) },
-                        label = stringResource(R.string.ui_system_prompt_word_193981),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp),
-                        singleLine = false,
-                    )
-                    Text(
-                        text = stringResource(R.string.ui_leave_blank_to_use_the_default_mobile_agent_prompt_w_21e7c8),
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
             }
         }
 

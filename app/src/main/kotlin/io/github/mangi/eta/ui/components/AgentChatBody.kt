@@ -153,6 +153,7 @@ internal fun AgentChatBody(
     onSuggestionClick: (String) -> Unit,
     onRunTraceClick: () -> Unit,
     onOpenBrowser: () -> Unit,
+    onOpenAssistantPicker: () -> Unit,
     isDrawerOpen: Boolean = false,
     scrollToMessageId: String? = null,
     onScrollToMessageConsumed: () -> Unit = {},
@@ -249,6 +250,7 @@ internal fun AgentChatBody(
         onSuggestionClick = onSuggestionClick,
         onRunTraceClick = onRunTraceClick,
         onOpenBrowser = onOpenBrowser,
+        onOpenAssistantPicker = onOpenAssistantPicker,
         currentBrowserMessageId = currentBrowserMessageId,
         scrollToMessageId = scrollToMessageId,
         onScrollToMessageConsumed = onScrollToMessageConsumed,
@@ -294,6 +296,7 @@ private fun AgentChatScaffold(
     onSuggestionClick: (String) -> Unit,
     onRunTraceClick: () -> Unit,
     onOpenBrowser: () -> Unit,
+    onOpenAssistantPicker: () -> Unit,
     currentBrowserMessageId: String?,
     scrollToMessageId: String? = null,
     onScrollToMessageConsumed: () -> Unit = {},
@@ -343,6 +346,7 @@ private fun AgentChatScaffold(
                 onAttachFilePath = onAttachFilePath,
                 onRemoveFileReference = onRemoveFileReference,
                 onCancelMessageEdit = onCancelMessageEdit,
+                onOpenAssistantPicker = onOpenAssistantPicker,
             )
         },
     ) { innerPadding ->
@@ -868,6 +872,7 @@ private fun AgentChatBottomBar(
     onAttachFilePath: (String) -> Unit,
     onRemoveFileReference: (String) -> Unit,
     onCancelMessageEdit: () -> Unit,
+    onOpenAssistantPicker: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -953,6 +958,7 @@ private fun AgentChatBottomBar(
                 onAttachFilePath = onAttachFilePath,
                 onRemoveFileReference = onRemoveFileReference,
                 onCancelMessageEdit = onCancelMessageEdit,
+                onOpenAssistantPicker = onOpenAssistantPicker,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

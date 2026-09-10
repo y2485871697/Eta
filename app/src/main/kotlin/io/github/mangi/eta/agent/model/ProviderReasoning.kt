@@ -226,10 +226,13 @@ internal object ProviderReasoning {
         val model = config.model.trim().lowercase()
         when {
             ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k3") -> {
-                require(effort in setOf(ReasoningEffort.LOW, ReasoningEffort.HIGH, ReasoningEffort.MAX)) {
-                    "Kimi K3 不支持 ${effort.displayName} thinking effort"
+                val clamped = when (effort) {
+                    ReasoningEffort.MINIMAL, ReasoningEffort.LOW -> ReasoningEffort.LOW
+                    ReasoningEffort.MEDIUM, ReasoningEffort.HIGH -> ReasoningEffort.HIGH
+                    ReasoningEffort.XHIGH, ReasoningEffort.MAX -> ReasoningEffort.MAX
+                    ReasoningEffort.OFF, ReasoningEffort.DEFAULT -> effort
                 }
-                applyNamedReasoningEffort(request, effort)
+                applyNamedReasoningEffort(request, clamped)
             }
             ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-7-code") -> unsupportedEffort("Kimi K2.7 Code", effort)
             ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-6") || ReasoningCapabilityResolver.modelIdMatchesPrefix(model, "kimi-k2-5") ->
@@ -254,10 +257,12 @@ internal object ProviderReasoning {
     }
 
     private fun applyStepFun(request: JSONObject, effort: ReasoningEffort) {
-        require(effort == ReasoningEffort.LOW || effort == ReasoningEffort.HIGH) {
-            "StepFun 不支持 ${effort.displayName} thinking effort"
+        val clamped = when (effort) {
+            ReasoningEffort.OFF, ReasoningEffort.DEFAULT -> effort
+            ReasoningEffort.MINIMAL, ReasoningEffort.LOW, ReasoningEffort.MEDIUM -> ReasoningEffort.LOW
+            ReasoningEffort.HIGH, ReasoningEffort.XHIGH, ReasoningEffort.MAX -> ReasoningEffort.HIGH
         }
-        applyNamedReasoningEffort(request, effort)
+        applyNamedReasoningEffort(request, clamped)
     }
 
     private fun applyThinkingToggle(

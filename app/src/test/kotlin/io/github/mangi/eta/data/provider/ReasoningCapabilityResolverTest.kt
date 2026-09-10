@@ -9,156 +9,56 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ReasoningCapabilityResolverTest {
+    private val allSelectable = listOf(
+        ReasoningEffort.OFF,
+        ReasoningEffort.MINIMAL,
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    )
+    private val allTiers = allSelectable.filter { it != ReasoningEffort.OFF }
+
     @Test
-    fun userFacingEffortLabelsAreStableEnglishValues() {
+    fun userFacingEffortLabelsAreChinese() {
         assertEquals(
-            listOf("Off", "Default", "Minimal", "Low", "Medium", "High", "XHigh", "Max"),
+            listOf("关闭", "默认", "最小", "低", "中", "高", "超高", "极高"),
             ReasoningEffort.entries.map(ReasoningEffort::displayName),
         )
     }
 
     @Test
-    fun deepSeekCatalogExposesOnlyMeaningfulLevels() {
-        val flash = resolve(ProviderSourceTypes.DEEPSEEK, "deepseek-v4-flash")
-        val pro = resolve(ProviderSourceTypes.DEEPSEEK, "deepseek-v4-pro")
-
-        assertEquals(
-            listOf(
-                ReasoningEffort.OFF,
-                ReasoningEffort.LOW,
-                ReasoningEffort.HIGH,
-                ReasoningEffort.MAX,
-            ),
-            flash.selectableEfforts,
-        )
-        assertEquals(
-            listOf(
-                ReasoningEffort.OFF,
-                ReasoningEffort.HIGH,
-                ReasoningEffort.MAX,
-            ),
-            pro.selectableEfforts,
-        )
-        assertEquals(ReasoningEffort.HIGH, pro.normalize(ReasoningEffort.XHIGH))
+    fun reasoningModelsExposeEveryThinkingLevel() {
+        assertEquals(allSelectable, resolve(ProviderSourceTypes.DEEPSEEK, "deepseek-v4-flash").selectableEfforts)
+        assertEquals(allSelectable, resolve(ProviderSourceTypes.DEEPSEEK, "deepseek-v4-pro").selectableEfforts)
+        assertEquals(allSelectable, resolve(ProviderSourceTypes.OPENAI, "openai/gpt-5.6-sol").selectableEfforts)
+        assertEquals(allSelectable, resolve(ProviderSourceTypes.MIMO, "mimo-v2.5").selectableEfforts)
+        assertEquals(allSelectable, resolve(ProviderSourceTypes.STEPFUN, "step-3.7-flash").selectableEfforts)
+        assertEquals(allSelectable, resolve(ProviderSourceTypes.CUSTOM, "unknown-thinking-model").selectableEfforts)
     }
 
     @Test
-    fun mandatoryKimiModelsNeverExposeOff() {
-        assertEquals(
-            listOf(
-                ReasoningEffort.LOW,
-                ReasoningEffort.HIGH,
-                ReasoningEffort.MAX,
-            ),
-            resolve(ProviderSourceTypes.MOONSHOT, "kimi-k3").selectableEfforts,
-        )
-        assertEquals(
-            emptyList<ReasoningEffort>(),
-            resolve(ProviderSourceTypes.MOONSHOT, "kimi-k2.7-code").selectableEfforts,
-        )
+    fun mandatoryKimiStillExposesEveryLevelWithoutOff() {
+        assertEquals(allTiers, resolve(ProviderSourceTypes.MOONSHOT, "kimi-k3").selectableEfforts)
     }
 
     @Test
-    fun unverifiedModelsUseOpenMinisCeilingInsteadOfLoneDefault() {
-        assertEquals(
-            emptyList<ReasoningEffort>(),
-            resolve(ProviderSourceTypes.MINIMAX, "MiniMax-M3").selectableEfforts,
-        )
-        assertEquals(
-            listOf(
-                ReasoningEffort.OFF,
-                ReasoningEffort.LOW,
-                ReasoningEffort.HIGH,
-            ),
-            resolve(ProviderSourceTypes.STEPFUN, "step-3.7-flash").selectableEfforts,
-        )
-        assertEquals(
-            listOf(
-                ReasoningEffort.OFF,
-                ReasoningEffort.LOW,
-                ReasoningEffort.MEDIUM,
-                ReasoningEffort.HIGH,
-                ReasoningEffort.XHIGH,
-            ),
-            resolve(ProviderSourceTypes.CUSTOM, "unknown-thinking-model").selectableEfforts,
-        )
-    }
-
-    @Test
-    fun openMinisCatalogMatchesHyphenDotAndProviderPrefix() {
-        assertEquals(
-            listOf(
-                ReasoningEffort.OFF,
-                ReasoningEffort.MINIMAL,
-                ReasoningEffort.LOW,
-                ReasoningEffort.MEDIUM,
-                ReasoningEffort.HIGH,
-                ReasoningEffort.XHIGH,
-                ReasoningEffort.MAX,
-            ),
-            resolve(ProviderSourceTypes.OPENAI, "openai/gpt-5.6-sol").selectableEfforts,
-        )
-        assertEquals(
-            ReasoningEffort.MAX,
-            resolve(ProviderSourceTypes.ANTHROPIC, "claude-opus-4.6").supportedEfforts.last(),
-        )
-        assertEquals(
-            ReasoningEffort.MAX,
-            resolve(ProviderSourceTypes.OPENROUTER, "anthropic/claude-opus-4-8").supportedEfforts.last(),
-        )
-        assertEquals(
-            listOf(
-                ReasoningEffort.OFF,
-                ReasoningEffort.LOW,
-                ReasoningEffort.MEDIUM,
-                ReasoningEffort.HIGH,
-            ),
-            resolve(ProviderSourceTypes.MIMO, "mimo-v2.5").selectableEfforts,
-        )
-        assertEquals(
-            listOf(
-                ReasoningEffort.HIGH,
-                ReasoningEffort.MAX,
-            ),
-            ReasoningCapabilityResolver.resolve(
-                sourceType = ProviderSourceTypes.CUSTOM,
-                model = Model(
-                    id = "glm",
-                    modelId = "glm-5.2",
-                    displayName = "GLM",
-                    reasoning = true,
-                    reasoningCapabilities = ModelReasoningCapabilities(
-                        supportedEfforts = listOf(ReasoningEffort.HIGH, ReasoningEffort.MAX),
-                        mandatory = true,
-                    ),
-                ),
-            )?.selectableEfforts,
-        )
-    }
-
-    @Test
-    fun exactRemoteMetadataWinsOverProviderFamilyRules() {
-        val remote = ModelReasoningCapabilities(
-            supportedEfforts = listOf(ReasoningEffort.MEDIUM),
-            defaultEffort = ReasoningEffort.MEDIUM,
-            mandatory = true,
-        )
+    fun declaredSparseTiersStillCheckEveryLevel() {
         val resolved = ReasoningCapabilityResolver.resolve(
-            sourceType = ProviderSourceTypes.DEEPSEEK,
+            sourceType = ProviderSourceTypes.CUSTOM,
             model = Model(
-                id = "id",
-                modelId = "deepseek-v4-flash",
-                displayName = "DeepSeek",
+                id = "glm",
+                modelId = "glm-5.2",
+                displayName = "GLM",
                 reasoning = true,
-                reasoningCapabilities = remote,
+                reasoningCapabilities = ModelReasoningCapabilities(
+                    supportedEfforts = listOf(ReasoningEffort.HIGH, ReasoningEffort.MAX),
+                    mandatory = true,
+                ),
             ),
         )
-
-        assertEquals(remote, resolved)
-        assertEquals(
-            listOf(ReasoningEffort.MEDIUM),
-            resolved?.selectableEfforts,
-        )
+        assertEquals(allTiers, resolved?.selectableEfforts)
     }
 
     @Test
@@ -167,7 +67,6 @@ class ReasoningCapabilityResolverTest {
             supportedEfforts = listOf(ReasoningEffort.MINIMAL),
             canDisable = true,
         )
-
         val resolved = ReasoningCapabilityResolver.resolve(
             sourceType = ProviderSourceTypes.DEEPSEEK,
             model = Model(
@@ -182,7 +81,6 @@ class ReasoningCapabilityResolverTest {
                 reasoningCapabilitiesOverride = overridden,
             ),
         )
-
         assertEquals(overridden, resolved)
     }
 
@@ -208,12 +106,10 @@ class ReasoningCapabilityResolverTest {
             ),
             inferExactCatalogModel = true,
         )
-
         assertEquals(ReasoningEffort.MEDIUM, inferred?.defaultEffort)
         assertNull(unknown)
         assertNull(disabled)
     }
-
 
     @Test
     fun grok46UsesCatalogLevelsEvenWithoutRemoteReasoningFlag() {
@@ -225,44 +121,9 @@ class ReasoningCapabilityResolverTest {
                 displayName = "grok-4.6",
             ),
         )
-        assertEquals(
-            listOf(
-                ReasoningEffort.OFF,
-                ReasoningEffort.LOW,
-                ReasoningEffort.MEDIUM,
-                ReasoningEffort.HIGH,
-                ReasoningEffort.XHIGH,
-            ),
-            grok?.selectableEfforts,
-        )
+        assertEquals(allSelectable, grok?.selectableEfforts)
     }
 
-    @Test
-    fun emptyManualOverrideFallsBackToCatalogLevels() {
-        val grok = ReasoningCapabilityResolver.resolve(
-            sourceType = ProviderSourceTypes.CUSTOM,
-            model = Model(
-                id = "grok",
-                modelId = "grok-4.6",
-                displayName = "grok-4.6",
-                reasoningOverride = true,
-                reasoningCapabilitiesOverride = ModelReasoningCapabilities(
-                    defaultEnabled = true,
-                    mandatory = true,
-                ),
-            ),
-        )
-        assertEquals(
-            listOf(
-                ReasoningEffort.OFF,
-                ReasoningEffort.LOW,
-                ReasoningEffort.MEDIUM,
-                ReasoningEffort.HIGH,
-                ReasoningEffort.XHIGH,
-            ),
-            grok?.selectableEfforts,
-        )
-    }
     private fun resolve(source: String, modelId: String): ModelReasoningCapabilities =
         requireNotNull(
             ReasoningCapabilityResolver.resolve(

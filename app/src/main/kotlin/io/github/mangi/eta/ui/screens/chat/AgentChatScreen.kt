@@ -59,6 +59,7 @@ internal fun AgentChatScreen(
             },
             onRunTraceClick = { /* 对话页暂不做 Run trace 展开 */ },
             onOpenBrowser = { onAction(AgentChatAction.OpenBrowser) },
+            onOpenAssistantPicker = { onAction(AgentChatAction.OpenAssistantPicker) },
             scrollToMessageId = scrollToMessageId,
             onScrollToMessageConsumed = onScrollToMessageConsumed,
             modifier = modifier,

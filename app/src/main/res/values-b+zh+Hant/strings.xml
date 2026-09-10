@@ -1206,4 +1206,22 @@
     <string name="stats_page_output_tokens">輸出 Token</string>
     <string name="stats_page_cached_tokens">快取 Token</string>
     <string name="stats_page_launch_count">應用啟動次數</string>
+    <string name="assistant_list_title">助手</string>
+    <string name="assistant_edit_title">人格</string>
+    <string name="assistant_search">搜尋助手</string>
+    <string name="assistant_add">新增助手</string>
+    <string name="assistant_current">目前使用</string>
+    <string name="assistant_empty">沒有符合的助手</string>
+    <string name="assistant_delete_title">刪除助手</string>
+    <string name="assistant_delete_body">確定刪除 %1$s？此操作無法復原。</string>
+    <string name="assistant_preview">預覽</string>
+    <string name="assistant_identity">身分</string>
+    <string name="assistant_name">名稱</string>
+    <string name="assistant_unnamed">未命名</string>
+    <string name="assistant_prompt_title">人格提示詞</string>
+    <string name="assistant_prompt_label">人格提示詞</string>
+    <string name="assistant_change_avatar">更換頭像</string>
+    <string name="assistant_crop_title">裁切頭像</string>
+    <string name="assistant_selector">助手</string>
+    <string name="settings_assistants">助手</string>
 </resources>

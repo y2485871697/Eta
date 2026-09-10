@@ -291,5 +291,7 @@ private fun titleForRoute(route: AppRoute?, currentConversationTitle: String? = 
     is AppRoute.ModelProviderNew -> stringResource(R.string.route_new_provider)
     is AppRoute.ContextCompression -> stringResource(R.string.route_context_compression)
     is AppRoute.UsageStats -> stringResource(R.string.stats_page_title)
+    is AppRoute.Assistants -> stringResource(R.string.assistant_list_title)
+    is AppRoute.AssistantEdit -> stringResource(R.string.assistant_edit_title)
     null -> stringResource(R.string.app_name)
 }

@@ -16,28 +16,28 @@ enum class ReasoningEffort(
     internal val rank: Int,
 ) {
     @SerialName("off")
-    OFF("off", "Off", 0),
+    OFF("off", "关闭", 0),
 
     @SerialName("default")
-    DEFAULT("default", "Default", 1),
+    DEFAULT("default", "默认", 1),
 
     @SerialName("minimal")
-    MINIMAL("minimal", "Minimal", 2),
+    MINIMAL("minimal", "最小", 2),
 
     @SerialName("low")
-    LOW("low", "Low", 3),
+    LOW("low", "低", 3),
 
     @SerialName("medium")
-    MEDIUM("medium", "Medium", 4),
+    MEDIUM("medium", "中", 4),
 
     @SerialName("high")
-    HIGH("high", "High", 5),
+    HIGH("high", "高", 5),
 
     @SerialName("xhigh")
-    XHIGH("xhigh", "XHigh", 6),
+    XHIGH("xhigh", "超高", 6),
 
     @SerialName("max")
-    MAX("max", "Max", 7),
+    MAX("max", "极高", 7),
     ;
 
     val enablesReasoning: Boolean

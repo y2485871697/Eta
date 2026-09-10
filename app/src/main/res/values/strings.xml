@@ -1128,7 +1128,7 @@
   <string name="chat_send">Send</string>
   <string name="chat_continue">Continue</string>
   <string name="chat_continue_prompt">Continue from where you left off. Do not repeat content already written.</string>
-  <string name="chat_reasoning_effort">Reasoning effort: %1$s</string>
+  <string name="chat_reasoning_effort">思考强度：%1$s</string>
   <string name="status_unsupported">Unsupported</string>
   <string name="attachment_image">Image</string>
   <string name="attachment_file">File</string>
@@ -1233,4 +1233,22 @@
     <string name="stats_page_output_tokens">Output tokens</string>
     <string name="stats_page_cached_tokens">Cached tokens</string>
     <string name="stats_page_launch_count">App launches</string>
+    <string name="assistant_list_title">Assistants</string>
+    <string name="assistant_edit_title">Personality</string>
+    <string name="assistant_search">Search assistants</string>
+    <string name="assistant_add">Add assistant</string>
+    <string name="assistant_current">Current</string>
+    <string name="assistant_empty">No matching assistants</string>
+    <string name="assistant_delete_title">Delete assistant</string>
+    <string name="assistant_delete_body">Delete %1$s? This cannot be undone.</string>
+    <string name="assistant_preview">Preview</string>
+    <string name="assistant_identity">Identity</string>
+    <string name="assistant_name">Name</string>
+    <string name="assistant_unnamed">Untitled</string>
+    <string name="assistant_prompt_title">Personality prompt</string>
+    <string name="assistant_prompt_label">Personality prompt</string>
+    <string name="assistant_change_avatar">Change avatar</string>
+    <string name="assistant_crop_title">Crop avatar</string>
+    <string name="assistant_selector">Assistant</string>
+    <string name="settings_assistants">Assistants</string>
 </resources>

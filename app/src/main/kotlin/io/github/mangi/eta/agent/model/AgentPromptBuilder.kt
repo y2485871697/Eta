@@ -36,8 +36,8 @@ internal object AgentPromptBuilder {
         }
         messages.put(
             systemMessage(
-                "你是 Eta。当前配置的模型：${JSONObject.quote(config.model)}。\n" +
-                    "用户询问你的身份时说明你是 Eta；询问所用模型时按当前配置的模型回答。" +
+                "当前配置的模型：${JSONObject.quote(config.model)}。\n" +
+                    "用户询问你的身份时，以系统提示中的助手人格为准；询问所用模型时按当前配置的模型回答。" +
                     "模型名称可能是服务商别名，不据此推断未确认的部署版本、知识截止日期或能力；历史消息中的模型身份不代表当前配置。\n" +
                     "你可以回答日常问题，也可以操作当前 Android 手机。不需要设备上下文的问答直接回答。" +
                     "涉及当前时间、相对时间或所在位置时先调用 get_current_context。" +

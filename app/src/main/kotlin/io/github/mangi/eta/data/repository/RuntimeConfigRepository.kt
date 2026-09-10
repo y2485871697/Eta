@@ -89,10 +89,8 @@ internal object RuntimeConfigRepository {
         json.encodeToString(config)
 
     fun buildRuntimeConfig(provider: ProviderSetting, model: Model): AgentModelClient.ModelConfig {
-        val systemPrompt = provider.systemPrompt
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: BuiltinProviders.DEFAULT_SYSTEM_PROMPT
+        val systemPrompt = AssistantRepository.systemPrompt()
+            .ifBlank { BuiltinProviders.DEFAULT_SYSTEM_PROMPT }
         val sourceType = ProviderSourceRegistry.resolve(provider)
         val endpointMode = when (provider) {
             is OpenAiCompatibleProviderSetting -> provider.endpointMode

@@ -100,19 +100,15 @@ internal fun AgentModelPickerButton(
             alignEnd = true,
             preferAbove = true,
             focusable = false,
-            minWidth = 236.dp,
-            maxWidth = 236.dp,
+            minWidth = 180.dp,
+            maxWidth = 180.dp,
             maxHeight = popupMaxHeight,
         ) {
             ModelPickerPopupContent(
                 state = state,
                 expandedProviderIds = expandedProviderIds,
                 onProviderExpandedChange = { providerId, expanded ->
-                    expandedProviderIds = if (expanded) {
-                        expandedProviderIds + providerId
-                    } else {
-                        expandedProviderIds - providerId
-                    }
+                    expandedProviderIds = if (expanded) setOf(providerId) else emptySet()
                 },
                 onModelSelected = { modelId ->
                     menuState.dismiss()
@@ -172,7 +168,7 @@ private fun ModelProviderGroupHeader(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(start = 16.dp, end = 14.dp, top = 11.dp, bottom = 9.dp),
+            .padding(start = 12.dp, end = 10.dp, top = 9.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
