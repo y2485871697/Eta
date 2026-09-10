@@ -3,15 +3,15 @@ package io.github.mangi.eta.agent.terminal
 import java.io.File
 
 /**
- * 面向用户的 Linux rootfs 只读文件浏览后端。
+ * 面向用户的 Linux 环境只读文件浏览后端。
  *
- * Root 环境沿用宿主 Root Shell；免 Root 环境通过 PRoot 访问 guest 路径，
- * 保留符号链接、工作区和共享目录的 Linux 语义。路径只做词法归一化。
+ * 列举和读取都在 Linux 会话里执行（chroot / PRoot），这样 /workspace、
+ * /storage/emulated/0 和共享目录能看到与终端 ls 相同的 bind 内容。
+ * 路径只做词法归一化，拒绝逃出根。
  */
 internal object LinuxFileExplorer {
     const val DEFAULT_MAX_READ_BYTES = 256L * 1024L
 
-    // 脚本内约定退出码；其余非零退出码一律视为命令失败。
     private const val EXIT_NOT_DIRECTORY = 41
     private const val EXIT_UNREADABLE = 42
 
@@ -40,12 +40,12 @@ internal object LinuxFileExplorer {
     }
 
     /**
-     * 把 chroot 内绝对路径映射为宿主路径。只接受 `/` 开头的路径（空白归一为 `/`）；
+     * 把用户输入归一成 Linux 内绝对路径。只接受 `/` 开头的路径（空白归一为 `/`）；
      * `..` 弹栈、弹到根之上或相对路径返回 null。
      */
-    fun resolveHostPath(rootfsDir: File, linuxPath: String): String? {
+    fun normalizeLinuxPath(linuxPath: String): String? {
         val trimmed = linuxPath.trim()
-        if (trimmed.isEmpty()) return rootfsDir.path
+        if (trimmed.isEmpty()) return "/"
         if (!trimmed.startsWith("/") || '\n' in trimmed || '\r' in trimmed) return null
         val segments = mutableListOf<String>()
         trimmed.split('/').forEach { segment ->
@@ -55,9 +55,17 @@ internal object LinuxFileExplorer {
                 else -> segments += segment
             }
         }
-        val normalized = "/" + segments.joinToString("/")
-        // 子段已剔除 ..，File(parent, child) 的拼接不可能逃逸出 rootfsDir。
-        return File(rootfsDir, normalized).path
+        return if (segments.isEmpty()) "/" else "/" + segments.joinToString("/")
+    }
+
+    /**
+     * 把 guest 绝对路径映射为宿主路径。子段已剔除 `..`，按相对段拼接，
+     * 避免 `File(parent, "/abs")` 在部分 JVM 上丢掉 parent。
+     */
+    fun resolveHostPath(rootfsDir: File, linuxPath: String): String? {
+        val normalized = normalizeLinuxPath(linuxPath) ?: return null
+        if (normalized == "/") return rootfsDir.path
+        return File(rootfsDir, normalized.removePrefix("/")).path
     }
 
     /** 同步阻塞；协程切换由调用侧负责。rootfs 未就绪时不执行任何 Shell。 */
@@ -65,26 +73,38 @@ internal object LinuxFileExplorer {
         supervisor: ShellProcessSupervisor,
         rootfsDir: File,
         linuxPath: String,
+        environment: TerminalEnvironment,
+        sharedMounts: List<SharedFolderMount> = emptyList(),
     ): ListResult {
+        if (!environment.isLinux) return ListResult.CommandFailed
         if (!LinuxEnvironmentPaths.rootfsReady(rootfsDir.absolutePath)) return ListResult.NotInstalled
-        val hostPath = resolveHostPath(rootfsDir, linuxPath) ?: return ListResult.NotDirectory
-        val rootless = LinuxEnvironmentPaths.backendOf(rootfsDir.absolutePath) == LinuxExecutionBackend.PROOT
-        val quoted = shellQuote(if (rootless) "/" + File(rootfsDir.path).toPath().relativize(File(hostPath).toPath()).toString() else hostPath)
-        // 空目录时通配符原样传给 stat，报错进 stderr 被吞掉，stdout 为空即空列表。
+        val guestPath = normalizeLinuxPath(linuxPath) ?: return ListResult.NotDirectory
+        val quoted = shellQuote(guestPath)
         val script = """
             if [ ! -d $quoted ]; then exit $EXIT_NOT_DIRECTORY; fi
             if [ ! -r $quoted ] || [ ! -x $quoted ]; then exit $EXIT_UNREADABLE; fi
             cd $quoted || exit $EXIT_UNREADABLE
-            stat -c '%F|%s|%Y|%n' -- .[!.]* * 2>/dev/null
+            find . -mindepth 1 -maxdepth 1 2>/dev/null | while IFS= read -r rel; do
+              name=${'$'}{rel#./}
+              [ -n "${'$'}name" ] || continue
+              if [ -d "${'$'}name" ]; then
+                kind=directory
+              else
+                kind="regular file"
+              fi
+              size=${'$'}(stat -c '%s' "${'$'}name" 2>/dev/null || echo 0)
+              mtime=${'$'}(stat -c '%Y' "${'$'}name" 2>/dev/null || echo 0)
+              mtime=${'$'}{mtime%%.*}
+              printf '%s|%s|%s|%s\n' "${'$'}kind" "${'$'}size" "${'$'}mtime" "${'$'}name"
+            done
             exit 0
         """.trimIndent()
-        val result = runOneShotShell(
-            processSupervisor = supervisor,
-            identity = if (LinuxEnvironmentPaths.backendOf(rootfsDir.absolutePath) == LinuxExecutionBackend.PROOT) "user" else "root",
+        val result = runExplorerShell(
+            supervisor = supervisor,
+            rootfsDir = rootfsDir,
+            environment = environment,
+            sharedMounts = sharedMounts,
             command = script,
-            timeoutSeconds = 15,
-            environment = if (rootless) TerminalEnvironment.ALPINE else TerminalEnvironment.ANDROID,
-            linuxRootfsPath = rootfsDir.absolutePath,
         )
         return when (result.exitCode) {
             0 -> ListResult.Success(parseStatOutput(result.output.decodeToString()))
@@ -99,25 +119,26 @@ internal object LinuxFileExplorer {
         supervisor: ShellProcessSupervisor,
         rootfsDir: File,
         linuxPath: String,
+        environment: TerminalEnvironment,
+        sharedMounts: List<SharedFolderMount> = emptyList(),
         maxBytes: Long = DEFAULT_MAX_READ_BYTES,
     ): ReadResult {
+        if (!environment.isLinux) return ReadResult.CommandFailed
         if (!LinuxEnvironmentPaths.rootfsReady(rootfsDir.absolutePath)) return ReadResult.NotInstalled
-        val hostPath = resolveHostPath(rootfsDir, linuxPath) ?: return ReadResult.NotFile
-        val rootless = LinuxEnvironmentPaths.backendOf(rootfsDir.absolutePath) == LinuxExecutionBackend.PROOT
-        val quoted = shellQuote(if (rootless) "/" + File(rootfsDir.path).toPath().relativize(File(hostPath).toPath()).toString() else hostPath)
+        val guestPath = normalizeLinuxPath(linuxPath) ?: return ReadResult.NotFile
+        val quoted = shellQuote(guestPath)
         val script = """
             if [ ! -f $quoted ]; then exit $EXIT_NOT_DIRECTORY; fi
             if [ ! -r $quoted ]; then exit $EXIT_UNREADABLE; fi
             head -c ${maxBytes + 1} $quoted
             exit 0
         """.trimIndent()
-        val result = runOneShotShell(
-            processSupervisor = supervisor,
-            identity = if (LinuxEnvironmentPaths.backendOf(rootfsDir.absolutePath) == LinuxExecutionBackend.PROOT) "user" else "root",
+        val result = runExplorerShell(
+            supervisor = supervisor,
+            rootfsDir = rootfsDir,
+            environment = environment,
+            sharedMounts = sharedMounts,
             command = script,
-            timeoutSeconds = 15,
-            environment = if (rootless) TerminalEnvironment.ALPINE else TerminalEnvironment.ANDROID,
-            linuxRootfsPath = rootfsDir.absolutePath,
         )
         if (result.exitCode != 0) {
             return when (result.exitCode) {
@@ -128,13 +149,12 @@ internal object LinuxFileExplorer {
         }
         val truncated = result.output.size.toLong() > maxBytes
         val payload = if (truncated) result.output.copyOf(maxBytes.toInt()) else result.output
-        // 含 NUL 字节按二进制处理，不把乱码塞进查看器。
         if (payload.contains(0.toByte())) return ReadResult.Binary
         return ReadResult.Text(content = payload.decodeToString(), truncated = truncated)
     }
 
     /**
-     * 解析 `stat -c '%F|%s|%Y|%n'` 输出：按前 3 个分隔符切分，其余全部归入文件名，
+     * 解析 `type|size|mtime|name` 输出：按前 3 个分隔符切分，其余全部归入文件名，
      * 容忍文件名含 `|`；畸形行与通配符残留行跳过。
      */
     internal fun parseStatOutput(output: String): List<Entry> {
@@ -143,13 +163,13 @@ internal object LinuxFileExplorer {
             if (line.isBlank()) return@forEach
             val parts = line.split('|', limit = 4)
             if (parts.size < 4) return@forEach
-            val name = parts[3]
-            if (name == "*" || name == ".[!.]*") return@forEach
+            val name = displayName(parts[3])
+            if (name.isEmpty() || name == "." || name == ".." || name == "*" || name == ".[!.]*") return@forEach
             val size = parts[1].toLongOrNull() ?: return@forEach
-            val mtime = parts[2].toLongOrNull() ?: return@forEach
+            val mtime = parts[2].substringBefore('.').toLongOrNull() ?: return@forEach
             entries += Entry(
                 name = name,
-                isDir = parts[0] == "directory",
+                isDir = parts[0] == "directory" || parts[0] == "d",
                 sizeBytes = size,
                 mtimeEpochSeconds = mtime,
             )
@@ -157,7 +177,31 @@ internal object LinuxFileExplorer {
         return sortEntries(entries)
     }
 
-    /** 目录在前，各自按名称排序。 */
     internal fun sortEntries(entries: List<Entry>): List<Entry> =
         entries.sortedWith(compareBy<Entry> { !it.isDir }.thenBy { it.name })
+
+    private fun displayName(raw: String): String {
+        val trimmed = raw.trim().removePrefix("./")
+        if (trimmed.isEmpty()) return ""
+        return if ('/' in trimmed) trimmed.substringAfterLast('/') else trimmed
+    }
+
+    private fun runExplorerShell(
+        supervisor: ShellProcessSupervisor,
+        rootfsDir: File,
+        environment: TerminalEnvironment,
+        sharedMounts: List<SharedFolderMount>,
+        command: String,
+    ): OneShotShellResult {
+        val rootless = LinuxEnvironmentPaths.backendOf(rootfsDir.absolutePath) == LinuxExecutionBackend.PROOT
+        return runOneShotShell(
+            processSupervisor = supervisor,
+            identity = if (rootless) "user" else "root",
+            command = command,
+            timeoutSeconds = 15,
+            environment = environment,
+            linuxRootfsPath = rootfsDir.absolutePath,
+            linuxSharedMounts = sharedMounts,
+        )
+    }
 }

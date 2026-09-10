@@ -27,6 +27,8 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.terminal.LinuxDistribution
 import io.github.mangi.eta.agent.terminal.LinuxEnvironmentPaths
 import io.github.mangi.eta.agent.terminal.LinuxFileExplorer
+import io.github.mangi.eta.agent.terminal.SharedFolderMounts
+import io.github.mangi.eta.agent.terminal.terminalEnvironment
 import io.github.mangi.eta.agent.terminal.ShellProcessSupervisor
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +39,8 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * Linux rootfs 只读文件浏览：目录列举与文件读取都经一次性 root Shell 完成，
+ * Linux 环境只读文件浏览：目录列举与文件读取都在 Linux 会话中完成，
+ * 因此能看到 /workspace 等 bind 挂载里的真实文件。
  * 查看文件时进入屏内查看态，页面返回键先退回列表再退出页面。
  */
 @Composable
@@ -68,11 +71,18 @@ internal fun LinuxFilesScreen(
 
     LaunchedEffect(currentPath, linuxDistribution) {
         val dir = rootfsDir ?: return@LaunchedEffect
+        val dist = linuxDistribution ?: return@LaunchedEffect
         if (!installed) return@LaunchedEffect
         entries = null
         listError = null
         val result = withContext(Dispatchers.IO) {
-            LinuxFileExplorer.list(shellSupervisor, dir, currentPath)
+            LinuxFileExplorer.list(
+                shellSupervisor,
+                dir,
+                currentPath,
+                dist.terminalEnvironment,
+                SharedFolderMounts.current(),
+            )
         }
         when (result) {
             is LinuxFileExplorer.ListResult.Success -> entries = result.entries
@@ -88,9 +98,16 @@ internal fun LinuxFilesScreen(
     LaunchedEffect(openFilePath) {
         val path = openFilePath ?: return@LaunchedEffect
         val dir = rootfsDir ?: return@LaunchedEffect
+        val dist = linuxDistribution ?: return@LaunchedEffect
         fileResult = null
         fileResult = withContext(Dispatchers.IO) {
-            LinuxFileExplorer.readText(shellSupervisor, dir, path)
+            LinuxFileExplorer.readText(
+                shellSupervisor,
+                dir,
+                path,
+                dist.terminalEnvironment,
+                SharedFolderMounts.current(),
+            )
         }
     }
 

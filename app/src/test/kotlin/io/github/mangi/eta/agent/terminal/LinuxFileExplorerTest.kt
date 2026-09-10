@@ -34,15 +34,15 @@ class LinuxFileExplorerTest {
     @Test
     fun resolveHostPathCollapsesDotsAndDuplicateSlashes() {
         assertEquals(
-            File(rootfsDir, "/etc/passwd").path,
+            File(rootfsDir, "etc/passwd").path,
             LinuxFileExplorer.resolveHostPath(rootfsDir, "/etc//passwd"),
         )
         assertEquals(
-            File(rootfsDir, "/etc/passwd").path,
+            File(rootfsDir, "etc/passwd").path,
             LinuxFileExplorer.resolveHostPath(rootfsDir, "/etc/./passwd"),
         )
         assertEquals(
-            File(rootfsDir, "/a/c").path,
+            File(rootfsDir, "a/c").path,
             LinuxFileExplorer.resolveHostPath(rootfsDir, "/a/b/../c"),
         )
     }
@@ -99,5 +99,30 @@ class LinuxFileExplorerTest {
             """.trimIndent(),
         )
         assertEquals(listOf("abc", "zzz", "aaa", "bbb"), entries.map { it.name })
+    }
+
+    @Test
+    fun normalizeLinuxPathKeepsGuestRootAndWorkspace() {
+        assertEquals("/", LinuxFileExplorer.normalizeLinuxPath("/"))
+        assertEquals("/", LinuxFileExplorer.normalizeLinuxPath("   "))
+        assertEquals("/workspace", LinuxFileExplorer.normalizeLinuxPath("/workspace/"))
+        assertEquals("/storage/emulated/0", LinuxFileExplorer.normalizeLinuxPath("/storage/emulated/0"))
+        assertNull(LinuxFileExplorer.normalizeLinuxPath("../workspace"))
+    }
+
+    @Test
+    fun parseStatOutputStripsRelativePrefixAndDecimalMtime() {
+        val entries = LinuxFileExplorer.parseStatOutput(
+            """
+            directory|4096|1700000000.123|./DCIM
+            regular file|12|1700000001.0|./notes.txt
+            d|8|1700000002|/workspace/bin
+            """.trimIndent(),
+        )
+        assertEquals(listOf("DCIM", "bin", "notes.txt"), entries.map { it.name })
+        assertTrue(entries.first { it.name == "DCIM" }.isDir)
+        assertTrue(entries.first { it.name == "bin" }.isDir)
+        assertFalse(entries.first { it.name == "notes.txt" }.isDir)
+        assertEquals(1700000000L, entries.first { it.name == "DCIM" }.mtimeEpochSeconds)
     }
 }
