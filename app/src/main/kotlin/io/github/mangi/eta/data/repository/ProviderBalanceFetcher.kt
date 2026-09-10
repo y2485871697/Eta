@@ -1,4 +1,5 @@
 package io.github.mangi.eta.data.repository
+
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.util.Locale
@@ -8,14 +9,18 @@ import io.github.mangi.eta.agent.model.CustomHeaderFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.Request
+
 internal object ProviderBalanceFetcher {
     private val json = Json { ignoreUnknownKeys = true }
+    private val binaryExpr = Regex("""^(.+?)\s+([+\-*/])\s+(.+)$""")
+
     suspend fun fetch(provider: ProviderSetting): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val option = provider.balanceOption
@@ -48,37 +53,99 @@ internal object ProviderBalanceFetcher {
             extractValue(body, option.resultPath)
         }
     }
+
     internal fun resolveBalanceUrl(baseUrl: String, apiPath: String): String {
         val normalizedBase = baseUrl.trim().removeSuffix("/")
         val normalizedPath = apiPath.trim().removePrefix("/")
         return "$normalizedBase/$normalizedPath"
     }
+
     internal fun extractValue(body: String, resultPath: String): String {
         val root = runCatching { json.parseToJsonElement(body) }.getOrNull()
             ?: error("Invalid JSON response")
-        val value = resolvePath(root, resultPath)
-        return when (value) {
-            is JsonNull -> "null"
-            is JsonElement -> value.jsonPrimitive.content
-            else -> error("Unable to parse balance from JSON path $resultPath 解析余额")
-        }
+        return evaluateExpression(root, resultPath.trim())
     }
-    private fun resolvePath(root: JsonElement, path: String): JsonElement {
-        val keys = path.split(".").map { it.trim() }
-        var current: JsonElement = root
-        for (key in keys) {
-            if (key.isEmpty()) continue
-            current = if (key.matches(Regex("\\d+"))) {
-                val index = key.toInt()
-                current.jsonArray.getOrNull(index)
-                    ?: error("Array index out of bounds: $key")
-            } else {
-                current.jsonObject[key]
-                    ?: error("JSON path not found: $key")
+
+    internal fun evaluateExpression(root: JsonElement, expression: String): String {
+        val binary = binaryExpr.matchEntire(expression)
+        if (binary != null) {
+            val left = evaluateExpression(root, binary.groupValues[1]).toDoubleOrNull()
+                ?: error("Unable to parse balance from JSON path ${binary.groupValues[1]}")
+            val right = evaluateExpression(root, binary.groupValues[3]).toDoubleOrNull()
+                ?: error("Unable to parse balance from JSON path ${binary.groupValues[3]}")
+            val value = when (binary.groupValues[2]) {
+                "+" -> left + right
+                "-" -> left - right
+                "*" -> left * right
+                "/" -> if (right == 0.0) error("Division by zero") else left / right
+                else -> error("Unsupported operator ${binary.groupValues[2]}")
+            }
+            return formatNumber(value)
+        }
+        return primitiveContent(resolvePath(root, expression))
+    }
+
+    internal fun resolvePath(root: JsonElement, path: String): JsonElement {
+        var current = root
+        for (segment in tokenizeJsonPath(path)) {
+            current = when (segment) {
+                is JsonPathSegment.Field -> {
+                    val obj = current as? JsonObject
+                        ?: error("JSON path not found: ${segment.name}")
+                    obj[segment.name] ?: error("JSON path not found: ${segment.name}")
+                }
+                is JsonPathSegment.Index -> {
+                    val array = current as? JsonArray
+                        ?: error("JSON path not found: ${segment.index}")
+                    array.getOrNull(segment.index)
+                        ?: error("Array index out of bounds: ${segment.index}")
+                }
             }
         }
         return current
     }
+
+    internal fun tokenizeJsonPath(path: String): List<JsonPathSegment> {
+        val segments = mutableListOf<JsonPathSegment>()
+        val source = path.trim()
+        var index = 0
+        while (index < source.length) {
+            while (index < source.length && source[index] == '.') index++
+            if (index >= source.length) break
+            if (source[index] == '[') {
+                val close = source.indexOf(']', startIndex = index)
+                if (close <= index + 1) error("Invalid JSON path index")
+                val raw = source.substring(index + 1, close).trim()
+                val arrayIndex = raw.toIntOrNull() ?: error("Invalid JSON path index: $raw")
+                segments += JsonPathSegment.Index(arrayIndex)
+                index = close + 1
+                continue
+            }
+            val start = index
+            while (index < source.length && source[index] != '.' && source[index] != '[') index++
+            val name = source.substring(start, index).trim()
+            if (name.isEmpty()) continue
+            segments += name.toIntOrNull()?.let(JsonPathSegment::Index) ?: JsonPathSegment.Field(name)
+        }
+        if (segments.isEmpty()) error("JSON path not found: $path")
+        return segments
+    }
+
+    private fun primitiveContent(value: JsonElement): String = when (value) {
+        is JsonNull -> "null"
+        is JsonPrimitive -> value.contentOrNull ?: value.content
+        else -> error("Unable to parse balance from JSON path")
+    }
+
+    private fun formatNumber(value: Double): String {
+        val asLong = value.toLong()
+        return if (value == asLong.toDouble()) asLong.toString() else value.toString()
+    }
+}
+
+internal sealed interface JsonPathSegment {
+    data class Field(val name: String) : JsonPathSegment
+    data class Index(val index: Int) : JsonPathSegment
 }
 
 internal fun formatBalanceDisplay(raw: String): String {
