@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,6 +100,7 @@ internal fun EtaDropdownMenu(
     preferAbove: Boolean = false,
     minWidth: Dp = MenuMinWidth,
     maxWidth: Dp = MenuMaxWidth,
+    maxHeight: Dp? = null,
     focusable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -189,6 +191,7 @@ internal fun EtaDropdownMenu(
                     .then(modifier)
                     .width(IntrinsicSize.Max)
                     .widthIn(min = minWidth, max = maxWidth)
+                    .then(if (maxHeight != null) Modifier.heightIn(max = maxHeight) else Modifier)
                     .etaMenuClipReveal(
                         fractionProgress = {
                             if (visibleState.targetState) fraction.value else 1f

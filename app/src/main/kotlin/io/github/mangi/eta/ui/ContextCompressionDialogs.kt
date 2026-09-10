@@ -1,18 +1,15 @@
 package io.github.mangi.eta.ui
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.content.SharedPreferences
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -32,13 +29,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.config.Prefs
@@ -60,6 +55,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 
 private val CompressTargetTokenOptions = listOf(500, 1000, 2000, 4000)
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun CompressConversationDialog(
     show: Boolean,
@@ -76,7 +72,9 @@ internal fun CompressConversationDialog(
     val scope = rememberCoroutineScope()
     var targetTokens by remember { mutableIntStateOf(AgentContextCompactor.DEFAULT_TARGET_TOKENS) }
     var keepRecent by remember { mutableIntStateOf(AgentContextCompactor.DEFAULT_KEEP_RECENT) }
-    var keepRecentInput by remember { mutableStateOf(keepRecent.toString()) }
+    var keepRecentField by remember {
+        mutableStateOf(TextFieldValue(keepRecent.toString()))
+    }
     var selectedModel by remember { mutableStateOf<AgentModelOptionUi?>(null) }
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
     var showModelDialog by remember { mutableStateOf(false) }
@@ -91,7 +89,8 @@ internal fun CompressConversationDialog(
         }
         targetTokens = AgentContextCompactor.DEFAULT_TARGET_TOKENS
         keepRecent = AgentContextCompactor.DEFAULT_KEEP_RECENT
-        keepRecentInput = keepRecent.toString()
+        val seed = keepRecent.toString()
+        keepRecentField = TextFieldValue(seed, TextRange(0, seed.length))
         isLoadingModels = true
         val pickerState = withContext(Dispatchers.IO) {
             buildManualCompressModelPickerState()
@@ -108,26 +107,11 @@ internal fun CompressConversationDialog(
             if (!compressing) onDismiss()
         },
     ) {
-        val density = LocalDensity.current
-        val activity = LocalContext.current.findActivity()
-        val composeImeBottom = WindowInsets.ime.getBottom(density)
-        val activityImeBottom = activity?.window?.decorView?.let { decor ->
-            ViewCompat.getRootWindowInsets(decor)
-                ?.getInsets(WindowInsetsCompat.Type.ime())
-                ?.bottom
-        } ?: 0
-        val imeBottomPx = maxOf(composeImeBottom, activityImeBottom)
         val scrollState = rememberScrollState()
-        LaunchedEffect(imeBottomPx) {
-            if (imeBottomPx > 0) {
-                scrollState.animateScrollTo(scrollState.maxValue)
-            }
-        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = with(density) { imeBottomPx.toDp() }),
+                .imePadding(),
         ) {
             Column(
                 modifier = Modifier
@@ -164,30 +148,19 @@ internal fun CompressConversationDialog(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
             )
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 CompressTargetTokenOptions.forEach { value ->
                     val selected = targetTokens == value
-                    androidx.compose.material3.Button(
+                    androidx.compose.material3.FilterChip(
+                        selected = selected,
                         onClick = { targetTokens = value },
                         enabled = !compressing,
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = if (selected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                            contentColor = if (selected) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                        ),
-                    ) {
-                        Text(value.toString())
-                    }
+                        label = { Text(value.toString()) },
+                    )
                 }
             }
 
@@ -198,17 +171,17 @@ internal fun CompressConversationDialog(
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
             )
             OutlinedTextField(
-                value = keepRecentInput,
+                value = keepRecentField,
                 onValueChange = { value ->
-                    val digits = value.filter(Char::isDigit).take(3)
-                    val parsed = digits.toIntOrNull()
-                    if (parsed == null) {
-                        keepRecentInput = digits
+                    val digits = value.text.filter(Char::isDigit).take(3)
+                    if (digits.isEmpty()) {
+                        keepRecentField = TextFieldValue("")
                         return@OutlinedTextField
                     }
-                    val number = parsed.coerceIn(0, 100)
-                    keepRecentInput = number.toString()
+                    val number = digits.toInt().coerceIn(0, 100)
+                    val next = number.toString()
                     keepRecent = number
+                    keepRecentField = TextFieldValue(next, TextRange(next.length))
                 },
                 enabled = !compressing,
                 label = { Text(stringResource(R.string.ui_compress_keep_recent_title)) },
@@ -244,7 +217,7 @@ internal fun CompressConversationDialog(
                 onConfirm = {
                     if (compressing) return@MiuixDialogActions
                     compressing = true
-                    val parsedKeepRecent = keepRecentInput.toIntOrNull()?.coerceIn(0, 100) ?: keepRecent
+                    val parsedKeepRecent = keepRecentField.text.toIntOrNull()?.coerceIn(0, 100) ?: keepRecent
                     onConfirm(
                         selectedModel?.providerId,
                         selectedModel?.id,
@@ -398,8 +371,3 @@ internal suspend fun readCompressModelSelection(prefs: SharedPreferences): Agent
     return buildCompressModelPickerState(prefs).selectedModel
 }
 
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}

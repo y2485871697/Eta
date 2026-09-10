@@ -31,7 +31,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -51,11 +50,8 @@ import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.ListPopupColumn
-import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -68,28 +64,21 @@ internal fun AgentModelPickerButton(
     onModelSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showPopup by remember { mutableStateOf(false) }
+    val menuState = rememberEtaMenuState()
     var expandedProviderIds by remember { mutableStateOf(emptySet<String>()) }
     val selected = state.selectedModel
     val enabled = !isStreaming && !state.isChanging && state.providerGroups.isNotEmpty()
     LaunchedEffect(enabled) {
-        if (!enabled) showPopup = false
-    }
-    val density = LocalDensity.current
-    val popupWindowInsetPx = with(density) { 14.dp.roundToPx() }
-    val popupPositionProvider = remember(popupAnchorTopPx, popupWindowInsetPx) {
-        InputPopupPositionProvider(
-            inputContainerTopPx = popupAnchorTopPx,
-            windowHorizontalInsetPx = popupWindowInsetPx,
-        )
+        if (!enabled) menuState.dismiss()
     }
     val currentModel = selected?.displayName ?: stringResource(R.string.model_not_selected)
     val switchModelDescription = stringResource(R.string.model_switch_current, currentModel)
     Box(modifier = modifier) {
         IconButton(
             onClick = {
+                if (!enabled) return@IconButton
                 expandedProviderIds = defaultExpandedModelProviderIds(state.selectedModel)
-                showPopup = true
+                menuState.onAnchorClick()
             },
             enabled = enabled,
             minWidth = ChatInputActionSize,
@@ -105,13 +94,15 @@ internal fun AgentModelPickerButton(
             )
         }
 
-        OverlayListPopup(
-            show = showPopup && popupAnchorTopPx > 0,
-            popupPositionProvider = popupPositionProvider,
-            alignment = PopupPositionProvider.Align.TopEnd,
-            onDismissRequest = { showPopup = false },
-            maxHeight = popupMaxHeight,
+        EtaDropdownMenu(
+            expanded = menuState.expanded && enabled,
+            onDismissRequest = menuState::dismiss,
+            alignEnd = true,
+            preferAbove = true,
+            focusable = false,
             minWidth = 236.dp,
+            maxWidth = 236.dp,
+            maxHeight = popupMaxHeight,
         ) {
             ModelPickerPopupContent(
                 state = state,
@@ -124,7 +115,7 @@ internal fun AgentModelPickerButton(
                     }
                 },
                 onModelSelected = { modelId ->
-                    showPopup = false
+                    menuState.dismiss()
                     onModelSelected(modelId)
                 },
             )
@@ -140,8 +131,7 @@ private fun ModelPickerPopupContent(
     onModelSelected: (String) -> Unit,
 ) {
     val balances by ProviderBalanceStore.balances.collectAsState()
-    ListPopupColumn {
-        state.providerGroups.forEachIndexed { groupIndex, group ->
+    state.providerGroups.forEachIndexed { groupIndex, group ->
             if (groupIndex > 0) {
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
             }
@@ -163,7 +153,6 @@ private fun ModelPickerPopupContent(
                     )
                 }
             }
-        }
     }
 }
 

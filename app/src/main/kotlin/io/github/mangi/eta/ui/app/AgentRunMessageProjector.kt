@@ -72,6 +72,12 @@ internal class AgentRunMessageProjector(
         messages: List<AgentChatMessageUi>,
     ): List<AgentChatMessageUi> {
         if (isSealed(runId)) return messages
+        if (
+            event.kind == AgentEvent.AssistantBlockKind.THINKING &&
+            shouldIgnoreLateThinking(runId, event.round, messages)
+        ) {
+            return messages
+        }
         return transitionVisibleBlock(
             runId = runId,
             round = event.round,
@@ -129,6 +135,7 @@ internal class AgentRunMessageProjector(
         messages: List<AgentChatMessageUi>,
     ): List<AgentChatMessageUi> {
         if (delta.isEmpty() || isSealed(runId)) return messages
+        if (shouldIgnoreLateThinking(runId, round, messages, incoming = delta)) return messages
 
         val transitioned = transitionVisibleBlock(
             runId = runId,
@@ -420,6 +427,37 @@ internal class AgentRunMessageProjector(
 
     fun clearRun(runId: String) {
         thinkingStartedAt.keys.removeAll { it.startsWith("$runId-thinking-") }
+    }
+
+
+    /**
+     * 回答已经出来后，部分接口会把完整 reasoning 再推一遍。
+     * 这时不要再展开一轮看起来像“又在思考”的卡片。
+     */
+    private fun shouldIgnoreLateThinking(
+        runId: String,
+        round: Int,
+        messages: List<AgentChatMessageUi>,
+        incoming: String? = null,
+    ): Boolean {
+        val thinkings = messages.filterIsInstance<ThinkingMessageUi>().filter { message ->
+            isThinkingMessageForRound(message.id, runId, round)
+        }
+        if (thinkings.isEmpty()) return false
+        val hasAnswer = messages.any { message ->
+            message is AgentMessageUi &&
+                isAssistantMessageForRound(message.id, runId, round) &&
+                message.content.isNotBlank()
+        }
+        if (!hasAnswer) return false
+        val completed = thinkings.filterNot(ThinkingMessageUi::isStreaming)
+        if (completed.isEmpty()) return false
+        if (incoming == null) return true
+        return completed.any { existing ->
+            incoming == existing.content ||
+                existing.content.startsWith(incoming) ||
+                incoming.startsWith(existing.content)
+        }
     }
 
     private fun ThinkingMessageUi.finished(authoritativeContent: String? = null): ThinkingMessageUi =

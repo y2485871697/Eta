@@ -393,6 +393,20 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
                 return
             }
 
+            if (
+                part.kind == AssistantBlockKind.THINKING &&
+                contentBlocks.any { block ->
+                    block.kind == AssistantBlockKind.THINKING &&
+                        (
+                            block.content.toString() == part.content ||
+                                block.content.toString().startsWith(part.content) ||
+                                part.content.startsWith(block.content.toString())
+                            )
+                }
+            ) {
+                return
+            }
+
             finishActiveVisibleBlock()
             val block = StreamingContentBlock(
                 kind = part.kind,

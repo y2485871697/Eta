@@ -176,8 +176,25 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                 if (delta.has("reasoning_content") && !delta.isNull("reasoning_content")) {
                     val text = delta.optString("reasoning_content")
                     if (text.isNotEmpty()) {
-                        reasoningContent.append(text)
-                        appendVisibleDelta(AssistantBlockKind.THINKING, text)
+                        val already = reasoningContent.toString()
+                        when {
+                            already.isEmpty() -> {
+                                reasoningContent.append(text)
+                                appendVisibleDelta(AssistantBlockKind.THINKING, text)
+                            }
+                            text == already || already.startsWith(text) -> Unit
+                            text.startsWith(already) -> {
+                                val suffix = text.substring(already.length)
+                                if (suffix.isNotEmpty()) {
+                                    reasoningContent.append(suffix)
+                                    appendVisibleDelta(AssistantBlockKind.THINKING, suffix)
+                                }
+                            }
+                            else -> {
+                                reasoningContent.append(text)
+                                appendVisibleDelta(AssistantBlockKind.THINKING, text)
+                            }
+                        }
                     }
                 }
                 if (delta.has("content") && !delta.isNull("content")) {

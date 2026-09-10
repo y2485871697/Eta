@@ -548,4 +548,30 @@ class AgentRunMessageProjectorTest {
         assertTrue(thinking.isStreaming)
         assertFalse(thinking.collapsed)
     }
+
+    @Test
+    fun ignoresDuplicateReasoningAfterAnswer() {
+        val projector = AgentRunMessageProjector(nowElapsedRealtime = { 1_000L })
+        val runId = "run-dup-think"
+        var messages: List<AgentChatMessageUi> = projector.appendReasoningDelta(
+            runId, round = 1, index = 0, delta = "先想清楚结构", messages = emptyList(),
+        )
+        messages = projector.finalizeThinkingRound(runId, 1, messages)
+        messages = projector.appendTextDelta(runId, round = 1, index = 1, delta = "修表匠的钟", messages)
+        val afterAnswer = messages
+        messages = projector.startAssistantBlock(
+            runId,
+            AgentEvent.AssistantBlockStart(
+                round = 1,
+                kind = AgentEvent.AssistantBlockKind.THINKING,
+                index = 2,
+            ),
+            messages,
+        )
+        messages = projector.appendReasoningDelta(
+            runId, round = 1, index = 2, delta = "先想清楚结构", messages,
+        )
+        assertEquals(afterAnswer, messages)
+        assertEquals(1, messages.filterIsInstance<ThinkingMessageUi>().size)
+    }
 }
