@@ -44,7 +44,6 @@ import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.runtime.Composable
@@ -523,7 +522,7 @@ private fun ThinkingEffortChip(
             expanded = menuState.expanded && menuEnabled,
             onDismissRequest = menuState::dismiss,
             preferAbove = true,
-            minWidth = 0.dp,
+            minWidth = 120.dp,
             focusable = false,
         ) {
             options.forEach { option ->
@@ -559,28 +558,17 @@ private fun ThinkingEffortMenuRow(
                 cornerRadius = 12.dp,
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Spacer(modifier = Modifier.size(18.dp))
         Text(
             text = option.displayName,
             style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
             maxLines = 1,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxWidth(),
         )
-        if (selected) {
-            Icon(
-                imageVector = Icons.Rounded.Check,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
-            )
-        } else {
-            Spacer(modifier = Modifier.size(18.dp))
-        }
     }
 }
 

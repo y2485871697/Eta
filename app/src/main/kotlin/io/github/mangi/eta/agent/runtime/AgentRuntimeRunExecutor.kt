@@ -92,15 +92,19 @@ internal class AgentRuntimeRunExecutor(
             val assistant = AssistantRepository.active()
             val enabledSkillIds = assistant.enabledSkillIds.toSet()
             val skillContext = SkillContext(
-                installedSkills = skillIndexService.listSkillsForManagement()
-                    .filter { it.installed && it.id in enabledSkillIds }
-                    .filter { SkillCompatibilityChecker.evaluate(it).available },
+                installedSkills = SkillRuntime.bindSkillsToAssistant(
+                    context = appContext,
+                    assistantId = assistant.id,
+                    entries = skillIndexService.listSkillsForManagement()
+                        .filter { it.installed && it.id in enabledSkillIds }
+                        .filter { SkillCompatibilityChecker.evaluate(it).available },
+                ),
             )
             val memoryEnabled = assistant.memoryEnabled
             val memoryContext = if (memoryEnabled) {
                 runCatching {
                     AgentMemoryContextBuilder.build(
-                        snapshot = AgentMemoryRepository.snapshot(),
+                        snapshot = AgentMemoryRepository.snapshot(assistant.id),
                         contextWindow = request.config.contextWindow,
                     )
                 }.getOrElse { throwable ->
@@ -182,6 +186,8 @@ internal class AgentRuntimeRunExecutor(
                 githubSkillSource = githubSkillSource,
                 skillPackageInstaller = skillPackageInstaller,
                 runAvailableSkillIds = skillContext.installedSkills.mapTo(mutableSetOf()) { it.id },
+                runSkillEntries = skillContext.installedSkills,
+                memoryAssistantId = assistant.id,
                 pendingSkillConflict = pendingSkillConflict,
             )
             val routingExecutor = RoutingToolExecutor(

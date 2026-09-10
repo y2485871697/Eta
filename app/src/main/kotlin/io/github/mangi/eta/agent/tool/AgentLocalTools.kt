@@ -18,6 +18,7 @@ import io.github.mangi.eta.agent.overlay.AgentHapticFeedback
 import io.github.mangi.eta.agent.overlay.GestureIndicator
 import io.github.mangi.eta.agent.runtime.AgentAppContext
 import io.github.mangi.eta.agent.skill.SkillCompatibilityChecker
+import io.github.mangi.eta.agent.skill.SkillIndexEntry
 import io.github.mangi.eta.agent.skill.SkillIndexService
 import io.github.mangi.eta.agent.skill.SkillInstallErrorCode
 import io.github.mangi.eta.agent.skill.SkillInstallResult
@@ -40,6 +41,7 @@ import io.github.mangi.eta.agent.terminal.SharedFolderMounts
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.core.AgentLogger
 import io.github.mangi.eta.core.HookSupport
+import io.github.mangi.eta.data.model.AssistantPrompt
 import io.github.mangi.eta.data.repository.AgentMemoryException
 import io.github.mangi.eta.data.repository.AgentMemoryMutation
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
@@ -88,6 +90,8 @@ internal class AgentLocalTools(
     private val githubSkillSource: PublicGitHubSkillSource? = null,
     private val skillPackageInstaller: SkillPackageInstaller? = null,
     runAvailableSkillIds: Set<String> = emptySet(),
+    runSkillEntries: List<SkillIndexEntry> = emptyList(),
+    memoryAssistantId: String = AssistantPrompt.DEFAULT_ID,
     pendingSkillConflict: PendingSkillConflictCapability? = null,
     private val rootAvailable: () -> Boolean = { RootAccess.isGranted },
 ) : AgentModelClient.ToolExecutor, AutoCloseable {
@@ -130,6 +134,8 @@ internal class AgentLocalTools(
     private val publishedObservation = AtomicReference(PublishedObservation())
     private val runAvailableSkillIds = runAvailableSkillIds
         .mapTo(mutableSetOf(), SkillParser::normalizeSkillLookup)
+    private val runSkillEntries = runSkillEntries
+    private val memoryAssistantId = memoryAssistantId
     private val mutatedSkillIds = ConcurrentHashMap.newKeySet<String>()
     private val skillTreeMutationUncertain = AtomicBoolean(false)
     private val pendingSkillConflict = AtomicReference(pendingSkillConflict)
@@ -283,6 +289,7 @@ internal class AgentLocalTools(
             query = args.optString("query").takeIf(String::isNotBlank),
             startLine = args.optInt("start_line", 1),
             maxChars = args.optInt("max_chars", 12_000),
+            assistantId = memoryAssistantId,
         )
         JSONObject()
             .put("ok", true)
@@ -315,7 +322,7 @@ internal class AgentLocalTools(
             "clear" -> AgentMemoryMutation.Clear(revision)
             else -> error("不支持的记忆写入模式")
         }
-        when (val result = AgentMemoryRepository.mutate(mutation)) {
+        when (val result = AgentMemoryRepository.mutate(mutation, memoryAssistantId)) {
             is AgentMemoryWriteResult.Success -> JSONObject()
                 .put("ok", true)
                 .put("revision", result.snapshot.revision)
@@ -832,6 +839,14 @@ internal class AgentLocalTools(
         }
     }
 
+
+    private fun resolveRunSkill(skillId: String): SkillIndexEntry? {
+        val normalized = SkillParser.normalizeSkillLookup(skillId)
+        if (normalized.isBlank()) return null
+        return runSkillEntries.firstOrNull { SkillParser.normalizeSkillLookup(it.id) == normalized }
+            ?: runSkillEntries.firstOrNull { SkillParser.normalizeSkillLookup(it.name) == normalized }
+    }
+
     // ==================== Skills tools ====================
 
     private fun skillsList(args: JSONObject): String {
@@ -840,7 +855,7 @@ internal class AgentLocalTools(
             ?: return errorResult("SKILLS_UNAVAILABLE", "技能服务未初始化")
         val query = args.optString("query").trim().lowercase()
         val limit = args.optInt("limit", 50).coerceIn(1, 200)
-        val entries = indexService.listInstalledSkills()
+        val entries = (runSkillEntries.takeIf { it.isNotEmpty() } ?: indexService.listInstalledSkills())
             .filter { entry -> SkillCompatibilityChecker.evaluate(entry).available }
             .filter { entry -> isVisibleInCurrentRun(entry.id) }
             .filter { entry ->
@@ -885,7 +900,7 @@ internal class AgentLocalTools(
         val skillId = args.optString("skillId").trim()
         if (skillId.isBlank()) return errorResult("MISSING_PARAM", "缺少 skillId")
         val maxChars = args.optInt("maxChars", 16_000).coerceIn(512, 64_000)
-        val entry = indexService.findInstalledSkill(skillId)
+        val entry = resolveRunSkill(skillId) ?: indexService.findInstalledSkill(skillId)
             ?: return errorResult("NOT_FOUND", "未找到 skill：$skillId")
         if (!isVisibleInCurrentRun(entry.id)) return nextTurnRequired(entry.id)
         val compat = SkillCompatibilityChecker.evaluate(entry)
@@ -925,7 +940,7 @@ internal class AgentLocalTools(
         val skillId = args.getString("skillId").trim()
         val relativePath = args.getString("relativePath").trim()
         val maxChars = args.optInt("maxChars", 16_000).coerceIn(512, 64_000)
-        val entry = indexService.findInstalledSkill(skillId)
+        val entry = resolveRunSkill(skillId) ?: indexService.findInstalledSkill(skillId)
             ?: return errorResult("NOT_FOUND", "未找到已启用 Skill：$skillId")
         if (!isVisibleInCurrentRun(entry.id)) return nextTurnRequired(entry.id)
         val compatibility = SkillCompatibilityChecker.evaluate(entry)

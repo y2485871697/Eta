@@ -3,6 +3,8 @@ package io.github.mangi.eta.data.repository
 import android.content.Context
 import android.util.AtomicFile
 import io.github.mangi.eta.data.datastore.SettingsDataStore
+import io.github.mangi.eta.data.model.AssistantPrompt
+import io.github.mangi.eta.data.model.AssistantStorage
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -57,9 +59,8 @@ internal class AgentMemoryException(
 
 /** 单一 MEMORY.md 的有界、原子文件存储。 */
 internal class AgentMemoryStore(
-    rootDir: File,
+    private val memoryDir: File,
 ) {
-    private val memoryDir = File(rootDir, DIRECTORY_NAME)
     private val atomicFile = AtomicFile(File(memoryDir, FILE_NAME))
     private val lock = Any()
 
@@ -288,55 +289,124 @@ internal class AgentMemoryStore(
         const val MAX_READ_CHARS = 32_000
         const val MIN_READ_CHARS = 1
         const val MAX_WRITE_CONTENT_CHARS = 3_500
-        private const val DIRECTORY_NAME = "memory"
-        private const val FILE_NAME = "MEMORY.md"
+        const val FILE_NAME = "MEMORY.md"
         private const val DEFAULT_START_LINE = 1
         private const val SEARCH_CONTEXT_LINES = 1
     }
 }
 
 internal object AgentMemoryRepository {
+    private const val ROOT_NAME = "memory"
+
     @Volatile
-    private lateinit var store: AgentMemoryStore
+    private lateinit var rootDir: File
+    private val lock = Any()
+    private val stores = mutableMapOf<String, AgentMemoryStore>()
 
     fun init(context: Context) {
-        if (!::store.isInitialized) {
-            store = AgentMemoryStore(context.applicationContext.filesDir)
+        if (!::rootDir.isInitialized) {
+            rootDir = context.applicationContext.filesDir
+            migrateLegacyMemory()
         }
     }
 
-    fun snapshot(): AgentMemorySnapshot {
-        ensureInitialized()
-        return store.snapshot()
-    }
+    fun snapshot(assistantId: String = currentAssistantId()): AgentMemorySnapshot =
+        storeFor(assistantId).snapshot()
 
     fun read(
         query: String? = null,
         startLine: Int = 1,
         maxChars: Int = AgentMemoryStore.DEFAULT_READ_CHARS,
-    ): AgentMemoryReadResult {
+        assistantId: String = currentAssistantId(),
+    ): AgentMemoryReadResult = storeFor(assistantId).read(query, startLine, maxChars)
+
+    fun mutate(
+        mutation: AgentMemoryMutation,
+        assistantId: String = currentAssistantId(),
+    ): AgentMemoryWriteResult = storeFor(assistantId).mutate(mutation)
+
+    fun replaceAll(
+        content: String,
+        assistantId: String = currentAssistantId(),
+    ): AgentMemorySnapshot = storeFor(assistantId).replaceAll(content)
+
+    fun exportAll(): Map<String, String> {
         ensureInitialized()
-        return store.read(query, startLine, maxChars)
+        val exported = linkedMapOf<String, String>()
+        val memoryRoot = File(rootDir, ROOT_NAME)
+        val ids = buildSet {
+            add(currentAssistantId())
+            AssistantRepository.profiles.value.forEach { add(it.id) }
+            memoryRoot.listFiles()
+                ?.filter { it.isDirectory }
+                ?.forEach { add(it.name) }
+        }
+        ids.forEach { id ->
+            val content = storeFor(id).snapshot().content
+            if (content.isNotEmpty()) exported[AssistantStorage.id(id)] = content
+        }
+        return exported
     }
 
-    fun mutate(mutation: AgentMemoryMutation): AgentMemoryWriteResult {
-        ensureInitialized()
-        return store.mutate(mutation)
+    fun importAll(memories: Map<String, String>, fallback: String = "") {
+        if (memories.isNotEmpty()) {
+            memories.forEach { (id, content) -> replaceAll(content, id) }
+            return
+        }
+        replaceAll(fallback, AssistantPrompt.DEFAULT_ID)
     }
 
-    fun replaceAll(content: String): AgentMemorySnapshot {
+    fun copy(fromId: String, toId: String) {
+        val content = snapshot(fromId).content
+        if (content.isEmpty()) return
+        replaceAll(content, toId)
+    }
+
+    fun delete(assistantId: String) {
         ensureInitialized()
-        return store.replaceAll(content)
+        val id = AssistantStorage.id(assistantId)
+        synchronized(lock) { stores.remove(id) }
+        File(rootDir, "$ROOT_NAME/$id").deleteRecursively()
     }
 
     fun enabledFlow(): Flow<Boolean> = SettingsDataStore.memoryEnabledFlow()
 
-    suspend fun isEnabled(): Boolean = SettingsDataStore.settings().memoryEnabled
+    fun isEnabled(assistantId: String = currentAssistantId()): Boolean =
+        AssistantRepository.profile(assistantId)?.memoryEnabled
+            ?: AssistantRepository.active().memoryEnabled
 
-    suspend fun setEnabled(enabled: Boolean) = SettingsDataStore.setMemoryEnabled(enabled)
+    fun setEnabled(enabled: Boolean, assistantId: String = currentAssistantId()) {
+        val current = AssistantRepository.profile(assistantId) ?: AssistantRepository.active()
+        AssistantRepository.update(current.copy(memoryEnabled = enabled))
+    }
+
+    private fun storeFor(assistantId: String): AgentMemoryStore {
+        ensureInitialized()
+        val id = AssistantStorage.id(assistantId)
+        synchronized(lock) {
+            return stores.getOrPut(id) {
+                AgentMemoryStore(File(rootDir, "$ROOT_NAME/$id"))
+            }
+        }
+    }
+
+    private fun currentAssistantId(): String =
+        if (AssistantRepository.isReady()) AssistantRepository.active().id else AssistantPrompt.DEFAULT_ID
+
+    private fun migrateLegacyMemory() {
+        val legacy = File(rootDir, "$ROOT_NAME/${AgentMemoryStore.FILE_NAME}")
+        val migrated = File(rootDir, "$ROOT_NAME/${AssistantPrompt.DEFAULT_ID}/${AgentMemoryStore.FILE_NAME}")
+        if (legacy.isFile && !migrated.exists()) {
+            migrated.parentFile?.mkdirs()
+            if (!legacy.renameTo(migrated)) {
+                migrated.writeBytes(legacy.readBytes())
+                legacy.delete()
+            }
+        }
+    }
 
     private fun ensureInitialized() {
-        check(::store.isInitialized) {
+        check(::rootDir.isInitialized) {
             "AgentMemoryRepository.init(context) must be called in Application.onCreate()"
         }
     }

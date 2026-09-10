@@ -10,6 +10,7 @@ import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.db.ProviderEntity
 import io.github.mangi.eta.data.db.ProviderModelEntity
 import io.github.mangi.eta.data.db.ProviderWithModelsSeed
+import io.github.mangi.eta.data.model.AssistantPrompt
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -33,6 +34,7 @@ internal data class EtaBackupDocument(
     val contextCheckpoints: List<ConversationContextCheckpointEntity> = emptyList(),
     val conversationState: ConversationStateEntity? = null,
     val memoryMd: String = "",
+    val assistantMemories: Map<String, String> = emptyMap(),
 ) {
     companion object {
         const val FORMAT = "eta-backup"
@@ -103,7 +105,7 @@ internal object EtaBackupRepository {
             }
 
             // MEMORY.md 使用 AtomicFile，数据库提交后再替换，失败时不会留下半截文件。
-            AgentMemoryRepository.replaceAll(document.memoryMd)
+            AgentMemoryRepository.importAll(document.assistantMemories, document.memoryMd)
             SettingsDataStore.setSelection(
                 providerId = document.selectedProviderId,
                 modelId = document.selectedModelId,
@@ -139,7 +141,8 @@ internal object EtaBackupRepository {
             messages = conversations.messages(),
             contextCheckpoints = conversations.contextCheckpoints(),
             conversationState = conversations.state(),
-            memoryMd = AgentMemoryRepository.snapshot().content,
+            memoryMd = AgentMemoryRepository.snapshot(AssistantPrompt.DEFAULT_ID).content,
+            assistantMemories = AgentMemoryRepository.exportAll(),
         )
     }
 
@@ -225,6 +228,12 @@ internal object EtaBackupRepository {
         }
         if (document.memoryMd.toByteArray(Charsets.UTF_8).size > 1024 * 1024) {
             throw EtaBackupException("MEMORY.md 超过 1 MiB 限制")
+        }
+        document.assistantMemories.forEach { (id, content) ->
+            if (id.isBlank()) throw EtaBackupException("备份中的助手记忆 ID 无效")
+            if (content.toByteArray(Charsets.UTF_8).size > 1024 * 1024) {
+                throw EtaBackupException("助手记忆超过 1 MiB 限制")
+            }
         }
     }
 

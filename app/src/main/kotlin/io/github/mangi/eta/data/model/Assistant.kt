@@ -50,3 +50,12 @@ internal object AssistantPrompt {
         return identity(name) + "\n\n人格设定：\n" + body
     }
 }
+
+internal object AssistantStorage {
+    fun id(raw: String): String {
+        val trimmed = raw.trim().ifBlank { AssistantPrompt.DEFAULT_ID }
+        val safe = trimmed.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        return safe.take(80).ifBlank { AssistantPrompt.DEFAULT_ID }
+    }
+}
+

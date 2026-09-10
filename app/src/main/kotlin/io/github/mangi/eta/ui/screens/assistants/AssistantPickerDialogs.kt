@@ -3,14 +3,14 @@ package io.github.mangi.eta.ui.screens.assistants
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,7 +41,6 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
@@ -58,8 +57,8 @@ internal fun AssistantPickerDialog(
     var searchQuery by remember { mutableStateOf("") }
     var actionProfile by remember { mutableStateOf<AssistantProfile?>(null) }
     var deleteProfile by remember { mutableStateOf<AssistantProfile?>(null) }
-    val maxListHeight = (LocalConfiguration.current.screenHeightDp * 0.5f).dp
-        .coerceIn(240.dp, 420.dp)
+    val dialogBodyHeight = (LocalConfiguration.current.screenHeightDp * 0.5f).dp
+        .coerceAtLeast(280.dp)
 
     LaunchedEffect(show) {
         if (!show) {
@@ -83,7 +82,11 @@ internal fun AssistantPickerDialog(
             if (actionProfile == null && deleteProfile == null) onDismiss()
         },
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(dialogBodyHeight),
+        ) {
             TextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -92,14 +95,15 @@ internal fun AssistantPickerDialog(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            LazyColumn(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .weight(1f)
                     .padding(top = 12.dp)
-                    .heightIn(max = maxListHeight),
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(filtered, key = { it.id }) { profile ->
+                filtered.forEach { profile ->
                     AssistantProfileCard(
                         profile = profile,
                         selected = profile.id == activeId,
@@ -111,14 +115,12 @@ internal fun AssistantPickerDialog(
                     )
                 }
                 if (filtered.isEmpty()) {
-                    item(key = "empty") {
-                        Text(
-                            text = stringResource(R.string.assistant_empty),
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
-                        )
-                    }
+                    Text(
+                        text = stringResource(R.string.assistant_empty),
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                    )
                 }
             }
         }
@@ -189,29 +191,26 @@ internal fun AssistantProfileCard(
                         onLongClick()
                     },
                 )
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            AssistantAvatar(assistant = profile, size = 44.dp)
-            Column(
+            AssistantAvatar(assistant = profile, size = 32.dp)
+            Text(
+                text = profile.name,
+                style = MiuixTheme.textStyles.title3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
+                    .padding(start = 12.dp, end = 8.dp),
+            )
+            if (selected) {
                 Text(
-                    text = profile.name,
-                    style = MiuixTheme.textStyles.title4,
+                    text = stringResource(R.string.assistant_current),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.primary,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
-                if (selected) {
-                    Text(
-                        text = stringResource(R.string.assistant_current),
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.primary,
-                    )
-                }
             }
         }
     }
@@ -267,7 +266,7 @@ internal fun AssistantDeleteDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    OverlayDialog(
+    WindowDialog(
         show = true,
         title = stringResource(R.string.assistant_delete_title),
         summary = stringResource(R.string.assistant_delete_body, profile.name),

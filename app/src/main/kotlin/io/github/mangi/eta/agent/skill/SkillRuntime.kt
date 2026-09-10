@@ -3,6 +3,7 @@ package io.github.mangi.eta.agent.skill
 import android.content.Context
 import android.content.res.AssetManager
 import io.github.mangi.eta.data.db.EtaDatabase
+import io.github.mangi.eta.data.model.AssistantStorage
 import io.github.mangi.eta.data.db.SkillRegistryEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -484,6 +485,7 @@ class SkillIndexService(
         return skillsRoot.walkTopDown()
             .onEnter { dir ->
                 dir.name != ".git" &&
+                    dir.name != ASSISTANT_SKILL_DIR &&
                     !Files.isSymbolicLink(dir.toPath()) &&
                     runCatching { dir.canonicalFile.toPath().startsWith(canonicalRoot) }.getOrDefault(false)
             }
@@ -645,11 +647,71 @@ object SkillCompatibilityChecker {
 // SkillRuntime — 工厂入口
 // =====================================================================================
 
+internal const val ASSISTANT_SKILL_DIR = ".assistant"
+
 object SkillRuntime {
     @Volatile
     private var sharedIndexService: SkillIndexService? = null
 
     fun skillsRoot(context: Context): File = File(context.filesDir, "skills")
+
+    fun bindSkillsToAssistant(
+        context: Context,
+        assistantId: String,
+        entries: List<SkillIndexEntry>,
+    ): List<SkillIndexEntry> {
+        val root = skillsRoot(context)
+        return entries.map { bindSkillToAssistant(root, assistantId, it) }
+    }
+
+    fun copyAssistantSkills(context: Context, fromId: String, toId: String) {
+        val root = skillsRoot(context)
+        val source = File(root, "$ASSISTANT_SKILL_DIR/${AssistantStorage.id(fromId)}")
+        val dest = File(root, "$ASSISTANT_SKILL_DIR/${AssistantStorage.id(toId)}")
+        if (!source.isDirectory) return
+        dest.parentFile?.mkdirs()
+        dest.deleteRecursively()
+        source.copyRecursively(dest)
+    }
+
+    fun deleteAssistantSkills(context: Context, assistantId: String) {
+        File(skillsRoot(context), "$ASSISTANT_SKILL_DIR/${AssistantStorage.id(assistantId)}")
+            .deleteRecursively()
+    }
+
+    private fun bindSkillToAssistant(
+        skillsRoot: File,
+        assistantId: String,
+        entry: SkillIndexEntry,
+    ): SkillIndexEntry {
+        val source = File(entry.rootPath)
+        if (!source.isDirectory) return entry
+        val dest = File(skillsRoot, "$ASSISTANT_SKILL_DIR/${AssistantStorage.id(assistantId)}/${entry.id}")
+        syncSkillPackage(source, dest)
+        val skillFile = File(dest, "SKILL.md")
+        return entry.copy(
+            rootPath = dest.canonicalFile.absolutePath,
+            skillFilePath = skillFile.canonicalFile.absolutePath,
+            enabled = true,
+        )
+    }
+
+    private fun syncSkillPackage(source: File, dest: File) {
+        dest.mkdirs()
+        source.listFiles().orEmpty().forEach { child ->
+            if (child.name == "data") {
+                File(dest, "data").mkdirs()
+                return@forEach
+            }
+            val target = File(dest, child.name)
+            if (child.isDirectory) {
+                child.copyRecursively(target, overwrite = true)
+            } else if (child.isFile) {
+                child.copyTo(target, overwrite = true)
+            }
+        }
+        File(dest, "data").mkdirs()
+    }
 
     fun createIndexService(context: Context): SkillIndexService {
         sharedIndexService?.let { return it }

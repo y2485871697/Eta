@@ -3,6 +3,7 @@ package io.github.mangi.eta.data.repository
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import io.github.mangi.eta.agent.skill.SkillRuntime
 import io.github.mangi.eta.data.model.AssistantDefaults
 import io.github.mangi.eta.data.model.AssistantProfile
 import io.github.mangi.eta.data.model.AssistantPrompt
@@ -34,6 +35,8 @@ internal object AssistantRepository {
 
     private val _activeId = MutableStateFlow(AssistantPrompt.DEFAULT_ID)
     val activeId: StateFlow<String> = _activeId.asStateFlow()
+
+    fun isReady(): Boolean = ::applicationContext.isInitialized
 
     @Synchronized
     fun init(context: Context) {
@@ -104,6 +107,10 @@ internal object AssistantRepository {
             memoryEnabled = source.memoryEnabled,
             enabledSkillIds = source.enabledSkillIds,
         )
+        AgentMemoryRepository.copy(source.id, created.id)
+        if (::applicationContext.isInitialized) {
+            SkillRuntime.copyAssistantSkills(applicationContext, source.id, created.id)
+        }
         source.avatarFileName?.let { copyAvatar(it, created.id) }?.let { fileName ->
             return update(created.copy(avatarFileName = fileName))
         }
@@ -131,6 +138,10 @@ internal object AssistantRepository {
         require(remaining.isNotEmpty()) { "必须保留至少一个助手" }
         val nextActive = if (activeId.value == id) remaining.first().id else activeId.value
         avatarFile(profile(id)?.avatarFileName)?.delete()
+        AgentMemoryRepository.delete(id)
+        if (::applicationContext.isInitialized) {
+            SkillRuntime.deleteAssistantSkills(applicationContext, id)
+        }
         val snapshot = Snapshot(nextActive, remaining)
         writeIndex(snapshot)
         publish(snapshot)
