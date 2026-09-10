@@ -1,6 +1,5 @@
 package io.github.mangi.eta.ui.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -9,9 +8,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -27,9 +24,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-private val MenuShape = RoundedCornerShape(20.dp)
+private val MenuCornerRadius = 16.dp
 private val MenuMinWidth = 180.dp
 private val MenuMaxWidth = 280.dp
 private val MenuScreenMargin = 12.dp
@@ -68,24 +66,18 @@ internal fun EtaDropdownMenu(
         ),
     ) {
         CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
-            Surface(
+            Column(
                 modifier = modifier
                     .width(IntrinsicSize.Max)
-                    .widthIn(min = minWidth, max = maxWidth),
-                shape = MenuShape,
-                color = colors.surfaceContainer,
-                contentColor = colors.onSurface,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
-                border = BorderStroke(0.5.dp, colors.outline.copy(alpha = 0.45f)),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(vertical = 6.dp)
-                        .verticalScroll(rememberScrollState()),
-                    content = content,
-                )
-            }
+                    .widthIn(min = minWidth, max = maxWidth)
+                    .squircleSurface(
+                        color = colors.surfaceContainer,
+                        cornerRadius = MenuCornerRadius,
+                    )
+                    .padding(vertical = 6.dp)
+                    .verticalScroll(rememberScrollState()),
+                content = content,
+            )
         }
     }
 }
