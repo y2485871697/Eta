@@ -70,6 +70,9 @@ sealed interface AppRoute : NavKey {
 
     @Serializable
     data object ContextCompression : AppRoute
+
+    @Serializable
+    data object UsageStats : AppRoute
 }
 
 @Serializable

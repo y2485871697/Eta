@@ -77,7 +77,7 @@ fun AgentAppShell(
     onSelectConversation: (String) -> Unit,
     onConversationRename: (ConversationSummaryUi) -> Unit,
     onConversationDelete: (ConversationSummaryUi) -> Unit,
-    onOpenTools: () -> Unit,
+    onOpenUsageStats: () -> Unit,
     onOpenSkills: () -> Unit,
     onOpenPermissions: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -145,7 +145,7 @@ fun AgentAppShell(
                 onConversationDelete = onConversationDelete,
                 onOpenSettings = onOpenSettings,
                 onOpenModelProviders = onOpenModelProviders,
-                onOpenTools = onOpenTools,
+                onOpenUsageStats = onOpenUsageStats,
                 onOpenSkills = onOpenSkills,
                 onOpenPermissions = onOpenPermissions,
             ) {
@@ -257,5 +257,6 @@ private fun titleForRoute(route: AppRoute?, currentConversationTitle: String? = 
     is AppRoute.ModelProviderDetail -> stringResource(R.string.route_provider_details)
     is AppRoute.ModelProviderNew -> stringResource(R.string.route_new_provider)
     is AppRoute.ContextCompression -> stringResource(R.string.route_context_compression)
+    is AppRoute.UsageStats -> stringResource(R.string.stats_page_title)
     null -> stringResource(R.string.app_name)
 }

@@ -68,6 +68,7 @@ import io.github.mangi.eta.ui.screens.mcp.McpServersScreen
 import io.github.mangi.eta.ui.screens.memory.AgentMemoryScreen
 import io.github.mangi.eta.ui.screens.permissions.PermissionHealthScreen
 import io.github.mangi.eta.ui.screens.skills.AgentSkillsScreen
+import io.github.mangi.eta.ui.screens.stats.UsageStatsScreen
 import io.github.mangi.eta.ui.screens.terminal.LinuxEnvironmentScreen
 import io.github.mangi.eta.ui.screens.terminal.LinuxFilesScreen
 import io.github.mangi.eta.ui.screens.terminal.SharedFoldersScreen
@@ -230,7 +231,7 @@ fun AgentAppRoot(
             onConversationDelete = { conversation ->
                 conversationDeleteTarget = conversation
             },
-            onOpenTools = { pushRoute(AppRoute.Tools) },
+            onOpenUsageStats = { pushRoute(AppRoute.UsageStats) },
             onOpenSkills = { pushRoute(AppRoute.Skills) },
             onOpenPermissions = { pushRoute(AppRoute.Permissions) },
             onOpenSettings = { pushRoute(AppRoute.Settings) },
@@ -520,6 +521,9 @@ fun AgentAppRoot(
             }
             entry<AppRoute.Workspace>(swipeDismiss = swipeDismiss) {
                 WorkspaceScreen(onBack = ::popRoute)
+            }
+            entry<AppRoute.UsageStats>(swipeDismiss = swipeDismiss) {
+                UsageStatsScreen(onBack = ::popRoute)
             }
             entry<AppRoute.Settings>(swipeDismiss = swipeDismiss) {
                 SettingsScreen(

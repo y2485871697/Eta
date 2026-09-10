@@ -32,6 +32,13 @@
   <string name="action_open_terminal">開啟終端機</string>
   <string name="action_open_browser">開啟瀏覽器</string>
   <string name="action_search_history">搜尋記錄</string>
+  <string name="search_history_hint">搜尋訊息</string>
+  <string name="search_history_empty">輸入關鍵詞搜尋對話</string>
+  <string name="search_history_no_results">沒有符合的訊息</string>
+  <string name="search_history_role_user">我</string>
+  <string name="search_history_role_assistant">Eta</string>
+  <string name="search_history_role_thinking">思考</string>
+  <string name="search_history_role_tool">工具</string>
   <string name="action_token_usage">Token 用量</string>
   <string name="action_browse_workspace_files">瀏覽工作區檔案</string>
   <string name="action_auto_compress_context">自動壓縮</string>
@@ -1171,4 +1178,18 @@
   <string name="ui_balance_result_path">結果 JSON 鍵</string>
   <string name="ui_test_balance">測試餘額查詢</string>
   <string name="ui_balance_section_title">餘額</string>
+
+    <string name="stats_page_title">用量統計</string>
+    <string name="stats_page_heatmap_title">對話熱力圖</string>
+    <string name="stats_page_heatmap_less">少</string>
+    <string name="stats_page_heatmap_more">多</string>
+    <string name="stats_page_dow_mon">一</string>
+    <string name="stats_page_dow_wed">三</string>
+    <string name="stats_page_dow_fri">五</string>
+    <string name="stats_page_total_conversations">總對話數</string>
+    <string name="stats_page_total_messages">總訊息數</string>
+    <string name="stats_page_input_tokens">輸入 Token</string>
+    <string name="stats_page_output_tokens">輸出 Token</string>
+    <string name="stats_page_cached_tokens">快取 Token</string>
+    <string name="stats_page_launch_count">應用啟動次數</string>
 </resources>

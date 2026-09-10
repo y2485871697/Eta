@@ -37,6 +37,27 @@ internal interface ConversationDao {
     @Query("SELECT COUNT(*) FROM conversation_messages WHERE conversation_id = :conversationId")
     suspend fun messageCount(conversationId: String): Int
 
+    @Query("SELECT COUNT(*) FROM conversations")
+    suspend fun conversationCount(): Int
+
+    @Query("SELECT COUNT(*) FROM conversation_messages")
+    suspend fun totalMessageCount(): Int
+
+    @Query("SELECT COALESCE(SUM(input_tokens), 0) FROM conversation_messages")
+    suspend fun totalInputTokens(): Long
+
+    @Query("SELECT COALESCE(SUM(output_tokens), 0) FROM conversation_messages")
+    suspend fun totalOutputTokens(): Long
+
+    @Query("SELECT COALESCE(SUM(cached_tokens), 0) FROM conversation_messages")
+    suspend fun totalCachedTokens(): Long
+
+    @Query(
+        "SELECT date(created_at / 1000, 'unixepoch', 'localtime') AS day, COUNT(*) AS count " +
+            "FROM conversations WHERE created_at >= :startAt GROUP BY day"
+    )
+    suspend fun conversationCountPerDay(startAt: Long): List<ConversationDayCount>
+
     @Query("SELECT * FROM conversation_context_checkpoints WHERE conversation_id = :conversationId")
     suspend fun contextCheckpoint(conversationId: String): ConversationContextCheckpointEntity?
 
@@ -84,3 +105,9 @@ internal interface ConversationDao {
         state?.let { insertState(it) }
     }
 }
+
+
+internal data class ConversationDayCount(
+    val day: String,
+    val count: Int,
+)

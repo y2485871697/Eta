@@ -39,7 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Extension
-import androidx.compose.material.icons.rounded.Inventory2
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Schedule
@@ -151,7 +151,7 @@ fun ConversationSidePaneScaffold(
     onConversationDelete: (ConversationSummaryUi) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenModelProviders: () -> Unit,
-    onOpenTools: () -> Unit,
+    onOpenUsageStats: () -> Unit,
     onOpenSkills: () -> Unit,
     onOpenPermissions: () -> Unit,
     modifier: Modifier = Modifier,
@@ -242,7 +242,7 @@ fun ConversationSidePaneScaffold(
             onConversationDelete = onConversationDelete,
             onOpenSettings = onOpenSettings,
             onOpenModelProviders = onOpenModelProviders,
-            onOpenTools = onOpenTools,
+            onOpenUsageStats = onOpenUsageStats,
             onOpenSkills = onOpenSkills,
             onOpenPermissions = onOpenPermissions,
             paneDragState = paneDragState,
@@ -337,7 +337,7 @@ private fun ConversationPanePanel(
     onConversationDelete: (ConversationSummaryUi) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenModelProviders: () -> Unit,
-    onOpenTools: () -> Unit,
+    onOpenUsageStats: () -> Unit,
     onOpenSkills: () -> Unit,
     onOpenPermissions: () -> Unit,
     paneDragState: AnchoredDraggableState<ConversationPaneAnchor>,
@@ -420,7 +420,7 @@ private fun ConversationPanePanel(
             PaneDock(
                 onOpenSettings = onOpenSettings,
                 onOpenModelProviders = onOpenModelProviders,
-                onOpenTools = onOpenTools,
+                onOpenUsageStats = onOpenUsageStats,
                 onOpenSkills = onOpenSkills,
                 onOpenPermissions = onOpenPermissions,
             )
@@ -640,7 +640,7 @@ private fun EmptyConversations(isSearching: Boolean) {
 private fun PaneDock(
     onOpenSettings: () -> Unit,
     onOpenModelProviders: () -> Unit,
-    onOpenTools: () -> Unit,
+    onOpenUsageStats: () -> Unit,
     onOpenSkills: () -> Unit,
     onOpenPermissions: () -> Unit,
 ) {
@@ -660,9 +660,9 @@ private fun PaneDock(
             onClick = onOpenModelProviders,
         )
         DockButton(
-            icon = Icons.Rounded.Inventory2,
-            label = stringResource(R.string.route_tools),
-            onClick = onOpenTools,
+            icon = Icons.Rounded.BarChart,
+            label = stringResource(R.string.stats_page_title),
+            onClick = onOpenUsageStats,
         )
         DockButton(
             icon = Icons.Rounded.Extension,

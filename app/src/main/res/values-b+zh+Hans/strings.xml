@@ -32,6 +32,13 @@
   <string name="action_open_terminal">打开终端</string>
   <string name="action_open_browser">打开浏览器</string>
   <string name="action_search_history">搜索记录</string>
+  <string name="search_history_hint">搜索消息</string>
+  <string name="search_history_empty">输入关键词搜索对话</string>
+  <string name="search_history_no_results">没有匹配的消息</string>
+  <string name="search_history_role_user">我</string>
+  <string name="search_history_role_assistant">Eta</string>
+  <string name="search_history_role_thinking">思考</string>
+  <string name="search_history_role_tool">工具</string>
   <string name="action_token_usage">Token 用量</string>
   <string name="action_browse_workspace_files">浏览工作区文件</string>
   <string name="action_auto_compress_context">自动压缩</string>
@@ -1171,4 +1178,18 @@
   <string name="ui_balance_result_path">结果 JSON 键</string>
   <string name="ui_test_balance">测试余额查询</string>
   <string name="ui_balance_section_title">余额</string>
+
+    <string name="stats_page_title">用量统计</string>
+    <string name="stats_page_heatmap_title">对话热力图</string>
+    <string name="stats_page_heatmap_less">少</string>
+    <string name="stats_page_heatmap_more">多</string>
+    <string name="stats_page_dow_mon">一</string>
+    <string name="stats_page_dow_wed">三</string>
+    <string name="stats_page_dow_fri">五</string>
+    <string name="stats_page_total_conversations">总对话数</string>
+    <string name="stats_page_total_messages">总消息数</string>
+    <string name="stats_page_input_tokens">输入 Token</string>
+    <string name="stats_page_output_tokens">输出 Token</string>
+    <string name="stats_page_cached_tokens">缓存 Token</string>
+    <string name="stats_page_launch_count">应用启动次数</string>
 </resources>

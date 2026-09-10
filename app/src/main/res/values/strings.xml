@@ -33,6 +33,13 @@
   <string name="action_open_terminal">Open terminal</string>
   <string name="action_open_browser">Open browser</string>
   <string name="action_search_history">Search history</string>
+  <string name="search_history_hint">Search messages</string>
+  <string name="search_history_empty">Enter a keyword to search conversations</string>
+  <string name="search_history_no_results">No matching messages</string>
+  <string name="search_history_role_user">You</string>
+  <string name="search_history_role_assistant">Eta</string>
+  <string name="search_history_role_thinking">Thinking</string>
+  <string name="search_history_role_tool">Tool</string>
   <string name="action_token_usage">Token usage</string>
   <string name="action_browse_workspace_files">Browse workspace files</string>
   <string name="action_launch_kimi_web">Launch Kimi Web</string>
@@ -1198,4 +1205,18 @@
     <string name="compress_conversation_streaming">Cannot compress while a reply is in progress</string>
     <string name="compress_conversation_done">Conversation compressed</string>
     <string name="compress_conversation_in_progress">Compressing conversation…</string>
+
+    <string name="stats_page_title">Usage stats</string>
+    <string name="stats_page_heatmap_title">Chat heatmap</string>
+    <string name="stats_page_heatmap_less">Less</string>
+    <string name="stats_page_heatmap_more">More</string>
+    <string name="stats_page_dow_mon">Mon</string>
+    <string name="stats_page_dow_wed">Wed</string>
+    <string name="stats_page_dow_fri">Fri</string>
+    <string name="stats_page_total_conversations">Conversations</string>
+    <string name="stats_page_total_messages">Messages</string>
+    <string name="stats_page_input_tokens">Input tokens</string>
+    <string name="stats_page_output_tokens">Output tokens</string>
+    <string name="stats_page_cached_tokens">Cached tokens</string>
+    <string name="stats_page_launch_count">App launches</string>
 </resources>

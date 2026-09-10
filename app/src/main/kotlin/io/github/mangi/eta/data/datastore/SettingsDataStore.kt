@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.github.mangi.eta.data.model.AppearanceAccentColor
@@ -41,6 +42,7 @@ internal object SettingsDataStore {
     private val APPEARANCE_PREDICTIVE_BACK_ENABLED =
         booleanPreferencesKey("appearance_predictive_back_enabled")
     private val APPEARANCE_INTERFACE_SCALE = floatPreferencesKey("appearance_interface_scale")
+    private val APP_LAUNCH_COUNT = intPreferencesKey("app_launch_count")
     private const val SELECTED_MODEL_BY_PROVIDER_PREFIX = "selected_model_id_by_provider."
 
     private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = STORE_NAME)
@@ -179,6 +181,23 @@ internal object SettingsDataStore {
     suspend fun updateAppearanceSettings(transform: (AppearanceSettings) -> AppearanceSettings) {
         updateSettings { settings ->
             settings.copy(appearance = transform(settings.appearance).normalized())
+        }
+    }
+
+    suspend fun launchCount(): Int {
+        ensureInitialized()
+        return dataStore.data
+            .catch { cause ->
+                if (cause is IOException) emit(emptyPreferences()) else throw cause
+            }
+            .map { prefs -> prefs[APP_LAUNCH_COUNT] ?: 0 }
+            .first()
+    }
+
+    suspend fun incrementLaunchCount() {
+        ensureInitialized()
+        dataStore.edit { prefs ->
+            prefs[APP_LAUNCH_COUNT] = (prefs[APP_LAUNCH_COUNT] ?: 0) + 1
         }
     }
 

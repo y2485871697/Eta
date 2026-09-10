@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Description
@@ -533,6 +534,16 @@ internal fun SettingsScreen(
                             )
                         },
                         onClick = { onNavigate(AppRoute.AppearanceSettings) },
+                    )
+
+                    ArrowPreference(
+                        title = stringResource(R.string.stats_page_title),
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.BarChart,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.UsageStats) },
                     )
 
                     ArrowPreference(
