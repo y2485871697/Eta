@@ -2,10 +2,6 @@ package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
-import java.io.BufferedReader
-import java.io.IOException
-import java.io.InputStream
-import java.io.InputStreamReader
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -14,7 +10,7 @@ import org.json.JSONObject
 
 internal object AnthropicMessagesProvider : AgentProviderClient {
     private const val DEFAULT_MAX_TOKENS = 4096
-    private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+    private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
     override val id: String = "anthropic_messages"
 
@@ -36,7 +32,7 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
     ): ProviderResponse {
         val config = request.config
         val headers = okhttp3.Headers.Builder()
-            .add("Content-Type", "application/json; charset=utf-8")
+            .add("Content-Type", "application/json")
             .add("Accept", "text/event-stream")
             .add("anthropic-version", config.anthropicVersion)
             .apply {
@@ -56,28 +52,16 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
             )
             .build()
 
-        val call = AgentHttpClient.modelClient.newCall(httpRequest)
-        val binding = runController.register { call.cancel() }
         try {
             runController.throwIfCancelled()
             onEvent(ProviderEvent.RequestStarted)
-            call.execute().useIgnoringCloseErrors { response ->
-                onEvent(ProviderEvent.ResponseHeaders(response.code))
-                runController.throwIfCancelled()
-                if (!response.isSuccessful) {
-                    val errorBody = response.peekBody(16_384).string()
-                    throw AgentModelFailure.http(response.code, errorBody)
-                }
-                val assistant = readStreamingAssistantMessage(response.body.byteStream(), runController, onEvent)
-                onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
-                return ProviderResponse(assistant)
-            }
+            val assistant = readStreamingAssistantMessage(httpRequest, runController, onEvent)
+            onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
+            return ProviderResponse(assistant)
         } catch (throwable: Throwable) {
             runCatching { runController.throwIfCancelled() }
                 .getOrElse { interruption -> throw interruption }
             throw throwable
-        } finally {
-            binding.close()
         }
     }
 
@@ -214,28 +198,20 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
     }
 
     private fun readStreamingAssistantMessage(
-        stream: InputStream,
+        request: Request,
         runController: AgentRunController,
         onEvent: (ProviderEvent) -> Unit
     ): JSONObject {
         val content = StringBuilder()
         val reasoning = StringBuilder()
         val blocks = linkedMapOf<Int, AnthropicBlock>()
-        var currentEvent = ""
-        val data = StringBuilder()
         var sawMessageStop = false
         var finishReason: String? = null
         var usage: AgentTokenUsage? = null
 
-        fun dispatch() {
-            val payload = data.toString().trim()
-            if (payload.isBlank()) {
-                currentEvent = ""
-                data.setLength(0)
-                return
-            }
+        fun dispatch(event: String, payload: String) {
             val result = processEvent(
-                event = currentEvent,
+                event = event,
                 payload = payload,
                 blocks = blocks,
                 content = content,
@@ -248,30 +224,24 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                 usage = it
                 onEvent(ProviderEvent.Usage(it))
             }
-            currentEvent = ""
-            data.setLength(0)
         }
 
-        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).useIgnoringCloseErrors { reader ->
-            while (true) {
-                runController.throwIfCancelled()
-                val line = try {
-                    reader.readLine()
-                } catch (io: IOException) {
-                    val hasToolCalls = blocks.values.any { it.type == "tool_use" && it.name.isNotBlank() }
-                    if (content.isNotBlank() || reasoning.isNotBlank() || hasToolCalls) break else throw io
-                } ?: break
-                when {
-                    line.isEmpty() -> dispatch()
-                    line.startsWith("event:") -> currentEvent = line.removePrefix("event:").trim()
-                    line.startsWith("data:") -> {
-                        if (data.isNotEmpty()) data.append('\n')
-                        data.append(line.removePrefix("data:").trim())
-                    }
-                }
-            }
-        }
-        dispatch()
+        AgentSseClient.collect(
+            request = request,
+            runController = runController,
+            onOpen = { code -> onEvent(ProviderEvent.ResponseHeaders(code)) },
+            onEvent = sseEvent@{ _, type, data ->
+                val payload = data.trim()
+                if (payload.isBlank()) return@sseEvent
+                dispatch(type.orEmpty(), payload)
+                if (sawMessageStop) finish()
+            },
+            shouldIgnoreFailure = {
+                val hasToolCalls = blocks.values.any { it.type == "tool_use" && it.name.isNotBlank() }
+                content.isNotBlank() || reasoning.isNotBlank() || hasToolCalls
+            },
+        )
+
         if (!sawMessageStop) {
             val hasToolCalls = blocks.values.any { it.type == "tool_use" && it.name.isNotBlank() }
             if (content.isBlank() && reasoning.isBlank() && !hasToolCalls) {

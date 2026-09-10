@@ -2,6 +2,7 @@ package io.github.mangi.eta.data.provider
 
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
+import io.github.mangi.eta.data.model.ProviderSourceTypes
 import io.github.mangi.eta.data.model.ReasoningEffort
 
 /**
@@ -36,14 +37,16 @@ internal object ReasoningCapabilityResolver {
         inferExactCatalogModel: Boolean = false,
     ): ModelReasoningCapabilities? {
         if (model.effectiveReasoning == false) return null
-        if (model.reasoningOverride == true && model.reasoningCapabilitiesOverride != null) {
-            return model.reasoningCapabilitiesOverride
+        if (model.reasoningOverride == true) {
+            val override = model.reasoningCapabilitiesOverride
+            if (override != null && hasUsableEffortTiers(override)) return override
+            if (isToggleOnly(override)) return override
+            return catalogByModelId(model.modelId) ?: unknownReasoningDefault()
         }
 
         val declared = model.reasoningCapabilities
-        if (declared != null && hasExplicitEffortInfo(declared)) {
-            return declared
-        }
+        if (declared != null && hasUsableEffortTiers(declared)) return declared
+        if (isToggleOnly(declared)) return declared
 
         val catalog = catalogByModelId(model.modelId)
         if (catalog != null) return catalog
@@ -54,6 +57,31 @@ internal object ReasoningCapabilityResolver {
         if (inferExactCatalogModel) return null
         return null
     }
+
+    fun automaticCapabilities(
+        model: Model,
+        sourceType: String = ProviderSourceTypes.CUSTOM,
+    ): ModelReasoningCapabilities? = resolve(
+        sourceType = sourceType,
+        model = model.copy(
+            reasoningOverride = null,
+            reasoningCapabilitiesOverride = null,
+        ),
+    )
+
+    fun suggestedCapabilities(
+        model: Model,
+        sourceType: String = ProviderSourceTypes.CUSTOM,
+    ): ModelReasoningCapabilities = automaticCapabilities(model, sourceType)
+        ?: resolve(
+            sourceType = sourceType,
+            model = model.copy(
+                reasoning = true,
+                reasoningOverride = null,
+                reasoningCapabilitiesOverride = null,
+            ),
+        )
+        ?: unknownReasoningDefault()
 
     fun catalogCapabilities(
         sourceType: String,
@@ -133,15 +161,30 @@ internal object ReasoningCapabilityResolver {
                 listOf(ReasoningEffort.LOW, ReasoningEffort.HIGH),
                 canDisable = true,
             )
+            containsToken(id, "grok") &&
+                "non-reasoning" !in id &&
+                !hasPrefix(id, "grok-build") &&
+                !hasPrefix(id, "grok-stt") &&
+                !hasPrefix(id, "grok-tts") -> capabilities(
+                lowToXHigh,
+                canDisable = true,
+                defaultEffort = ReasoningEffort.HIGH,
+            )
             else -> null
         }
     }
 
-    private fun hasExplicitEffortInfo(capabilities: ModelReasoningCapabilities): Boolean =
-        capabilities.supportedEfforts.isNotEmpty() ||
-            capabilities.supportsBudget ||
-            capabilities.canDisable ||
-            capabilities.mandatory
+    private fun hasUsableEffortTiers(capabilities: ModelReasoningCapabilities): Boolean =
+        capabilities.supportedEfforts.any {
+            it != ReasoningEffort.OFF && it != ReasoningEffort.DEFAULT
+        } || capabilities.supportsBudget
+
+    private fun isToggleOnly(capabilities: ModelReasoningCapabilities?): Boolean =
+        capabilities != null &&
+            !capabilities.mandatory &&
+            capabilities.canDisable &&
+            capabilities.supportedEfforts.isEmpty() &&
+            !capabilities.supportsBudget
 
     private fun unknownReasoningDefault() = capabilities(
         supported = lowToXHigh,

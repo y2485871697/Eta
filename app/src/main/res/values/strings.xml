@@ -1193,8 +1193,8 @@
     <string name="ui_auto_compress_context_title">自动压缩上下文</string>
     <string name="ui_auto_compress_context_summary">达到上下文窗口阈值时自动压缩历史对话</string>
     <string name="ui_compress_target_tokens_title">压缩目标 Token</string>
-    <string name="ui_compress_keep_recent_title">保留最近对话轮数</string>
-    <string name="ui_compress_keep_recent_summary">压缩时从最近 N 条用户消息起原样保留，含对应回复和工具记录；摘要不占用这个数量</string>
+    <string name="ui_compress_keep_recent_title">保留最近消息数</string>
+    <string name="ui_compress_keep_recent_summary">压缩后原样保留最近 N 条用户和助手消息。工具记录会随对应回复一起留下，但不计入这 N 条；摘要也不计入。</string>
     <string name="ui_compress_model_title">压缩模型</string>
 
     <string name="action_auto_compress_context">Auto compact</string>

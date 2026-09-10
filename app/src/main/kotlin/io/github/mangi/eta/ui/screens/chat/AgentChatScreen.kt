@@ -21,6 +21,8 @@ internal fun AgentChatScreen(
     autoCompressEnabled: Boolean,
     conversationKey: String?,
     onAction: (AgentChatAction) -> Unit,
+    scrollToMessageId: String? = null,
+    onScrollToMessageConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     key(chatConversationCompositionKey(conversationKey)) {
@@ -55,6 +57,8 @@ internal fun AgentChatScreen(
             },
             onRunTraceClick = { /* 对话页暂不做 Run trace 展开 */ },
             onOpenBrowser = { onAction(AgentChatAction.OpenBrowser) },
+            scrollToMessageId = scrollToMessageId,
+            onScrollToMessageConsumed = onScrollToMessageConsumed,
             modifier = modifier,
         )
     }

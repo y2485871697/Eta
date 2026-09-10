@@ -224,6 +224,11 @@ fun AgentAppRoot(
                     onFinished,
                 )
             },
+            onSearchHistory = { query -> agentState.searchHistory(query) },
+            onOpenHistoryHit = { hit ->
+                conversationPaneOpen = false
+                agentState.openHistorySearchHit(hit)
+            },
             onSelectConversation = { conversationId -> selectConversation(conversationId) },
             onConversationRename = { conversation ->
                 conversationRenameTarget = conversation
@@ -308,6 +313,8 @@ fun AgentAppRoot(
                             }
                         },
                         isDrawerOpen = conversationPaneOpen,
+                        scrollToMessageId = agentState.pendingScrollToMessageId,
+                        onScrollToMessageConsumed = agentState::consumePendingScrollToMessage,
                     )
                 }
             }

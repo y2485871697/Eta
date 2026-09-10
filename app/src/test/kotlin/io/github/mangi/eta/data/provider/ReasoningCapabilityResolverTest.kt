@@ -214,6 +214,55 @@ class ReasoningCapabilityResolverTest {
         assertNull(disabled)
     }
 
+
+    @Test
+    fun grok46UsesCatalogLevelsEvenWithoutRemoteReasoningFlag() {
+        val grok = ReasoningCapabilityResolver.resolve(
+            sourceType = ProviderSourceTypes.CUSTOM,
+            model = Model(
+                id = "grok",
+                modelId = "grok-4.6",
+                displayName = "grok-4.6",
+            ),
+        )
+        assertEquals(
+            listOf(
+                ReasoningEffort.OFF,
+                ReasoningEffort.LOW,
+                ReasoningEffort.MEDIUM,
+                ReasoningEffort.HIGH,
+                ReasoningEffort.XHIGH,
+            ),
+            grok?.selectableEfforts,
+        )
+    }
+
+    @Test
+    fun emptyManualOverrideFallsBackToCatalogLevels() {
+        val grok = ReasoningCapabilityResolver.resolve(
+            sourceType = ProviderSourceTypes.CUSTOM,
+            model = Model(
+                id = "grok",
+                modelId = "grok-4.6",
+                displayName = "grok-4.6",
+                reasoningOverride = true,
+                reasoningCapabilitiesOverride = ModelReasoningCapabilities(
+                    defaultEnabled = true,
+                    mandatory = true,
+                ),
+            ),
+        )
+        assertEquals(
+            listOf(
+                ReasoningEffort.OFF,
+                ReasoningEffort.LOW,
+                ReasoningEffort.MEDIUM,
+                ReasoningEffort.HIGH,
+                ReasoningEffort.XHIGH,
+            ),
+            grok?.selectableEfforts,
+        )
+    }
     private fun resolve(source: String, modelId: String): ModelReasoningCapabilities =
         requireNotNull(
             ReasoningCapabilityResolver.resolve(

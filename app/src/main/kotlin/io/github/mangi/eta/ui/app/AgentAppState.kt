@@ -51,6 +51,9 @@ import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
+import io.github.mangi.eta.ui.model.MessageSearchHit
+import io.github.mangi.eta.ui.model.MessageSearchRoleLabels
+import io.github.mangi.eta.ui.model.searchConversationMessages
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.AgentMemoryUiState
 import io.github.mangi.eta.ui.model.AgentMessageUi
@@ -150,6 +153,9 @@ internal class AgentAppState(
             searchQuery = "",
         )
     )
+        private set
+
+    var pendingScrollToMessageId by mutableStateOf<String?>(null)
         private set
 
     var toolsState by mutableStateOf(buildToolsState(appContext))
@@ -839,6 +845,40 @@ internal class AgentAppState(
 
     fun updateSearchQuery(query: String) {
         conversationPaneState = conversationPaneState.copy(searchQuery = query)
+    }
+
+    fun searchHistory(query: String): List<MessageSearchHit> {
+        val conversations = conversationsById.toMutableMap()
+        val currentId = selectedConversationId
+        if (currentId != null) {
+            conversations[currentId] = homeState
+        } else if (homeState.messages.isNotEmpty()) {
+            conversations[""] = homeState
+        }
+        return searchConversationMessages(
+            conversations = conversations,
+            titles = conversationTitles,
+            updatedAt = conversationUpdatedAt,
+            query = query,
+            unnamedTitle = appContext.getString(R.string.conversation_unnamed),
+            roleLabels = MessageSearchRoleLabels(
+                user = appContext.getString(R.string.search_history_role_user),
+                assistant = appContext.getString(R.string.search_history_role_assistant),
+                thinking = appContext.getString(R.string.search_history_role_thinking),
+                tool = appContext.getString(R.string.search_history_role_tool),
+            ),
+        )
+    }
+
+    fun openHistorySearchHit(hit: MessageSearchHit) {
+        if (hit.conversationId.isNotEmpty() && hit.conversationId != selectedConversationId) {
+            selectConversation(hit.conversationId)
+        }
+        pendingScrollToMessageId = hit.messageId
+    }
+
+    fun consumePendingScrollToMessage() {
+        pendingScrollToMessageId = null
     }
 
     fun selectConversation(conversationId: String) {

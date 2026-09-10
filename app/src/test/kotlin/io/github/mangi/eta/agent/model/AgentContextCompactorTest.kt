@@ -7,16 +7,31 @@ import org.junit.Test
 
 class AgentContextCompactorTest {
     @Test
-    fun keepRecentCountsUserTurnsInsteadOfRawApiRecords() {
-        val history = (1..6).flatMap { turn(it) }
-        assertEquals(24, history.size)
-        assertEquals(0, AgentContextCompactor.recentKeepStartIndex(history, 10))
+    fun keepRecentCountsVisibleUserAndAssistantMessages() {
+        val history = (1..6).flatMap { n ->
+            listOf(msg("user", "u$n"), msg("assistant", "a$n"))
+        }
+        assertEquals(12, history.size)
+        assertEquals(0, AgentContextCompactor.recentKeepStartIndex(history, 12))
+        assertEquals(0, AgentContextCompactor.recentKeepStartIndex(history, 20))
 
-        val start = AgentContextCompactor.recentKeepStartIndex(history, 3)
+        val start = AgentContextCompactor.recentKeepStartIndex(history, 5)
         val kept = history.subList(start, history.size)
-        assertEquals(listOf("u4", "u5", "u6"), kept.filter { it.role == "user" }.map { it.content })
-        assertEquals(12, kept.size)
-        assertEquals(6, kept.count { it.role == "assistant" })
+        assertEquals(listOf("a4", "u5", "a5", "u6", "a6"), kept.map { it.content })
+        assertEquals(5, kept.size)
+    }
+
+    @Test
+    fun toolRecordsDoNotConsumeKeepRecentQuota() {
+        val history = (1..4).flatMap { turn(it) }
+        assertEquals(16, history.size)
+
+        val start = AgentContextCompactor.recentKeepStartIndex(history, 4)
+        val kept = history.subList(start, history.size)
+        val visible = kept.filter(AgentContextCompactor::isVisibleConversationMessage)
+            .map { it.content }
+        assertEquals(listOf("u3", "a3", "u4", "a4"), visible)
+        assertTrue(kept.any { it.role == "tool" })
     }
 
     @Test
@@ -28,12 +43,26 @@ class AgentContextCompactorTest {
             msg("user", "u2"),
             msg("assistant", "a2"),
         )
-        assertEquals(1, AgentContextCompactor.recentKeepStartIndex(history, 2))
-        assertEquals(3, AgentContextCompactor.recentKeepStartIndex(history, 1))
+        assertEquals(3, AgentContextCompactor.recentKeepStartIndex(history, 2))
+        assertEquals(1, AgentContextCompactor.recentKeepStartIndex(history, 4))
     }
 
     @Test
-    fun shouldCompressUsesUserTurnsNotRawHistorySize() {
+    fun keepRecentSnapsBackToIncludeToolLoopOfFirstKeptAssistant() {
+        val history = turn(1) + turn(2)
+        val start = AgentContextCompactor.recentKeepStartIndex(history, 1)
+        val kept = history.subList(start, history.size)
+        assertEquals("a2", kept.last().content)
+        assertFalse(kept.any { it.content == "u2" })
+        assertTrue(kept.any { it.role == "tool" })
+        assertEquals(
+            1,
+            kept.count(AgentContextCompactor::isVisibleConversationMessage),
+        )
+    }
+
+    @Test
+    fun shouldCompressUsesVisibleMessagesNotRawHistorySize() {
         val history = (1..5).flatMap { turn(it) }
         assertEquals(20, history.size)
         assertFalse(
@@ -48,7 +77,7 @@ class AgentContextCompactorTest {
             AgentContextCompactor.shouldCompress(
                 history = history,
                 contextWindow = 1,
-                keepRecentMessages = 2,
+                keepRecentMessages = 4,
                 thresholdPercent = 0,
             ),
         )

@@ -29,6 +29,7 @@ import io.github.mangi.eta.ui.components.captureForTopBar
 import io.github.mangi.eta.ui.components.rememberTopBarBackdrop
 import io.github.mangi.eta.ui.components.topBarContainerColor
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
+import io.github.mangi.eta.ui.model.MessageSearchHit
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.navigation.AppRoute
 import top.yukonga.miuix.kmp.basic.Icon
@@ -74,6 +75,8 @@ fun AgentAppShell(
         keepRecent: Int,
         onFinished: (Boolean) -> Unit,
     ) -> Unit = { _, _, _, _, done -> done(false) },
+    onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
+    onOpenHistoryHit: (MessageSearchHit) -> Unit = {},
     onSelectConversation: (String) -> Unit,
     onConversationRename: (ConversationSummaryUi) -> Unit,
     onConversationDelete: (ConversationSummaryUi) -> Unit,
@@ -115,6 +118,8 @@ fun AgentAppShell(
                             autoCompressEnabled = autoCompressEnabled,
                             onToggleAutoCompress = onToggleAutoCompress,
                             onCompressConversation = onCompressConversation,
+                            onSearchHistory = onSearchHistory,
+                            onOpenHistoryHit = onOpenHistoryHit,
                         )
                     }
                 }
@@ -182,6 +187,8 @@ private fun AgentTopBar(
         keepRecent: Int,
         onFinished: (Boolean) -> Unit,
     ) -> Unit = { _, _, _, _, done -> done(false) },
+    onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
+    onOpenHistoryHit: (MessageSearchHit) -> Unit = {},
 ) {
     val isHome = route is AppRoute.Home
     val navigationIcon: @Composable () -> Unit = {
@@ -210,6 +217,8 @@ private fun AgentTopBar(
                 autoCompressEnabled = autoCompressEnabled,
                 onToggleAutoCompress = onToggleAutoCompress,
                 onCompressConversation = onCompressConversation,
+                onSearchHistory = onSearchHistory,
+                onOpenHistoryHit = onOpenHistoryHit,
             )
         }
     }

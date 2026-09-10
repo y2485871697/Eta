@@ -63,6 +63,7 @@ import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.ReasoningEffort
+import io.github.mangi.eta.data.provider.ReasoningCapabilityResolver
 import io.github.mangi.eta.data.repository.ModelRepository
 import io.github.mangi.eta.data.repository.RemoteModelFetcher
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
@@ -766,20 +767,33 @@ private fun ModelEditDialog(
     var contextWindowOverrideText by remember(model.id, isNew) {
         mutableStateOf(model.contextWindowOverride?.toString().orEmpty())
     }
+    val automaticReasoning = remember(model.id, model.modelId, model.reasoning, model.reasoningCapabilities) {
+        ReasoningCapabilityResolver.automaticCapabilities(model)
+    }
+    val suggestedReasoning = remember(model.id, model.modelId, model.reasoning, model.reasoningCapabilities) {
+        ReasoningCapabilityResolver.suggestedCapabilities(model)
+    }
     var reasoningOverrideActive by remember(model.id, isNew) {
         mutableStateOf(
             model.reasoningOverride != null || model.reasoningCapabilitiesOverride != null
         )
     }
     var reasoningEnabled by remember(model.id, isNew) {
-        mutableStateOf(model.supportsReasoning)
+        mutableStateOf(
+            when {
+                model.reasoningOverride == false -> false
+                model.supportsReasoning -> true
+                else -> automaticReasoning != null
+            }
+        )
     }
     var selectedReasoningEfforts by remember(model.id, isNew) {
         mutableStateOf(
             model.effectiveReasoningCapabilities
                 ?.selectableEfforts
+                ?.takeIf { efforts -> efforts.any { it != ReasoningEffort.OFF } }
                 ?.toSet()
-                .orEmpty()
+                ?: suggestedReasoning.selectableEfforts.toSet()
         )
     }
     val contextError = contextWindowInputError(
@@ -789,11 +803,8 @@ private fun ModelEditDialog(
 
     fun resetAutomaticReasoning() {
         reasoningOverrideActive = false
-        reasoningEnabled = model.reasoning == true
-        selectedReasoningEfforts = model.reasoningCapabilities
-            ?.selectableEfforts
-            ?.toSet()
-            .orEmpty()
+        reasoningEnabled = automaticReasoning != null
+        selectedReasoningEfforts = automaticReasoning?.selectableEfforts?.toSet().orEmpty()
     }
 
     fun updated(): Model = model.copy(
@@ -804,11 +815,13 @@ private fun ModelEditDialog(
             ?.toInt(),
         reasoningOverride = reasoningEnabled.takeIf { reasoningOverrideActive },
         reasoningCapabilitiesOverride = if (reasoningOverrideActive && reasoningEnabled) {
-            val canDisable = ReasoningEffort.OFF in selectedReasoningEfforts
-            (model.effectiveReasoningCapabilities ?: ModelReasoningCapabilities()).copy(
-                supportedEfforts = editableReasoningEfforts.filter { effort ->
-                    effort != ReasoningEffort.OFF && effort in selectedReasoningEfforts
-                },
+            val selectedTiers = editableReasoningEfforts.filter { effort ->
+                effort != ReasoningEffort.OFF && effort in selectedReasoningEfforts
+            }.ifEmpty { suggestedReasoning.supportedEfforts }
+            val canDisable = ReasoningEffort.OFF in selectedReasoningEfforts ||
+                suggestedReasoning.canDisable
+            (model.effectiveReasoningCapabilities ?: suggestedReasoning).copy(
+                supportedEfforts = selectedTiers,
                 defaultEffort = model.effectiveReasoningCapabilities
                     ?.defaultEffort
                     ?.takeIf { it in selectedReasoningEfforts },
@@ -917,13 +930,16 @@ private fun ModelEditDialog(
                         onCheckedChange = { enabled ->
                             reasoningOverrideActive = true
                             reasoningEnabled = enabled
+                            if (enabled && selectedReasoningEfforts.none { it != ReasoningEffort.OFF }) {
+                                selectedReasoningEfforts = suggestedReasoning.selectableEfforts.toSet()
+                            }
                         },
                         title = stringResource(R.string.ui_support_thinking_5b9e4c),
                         summary = if (reasoningOverrideActive) {
                             context.getString(R.string.page_covered_model_automatic_capabilities_3fa7d4)
                         } else {
                             stringResource(
-                                if (model.reasoning == true) {
+                                if (automaticReasoning != null) {
                                     R.string.provider_auto_reasoning_supported
                                 } else {
                                     R.string.provider_auto_reasoning_unknown

@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.components.EtaDropdownMenu
+import io.github.mangi.eta.ui.model.MessageSearchHit
 import io.github.mangi.eta.ui.CompressConversationDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -60,9 +61,12 @@ internal fun TopBarOverflowMenu(
         keepRecent: Int,
         onFinished: (Boolean) -> Unit,
     ) -> Unit = { _, _, _, _, done -> done(false) },
+    onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
+    onOpenHistoryHit: (MessageSearchHit) -> Unit = {},
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showCompressDialog by remember { mutableStateOf(false) }
+    var showSearchDialog by remember { mutableStateOf(false) }
 
     androidx.compose.foundation.layout.Box {
         IconButton(
@@ -107,7 +111,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { showMenu = false },
+                onClick = { showMenu = false; showSearchDialog = true },
             )
             MenuSectionDivider()
             DropdownMenuItem(
@@ -237,6 +241,12 @@ internal fun TopBarOverflowMenu(
         show = showCompressDialog,
         onDismiss = { showCompressDialog = false },
         onConfirm = onCompressConversation,
+    )
+    SearchHistoryDialog(
+        show = showSearchDialog,
+        onDismiss = { showSearchDialog = false },
+        onSearch = onSearchHistory,
+        onOpenHit = onOpenHistoryHit,
     )
 }
 

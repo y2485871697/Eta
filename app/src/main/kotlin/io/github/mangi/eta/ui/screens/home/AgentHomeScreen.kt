@@ -24,6 +24,8 @@ internal fun AgentHomeScreen(
     conversationKey: String?,
     onAction: (AgentHomeAction) -> Unit,
     isDrawerOpen: Boolean = false,
+    scrollToMessageId: String? = null,
+    onScrollToMessageConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     key(chatConversationCompositionKey(conversationKey)) {
@@ -59,6 +61,8 @@ internal fun AgentHomeScreen(
             onRunTraceClick = { onAction(AgentHomeAction.ExpandRunTrace) },
             onOpenBrowser = { onAction(AgentHomeAction.OpenBrowser) },
             isDrawerOpen = isDrawerOpen,
+            scrollToMessageId = scrollToMessageId,
+            onScrollToMessageConsumed = onScrollToMessageConsumed,
             modifier = modifier,
         )
     }

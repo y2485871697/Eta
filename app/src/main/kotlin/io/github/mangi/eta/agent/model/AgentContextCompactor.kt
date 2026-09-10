@@ -57,27 +57,67 @@ internal object AgentContextCompactor {
     /**
      * Index of the first message that must stay uncompressed.
      *
-     * "Keep recent N" is N user turns, not N raw API records. Tool calls,
-     * empty assistant stubs and previous summaries do not consume the quota,
-     * otherwise a 10-turn setting collapses to two or three visible replies.
+     * "Keep recent N" is N visible user/assistant bubbles. Tool records,
+     * empty assistant stubs and summaries do not consume the quota, but a
+     * tool loop that belongs to the first kept assistant is snapped in so
+     * the request stays valid.
      */
     fun recentKeepStartIndex(
         history: List<AgentModelClient.ConversationMessage>,
-        keepRecentTurns: Int,
+        keepRecentMessages: Int,
     ): Int {
-        val keep = keepRecentTurns.coerceAtLeast(0)
+        val keep = keepRecentMessages.coerceAtLeast(0)
         if (keep == 0) return history.size
         var remaining = keep
+        var start: Int? = null
         for (index in history.indices.reversed()) {
-            if (!isUserTurnStart(history[index])) continue
+            if (!isVisibleConversationMessage(history[index])) continue
             remaining--
-            if (remaining == 0) return index
+            start = index
+            if (remaining == 0) break
         }
-        return 0
+        if (remaining > 0 || start == null) return 0
+        return snapToToolLoopStart(history, start)
     }
 
-    internal fun isUserTurnStart(message: AgentModelClient.ConversationMessage): Boolean =
-        message.role.equals("user", ignoreCase = true) && !isCompressionSummary(message)
+    internal fun isVisibleConversationMessage(
+        message: AgentModelClient.ConversationMessage,
+    ): Boolean {
+        if (isCompressionSummary(message)) return false
+        return when (message.role.lowercase()) {
+            "user" -> true
+            "assistant" ->
+                message.content.isNotBlank() || message.reasoningContent.isNotBlank()
+            else -> false
+        }
+    }
+
+    private fun isToolLoopAccessory(
+        message: AgentModelClient.ConversationMessage,
+    ): Boolean {
+        if (isCompressionSummary(message)) return false
+        val role = message.role.lowercase()
+        if (role == "tool") return true
+        return role == "assistant" &&
+            !isVisibleConversationMessage(message) &&
+            hasToolCalls(message)
+    }
+
+    private fun snapToToolLoopStart(
+        history: List<AgentModelClient.ConversationMessage>,
+        start: Int,
+    ): Int {
+        var index = start
+        while (index > 0 && isToolLoopAccessory(history[index - 1])) {
+            index--
+        }
+        return index
+    }
+
+    private fun hasToolCalls(message: AgentModelClient.ConversationMessage): Boolean {
+        val json = message.toolCallsJson.trim()
+        return json.isNotEmpty() && json != "[]" && json != "null"
+    }
 
     internal fun isCompressionSummary(message: AgentModelClient.ConversationMessage): Boolean {
         if (message.role.equals("system", ignoreCase = true)) {

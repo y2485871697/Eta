@@ -150,6 +150,8 @@ internal fun AgentChatBody(
     onRunTraceClick: () -> Unit,
     onOpenBrowser: () -> Unit,
     isDrawerOpen: Boolean = false,
+    scrollToMessageId: String? = null,
+    onScrollToMessageConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberLazyListState()
@@ -242,6 +244,8 @@ internal fun AgentChatBody(
         onRunTraceClick = onRunTraceClick,
         onOpenBrowser = onOpenBrowser,
         currentBrowserMessageId = currentBrowserMessageId,
+        scrollToMessageId = scrollToMessageId,
+        onScrollToMessageConsumed = onScrollToMessageConsumed,
         modifier = modifier,
     )
 }
@@ -283,6 +287,8 @@ private fun AgentChatScaffold(
     onRunTraceClick: () -> Unit,
     onOpenBrowser: () -> Unit,
     currentBrowserMessageId: String?,
+    scrollToMessageId: String? = null,
+    onScrollToMessageConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val surfaceColor = MiuixTheme.colorScheme.surface
@@ -356,6 +362,8 @@ private fun AgentChatScaffold(
                 messageActionsEnabled = !isStreaming && messageEdit == null,
                 editTargetMessageId = messageEdit?.targetMessageId,
                 currentBrowserMessageId = currentBrowserMessageId,
+                scrollToMessageId = scrollToMessageId,
+                onScrollToMessageConsumed = onScrollToMessageConsumed,
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (frostEnabled) Modifier.layerBackdrop(messageBackdrop) else Modifier),
@@ -382,9 +390,28 @@ internal fun AgentConversationMessages(
     messageActionsEnabled: Boolean = false,
     editTargetMessageId: String? = null,
     currentBrowserMessageId: String? = null,
+    scrollToMessageId: String? = null,
+    onScrollToMessageConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val timelineEntries = remember(visibleMessages) { visibleMessages.toTimelineEntries() }
+    LaunchedEffect(scrollToMessageId, timelineEntries) {
+        val target = scrollToMessageId ?: return@LaunchedEffect
+        val index = timelineEntries.indexOfFirst { entry ->
+            when (entry) {
+                is AgentTimelineEntry.Message -> entry.message.id == target
+                is AgentTimelineEntry.WorkProcess ->
+                    entry.key == target || entry.messages.any { it.id == target }
+            }
+        }
+        if (index >= 0) {
+            onBottomAnchorChanged(false)
+            scrollState.animateScrollToItem(index)
+            onScrollToMessageConsumed()
+        } else if (timelineEntries.isNotEmpty()) {
+            onScrollToMessageConsumed()
+        }
+    }
     // 复制按钮只出现在每轮对话的最终结果上，中间步骤的过渡文本不提供复制入口。
     // 流式进行中当前这一轮尚未收尾，此时的“最后一条正文”只是中间步骤，不标记。
     val finalResultMessageIds = remember(visibleMessages, isStreaming) {

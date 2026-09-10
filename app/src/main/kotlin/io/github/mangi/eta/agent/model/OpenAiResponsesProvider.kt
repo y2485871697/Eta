@@ -3,9 +3,6 @@ package io.github.mangi.eta.agent.model
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
-import java.io.BufferedReader
-import java.io.IOException
-import java.io.InputStreamReader
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -14,7 +11,7 @@ import org.json.JSONObject
 
 internal object OpenAiResponsesProvider : AgentProviderClient {
     private const val MAX_ERROR_CHARS = 600
-    private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+    private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
     override val id: String = "openai_responses"
 
@@ -41,7 +38,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
             .toString()
             .toRequestBody(JSON_MEDIA_TYPE)
         val headers = okhttp3.Headers.Builder()
-            .add("Content-Type", "application/json; charset=utf-8")
+            .add("Content-Type", "application/json")
             .add("Accept", "text/event-stream")
             .apply {
                 if (config.apiKey.isNotBlank()) add("Authorization", "Bearer ${config.apiKey}")
@@ -53,32 +50,20 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
             .headers(headers)
             .post(body)
             .build()
-        val call = AgentHttpClient.modelClient.newCall(httpRequest)
-        val binding = runController.register(call::cancel)
-
         try {
             runController.throwIfCancelled()
             onEvent(ProviderEvent.RequestStarted)
-            call.execute().useIgnoringCloseErrors { response ->
-                onEvent(ProviderEvent.ResponseHeaders(response.code))
-                runController.throwIfCancelled()
-                if (!response.isSuccessful) {
-                    throw AgentModelFailure.http(response.code, response.peekBody(16_384).string())
-                }
-                val assistant = readStreamingResponse(
-                    stream = response.body.byteStream(),
-                    runController = runController,
-                    onEvent = onEvent,
-                )
-                onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
-                return ProviderResponse(assistant)
-            }
+            val assistant = readStreamingResponse(
+                request = httpRequest,
+                runController = runController,
+                onEvent = onEvent,
+            )
+            onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
+            return ProviderResponse(assistant)
         } catch (throwable: Throwable) {
             runCatching { runController.throwIfCancelled() }
                 .getOrElse { interruption -> throw interruption }
             throw throwable
-        } finally {
-            binding.close()
         }
     }
 
@@ -89,11 +74,10 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
     ): JSONObject = ResponsesRequestBuilder.build(config, messages, tools)
 
     private fun readStreamingResponse(
-        stream: java.io.InputStream?,
+        request: Request,
         runController: AgentRunController,
         onEvent: (ProviderEvent) -> Unit,
     ): JSONObject {
-        if (stream == null) error("模型接口未返回响应流")
         val streamedText = StringBuilder()
         val streamedReasoning = StringBuilder()
         val toolCalls = linkedMapOf<String, StreamingFunctionCall>()
@@ -200,12 +184,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
             }
         }
 
-        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).useIgnoringCloseErrors { reader ->
-            val dataLines = mutableListOf<String>()
-            fun consumeFrame() {
-                if (dataLines.isEmpty()) return
-                val payload = dataLines.joinToString("\n").trim()
-                dataLines.clear()
+        fun consumeFrame(payload: String) {
                 if (payload.isBlank() || payload == "[DONE]") return
                 sawEvent = true
                 val event = JSONObject(payload)
@@ -349,28 +328,25 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
                 }
             }
 
-            while (true) {
-                runController.throwIfCancelled()
-                val line = try {
-                    reader.readLine()
-                } catch (io: IOException) {
-                    if (streamedText.isNotBlank() || streamedReasoning.isNotBlank() || toolCalls.isNotEmpty()) {
-                        consumeFrame()
-                        break
-                    }
-                    throw io
+
+        AgentSseClient.collect(
+            request = request,
+            runController = runController,
+            onOpen = { code -> onEvent(ProviderEvent.ResponseHeaders(code)) },
+            onEvent = sseEvent@{ _, _, data ->
+                val payload = data.trim()
+                if (payload.isBlank()) return@sseEvent
+                if (payload == "[DONE]") {
+                    finish()
+                    return@sseEvent
                 }
-                if (line == null) {
-                    consumeFrame()
-                    break
-                }
-                if (line.isBlank()) {
-                    consumeFrame()
-                } else if (line.startsWith("data:")) {
-                    dataLines += line.removePrefix("data:").trimStart()
-                }
-            }
-        }
+                consumeFrame(payload)
+                if (terminal != null) finish()
+            },
+            shouldIgnoreFailure = {
+                streamedText.isNotBlank() || streamedReasoning.isNotBlank() || toolCalls.isNotEmpty()
+            },
+        )
 
         if (!sawEvent) throw AgentModelFailure.incompleteStream("模型接口未返回 SSE data chunk")
         val recoveredFromStream = terminal == null &&
