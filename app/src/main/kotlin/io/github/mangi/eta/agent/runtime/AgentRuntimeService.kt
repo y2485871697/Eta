@@ -230,6 +230,24 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                         replyTo = msg.replyTo,
                     )
                 }
+
+                AgentRuntimeWire.MSG_STEER_RUN -> {
+                    val data = msg.data ?: return
+                    requestSupplementForRun(
+                        runId = AgentRuntimeWire.runIdFromBundle(data),
+                        text = AgentRuntimeWire.steerTextFromBundle(data),
+                    )
+                }
+
+                AgentRuntimeWire.MSG_PAUSE_RUN -> {
+                    val runId = AgentRuntimeWire.runIdFromBundle(msg.data ?: return)
+                    if (activeSession?.runId == runId) requestPause()
+                }
+
+                AgentRuntimeWire.MSG_RESUME_RUN -> {
+                    val runId = AgentRuntimeWire.runIdFromBundle(msg.data ?: return)
+                    if (activeSession?.runId == runId) requestResume()
+                }
             }
         }
     }
@@ -719,6 +737,11 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             phase = AgentOverlayPhase.RUNNING,
             status = AgentOverlayStatus.Continuing,
         )
+    }
+
+    private fun requestSupplementForRun(runId: String, text: String) {
+        if (runId.isBlank() || activeSession?.runId != runId) return
+        requestSupplement(text)
     }
 
     private fun requestSupplement(text: String) {

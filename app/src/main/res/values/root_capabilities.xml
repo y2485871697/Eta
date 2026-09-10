@@ -48,7 +48,7 @@
     <string name="capability_workspace">工作区与文件</string>
     <string name="capability_workspace_summary">导入、导出与目录访问</string>
     <string name="capability_workspace_private">私有工作区</string>
-    <string name="capability_workspace_private_summary">终端与普通 Linux 环境的默认文件目录，无需存储权限</string>
+    <string name="capability_workspace_private_summary">对应 Linux 环境中的 /workspace，Agent 实际读写的文件会显示在这里</string>
     <string name="capability_workspace_import">导入文件</string>
     <string name="capability_workspace_public">公共目录访问</string>
     <string name="capability_workspace_public_summary">在系统设置中允许访问所有文件后，可使用共享存储中的目录</string>
@@ -84,6 +84,10 @@
     <string name="capability_workspace_public_denied">公共目录尚未授权。可重试授权，或通过“工作区与文件”导入需要的文件</string>
     <string name="capability_workspace_files">工作区文件</string>
     <string name="capability_workspace_empty_summary">导入文件，或通过终端任务生成文件</string>
-    <string name="capability_workspace_file_export">%1$s · 点按导出</string>
+    <string name="capability_workspace_file_export">%1$s · 长按可导出或删除</string>
+    <string name="capability_workspace_deleted">已删除</string>
+    <string name="capability_workspace_delete_title">删除文件</string>
+    <string name="capability_workspace_delete_message">确定删除“%1$s”？此操作无法撤销。</string>
+    <string name="capability_workspace_delete_dir_message">确定删除文件夹“%1$s”及其全部内容？此操作无法撤销。</string>
     <string name="settings_tools_list">工具列表</string>
 </resources>

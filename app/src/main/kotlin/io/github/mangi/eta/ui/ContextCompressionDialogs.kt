@@ -1,12 +1,18 @@
 package io.github.mangi.eta.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.SharedPreferences
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -26,12 +32,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.config.Prefs
+import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.model.AgentModelOptionUi
@@ -78,20 +89,12 @@ internal fun CompressConversationDialog(
             compressing = false
             return@LaunchedEffect
         }
-        val currentPrefs = prefs
-        targetTokens = currentPrefs?.getInt(
-            Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
-            AgentContextCompactor.DEFAULT_TARGET_TOKENS,
-        ) ?: AgentContextCompactor.DEFAULT_TARGET_TOKENS
-        val storedKeepRecent = currentPrefs?.getInt(
-            Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
-            AgentContextCompactor.DEFAULT_KEEP_RECENT,
-        ) ?: AgentContextCompactor.DEFAULT_KEEP_RECENT
-        keepRecent = storedKeepRecent
-        keepRecentInput = storedKeepRecent.toString()
+        targetTokens = AgentContextCompactor.DEFAULT_TARGET_TOKENS
+        keepRecent = AgentContextCompactor.DEFAULT_KEEP_RECENT
+        keepRecentInput = keepRecent.toString()
         isLoadingModels = true
         val pickerState = withContext(Dispatchers.IO) {
-            buildCompressModelPickerState(currentPrefs)
+            buildManualCompressModelPickerState()
         }
         modelPickerState = pickerState
         selectedModel = pickerState.selectedModel
@@ -105,7 +108,33 @@ internal fun CompressConversationDialog(
             if (!compressing) onDismiss()
         },
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        val density = LocalDensity.current
+        val activity = LocalContext.current.findActivity()
+        val composeImeBottom = WindowInsets.ime.getBottom(density)
+        val activityImeBottom = activity?.window?.decorView?.let { decor ->
+            ViewCompat.getRootWindowInsets(decor)
+                ?.getInsets(WindowInsetsCompat.Type.ime())
+                ?.bottom
+        } ?: 0
+        val imeBottomPx = maxOf(composeImeBottom, activityImeBottom)
+        val scrollState = rememberScrollState()
+        LaunchedEffect(imeBottomPx) {
+            if (imeBottomPx > 0) {
+                scrollState.animateScrollTo(scrollState.maxValue)
+            }
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = with(density) { imeBottomPx.toDp() }),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(scrollState),
+            ) {
             Text(
                 text = stringResource(R.string.ui_compress_model_title),
                 style = MaterialTheme.typography.labelLarge,
@@ -203,6 +232,7 @@ internal fun CompressConversationDialog(
                         modifier = Modifier.padding(start = 8.dp),
                     )
                 }
+            }
             }
 
             MiuixDialogActions(
@@ -347,6 +377,11 @@ internal suspend fun buildCompressModelPickerState(
     return buildCompressModelPickerState(providerId, modelId)
 }
 
+internal suspend fun buildManualCompressModelPickerState(): AgentModelPickerUiState {
+    val settings = SettingsDataStore.settings()
+    return buildCompressModelPickerState(settings.selectedProviderId, settings.selectedModelId)
+}
+
 internal suspend fun buildCompressModelPickerState(
     selectedProviderId: String?,
     selectedModelId: String?,
@@ -361,4 +396,10 @@ internal suspend fun buildCompressModelPickerState(
 
 internal suspend fun readCompressModelSelection(prefs: SharedPreferences): AgentModelOptionUi? {
     return buildCompressModelPickerState(prefs).selectedModel
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

@@ -41,6 +41,9 @@
   <string name="search_history_role_thinking">Thinking</string>
   <string name="search_history_role_tool">Tool</string>
   <string name="action_token_usage">Token usage</string>
+  <string name="token_usage_total">Total</string>
+  <string name="token_usage_cache_percent">Cache rate</string>
+  <string name="token_usage_empty">No token usage in this conversation yet</string>
   <string name="action_browse_workspace_files">Browse workspace files</string>
   <string name="action_launch_kimi_web">Launch Kimi Web</string>
   <string name="route_chat">Chat</string>
@@ -114,7 +117,7 @@
   <string name="route_linux_files">Linux files</string>
   <string name="linux_files_title">Linux files</string>
   <string name="linux_files_entry_title">File browser</string>
-  <string name="linux_files_entry_summary">Browse files in the Linux environment (read-only)</string>
+  <string name="linux_files_entry_summary">Browse, export and delete files in the Linux environment</string>
   <string name="linux_files_not_installed">Linux environment is not installed yet</string>
   <string name="linux_files_invalid_distribution">Unknown Linux distribution</string>
   <string name="linux_files_empty">This directory is empty</string>
@@ -123,6 +126,15 @@
   <string name="linux_files_error_not_file">Not a regular file</string>
   <string name="linux_files_binary_hint">Binary file, preview not available</string>
   <string name="linux_files_truncated_hint">Content too large, only the beginning is shown</string>
+  <string name="linux_files_export">Export</string>
+  <string name="linux_files_delete_title">Delete file</string>
+  <string name="linux_files_delete_message">Delete “%1$s”? This cannot be undone.</string>
+  <string name="linux_files_delete_dir_message">Delete folder “%1$s” and all of its contents? This cannot be undone.</string>
+  <string name="linux_files_deleted">Deleted</string>
+  <string name="linux_files_delete_failed">Could not delete this item</string>
+  <string name="linux_files_delete_protected">System paths cannot be deleted</string>
+  <string name="linux_files_exported">Exported</string>
+  <string name="linux_files_export_failed">Could not export this file</string>
   <string name="route_model_providers">Model providers</string>
   <string name="route_provider_details">Provider details</string>
   <string name="route_new_provider">New provider</string>
@@ -1114,6 +1126,8 @@
   <string name="chat_input_hint">Ask Eta to do something</string>
   <string name="chat_stop">Stop</string>
   <string name="chat_send">Send</string>
+  <string name="chat_continue">Continue</string>
+  <string name="chat_continue_prompt">Continue from where you left off. Do not repeat content already written.</string>
   <string name="chat_reasoning_effort">Reasoning effort: %1$s</string>
   <string name="status_unsupported">Unsupported</string>
   <string name="attachment_image">Image</string>

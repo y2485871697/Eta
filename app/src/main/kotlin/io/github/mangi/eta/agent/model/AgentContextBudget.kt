@@ -21,6 +21,8 @@ internal object AgentContextBudget {
         return max(1, cp / 3)
     }
 
+    fun countStoredImages(count: Int): Int = count.coerceAtLeast(0) * IMAGE_MIN_TOKENS
+
     fun countImageTokens(image: AgentModelClient.ModelImage): Int {
         val w = image.width
         val h = image.height

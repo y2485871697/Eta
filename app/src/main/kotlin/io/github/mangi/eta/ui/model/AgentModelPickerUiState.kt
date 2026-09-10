@@ -2,6 +2,8 @@ package io.github.mangi.eta.ui.model
 
 import androidx.compose.runtime.Immutable
 import io.github.mangi.eta.agent.model.AgentContextBudget
+import io.github.mangi.eta.agent.model.AgentFileReference
+import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.Model
@@ -36,6 +38,7 @@ internal data class AgentModelOptionUi(
     val displayName: String,
     val contextWindow: Int?,
     val preferredReasoningEffort: ReasoningEffort? = null,
+    val supportsVision: Boolean = true,
 )
 
 @Immutable
@@ -107,6 +110,7 @@ internal object AgentModelPickerProjector {
             displayName = model.displayName.ifBlank { model.modelId },
             contextWindow = model.effectiveContextWindow,
             preferredReasoningEffort = model.preferredReasoningEffort,
+            supportsVision = model.supportsVision,
         )
 }
 
@@ -138,11 +142,23 @@ internal fun liveContextUsage(
     pendingFileReferences: List<PendingFileReferenceUi> = emptyList(),
     historyTokenCount: Int? = null,
 ): AgentContextUsageUi {
+    val supportsVision = selectedModel?.supportsVision ?: true
+    val imageFileReferences = if (supportsVision) {
+        emptyList()
+    } else {
+        pendingImages.mapIndexed { index, image ->
+            AgentFileReference(
+                displayName = image.cacheDisplayName(index),
+                absolutePath = "/cache/chat-image-${index + 1}",
+                kind = AgentFileReferenceKind.File,
+            )
+        }
+    }
     val prompt = AgentFileReferencePromptCodec.format(
         currentInput,
-        pendingFileReferences.map { it.reference },
+        pendingFileReferences.map { it.reference } + imageFileReferences,
     )
-    val images = pendingImages.map { it.toLiveModelImage() }
+    val images = if (supportsVision) pendingImages.map { it.toLiveModelImage() } else emptyList()
     val historyTokens = historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }
     val currentTurnTokens = if (prompt.isEmpty() && images.isEmpty()) {
         0
@@ -162,6 +178,16 @@ internal fun PendingImageUi.toLiveModelImage(): AgentModelClient.ModelImage =
         bytes = dataUrl.length,
         source = uri,
     )
+
+internal fun PendingImageUi.cacheDisplayName(index: Int): String {
+    val extension = when {
+        mimeType.contains("png", ignoreCase = true) -> "png"
+        mimeType.contains("webp", ignoreCase = true) -> "webp"
+        mimeType.contains("gif", ignoreCase = true) -> "gif"
+        else -> "jpg"
+    }
+    return "chat-image-${index + 1}.$extension"
+}
 
 internal fun isContextWindowExceeded(
     usage: AgentContextUsageUi,

@@ -90,6 +90,28 @@ class UsageStatsRepositoryTest {
                     inputTokens = 5,
                     outputTokens = 7,
                 ),
+                ConversationMessageEntity(
+                    id = "m4",
+                    conversationId = "c1",
+                    sortIndex = 2,
+                    type = "thinking",
+                    content = "thought",
+                ),
+                ConversationMessageEntity(
+                    id = "m5",
+                    conversationId = "c1",
+                    sortIndex = 3,
+                    type = "tool",
+                    content = "tool",
+                    toolName = "read_file",
+                ),
+                ConversationMessageEntity(
+                    id = "m6",
+                    conversationId = "c1",
+                    sortIndex = 4,
+                    type = "tool_summary",
+                    content = "done",
+                ),
             ),
         )
 
@@ -100,6 +122,26 @@ class UsageStatsRepositoryTest {
         assertEquals(27L, stats.totalOutputTokens)
         assertEquals(3L, stats.totalCachedTokens)
         assertEquals(2, stats.conversationsPerDay[day])
+    }
+
+    @Test
+    fun statsInputUsesAssistantReportedTokens() {
+        val totals = aggregateVisibleTokens(
+            listOf(
+                io.github.mangi.eta.data.db.UsageContentRow(
+                    type = "user",
+                ),
+                io.github.mangi.eta.data.db.UsageContentRow(
+                    type = "assistant",
+                    inputTokens = 120,
+                    outputTokens = 8,
+                    cachedTokens = 40,
+                ),
+            ),
+        )
+        assertEquals(120L, totals.input)
+        assertEquals(8L, totals.output)
+        assertEquals(40L, totals.cached)
     }
 
     @Test

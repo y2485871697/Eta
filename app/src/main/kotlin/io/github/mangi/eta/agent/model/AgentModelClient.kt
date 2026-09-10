@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.model
 
+import io.github.mangi.eta.agent.media.AgentHistoryImageHydrator
 import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentRunCancelledException
 import io.github.mangi.eta.agent.runtime.AgentRunController
@@ -108,11 +109,16 @@ internal object AgentModelClient {
             )
             AgentContextBudget.trimHistory(history, historyBudget)
         }
+        val outboundImages = if (config.supportsVision) images else emptyList()
+        val outboundHistory = AgentHistoryImageHydrator.hydrateAll(
+            history = trimmedHistory,
+            supportsVision = config.supportsVision,
+        )
         val messages = AgentPromptBuilder.buildInitialMessages(
             config,
             prompt,
-            images,
-            trimmedHistory,
+            outboundImages,
+            outboundHistory,
             skillContext,
             memoryContext,
             rootAvailable = initialCapabilities.rootAvailable,
@@ -215,9 +221,16 @@ internal object AgentModelClient {
 
     fun buildUserHistoryMessage(
         text: String,
-        images: List<ModelImage>,
+        images: List<ModelImage> = emptyList(),
+        persistedImages: List<AgentConversationCodec.PersistedImage> = emptyList(),
     ): ConversationMessage =
-        AgentConversationCodec.durableMessage(AgentConversationCodec.userMessage(text, images))
+        AgentConversationCodec.durableMessage(
+            if (persistedImages.isNotEmpty()) {
+                AgentConversationCodec.userPersistedImageMessage(text, persistedImages)
+            } else {
+                AgentConversationCodec.userMessage(text, images)
+            },
+        )
 
     internal fun summarizeOpenUriArguments(argumentsJson: String): String =
         AgentTraceFormatter().summarizeOpenUriArguments(argumentsJson)
@@ -253,7 +266,8 @@ internal object AgentModelClient {
         val reasoningCapabilities: ModelReasoningCapabilities? = null,
         val extraBodyJson: String = "",
         val customHeaders: List<CustomHeader> = emptyList(),
-        val customBody: List<CustomBody> = emptyList()
+        val customBody: List<CustomBody> = emptyList(),
+        val supportsVision: Boolean = true,
     ) {
         val effectiveReasoningEffort: ReasoningEffort
             get() = reasoningEffort ?: ReasoningEffort.fromLegacy(thinkingEnabled)

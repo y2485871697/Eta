@@ -11,6 +11,7 @@ internal data class AgentChatUiState(
     val history: List<AgentModelClient.ConversationMessage> = emptyList(),
     val input: String,
     val isStreaming: Boolean,
+    val isPaused: Boolean = false,
     val thinkingEnabled: Boolean,
     val reasoningEffort: ReasoningEffort = ReasoningEffort.fromLegacy(thinkingEnabled),
     val availableReasoningEfforts: List<ReasoningEffort> = emptyList(),
@@ -64,6 +65,16 @@ data class SystemNoticeMessageUi(
     val detail: String? = null,
 ) : AgentChatMessageUi
 
+internal fun SystemNoticeCode.isRetryableFailure(): Boolean =
+    this == SystemNoticeCode.Stopped || this == SystemNoticeCode.RuntimeFailed
+
+internal fun canContinuePausedGeneration(messages: List<AgentChatMessageUi>): Boolean {
+    val last = messages.lastOrNull { message ->
+        message is UserMessageUi || message is AgentMessageUi || message is SystemNoticeMessageUi
+    }
+    return last is SystemNoticeMessageUi && last.code == SystemNoticeCode.Stopped
+}
+
 @Immutable
 data class TokenUsageUi(
     val contextTokens: Int? = null,
@@ -78,6 +89,39 @@ data class TokenUsageUi(
             outputTokens == null &&
             reasoningTokens == null &&
             cachedTokens == null
+}
+
+@Immutable
+data class ConversationTokenUsageUi(
+    val inputTokens: Long = 0,
+    val outputTokens: Long = 0,
+    val cachedTokens: Long = 0,
+) {
+    val totalTokens: Long get() = inputTokens + outputTokens
+    val hasUsage: Boolean get() = inputTokens > 0 || outputTokens > 0 || cachedTokens > 0
+    val cachePercent: Double?
+        get() = if (inputTokens > 0) {
+            cachedTokens.toDouble() / inputTokens.toDouble() * 100.0
+        } else {
+            null
+        }
+}
+
+fun conversationTokenUsage(messages: List<AgentChatMessageUi>): ConversationTokenUsageUi {
+    var input = 0L
+    var output = 0L
+    var cached = 0L
+    messages.forEach { message ->
+        val usage = (message as? AgentMessageUi)?.usage ?: return@forEach
+        input += usage.inputTokens ?: 0
+        output += usage.outputTokens ?: 0
+        cached += usage.cachedTokens ?: 0
+    }
+    return ConversationTokenUsageUi(
+        inputTokens = input,
+        outputTokens = output,
+        cachedTokens = cached,
+    )
 }
 
 @Immutable

@@ -1,14 +1,14 @@
 package io.github.mangi.eta.ui.pages.providers
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
-import io.github.mangi.eta.ui.icons.MoneyBag02
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,20 +19,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.repository.ProviderBalanceFetcher
-import java.text.DecimalFormat
-import java.text.DecimalFormatSymbols
+import io.github.mangi.eta.data.repository.formatBalanceDisplay
+import io.github.mangi.eta.ui.icons.MoneyBag02
 import kotlinx.coroutines.launch
-import androidx.compose.animation.AnimatedVisibility
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -96,45 +95,48 @@ internal fun ProviderBalanceOptionFields(
                             isTesting = true
                             testResult = null
                             testResult = ProviderBalanceFetcher.fetch(provider)
-                                .fold(onSuccess = { it.formatBalanceResult() }, onFailure = { it.message ?: it.toString() })
+                                .fold(
+                                    onSuccess = { formatBalanceDisplay(it) },
+                                    onFailure = { it.message ?: it.toString() },
+                                )
                             isTesting = false
                         }
                     }
                 )
                 testResult?.let {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = MoneyBag02,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .padding(end = 4.dp)
-                                .size(16.dp),
-                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                        Text(
-                            text = it,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
+                    ProviderBalanceAmount(
+                        amount = it,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
                 }
             }
         }
     }
 }
 
-private fun String.formatBalanceResult(): String {
-    val trimmed = trim()
-    val number = trimmed.toDoubleOrNull()
-    return if (number != null) {
-        DecimalFormat(
-            "#,##0.00",
-            DecimalFormatSymbols.getInstance(java.util.Locale.getDefault()),
-        ).format(number)
-    } else {
-        trimmed
+@Composable
+internal fun ProviderBalanceAmount(
+    amount: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier,
+    ) {
+        Icon(
+            imageVector = MoneyBag02,
+            contentDescription = null,
+            modifier = Modifier
+                .padding(end = 4.dp)
+                .size(12.dp),
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        Text(
+            text = amount,
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

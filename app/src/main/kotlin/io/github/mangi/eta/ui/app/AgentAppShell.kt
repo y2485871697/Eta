@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -21,6 +23,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.data.repository.ProviderBalanceStore
+import io.github.mangi.eta.ui.pages.providers.ProviderBalanceAmount
 import io.github.mangi.eta.ui.components.AdaptiveTopAppBar
 import io.github.mangi.eta.ui.components.ConversationSidePaneScaffold
 import io.github.mangi.eta.ui.components.MiuixBackButton
@@ -29,6 +33,7 @@ import io.github.mangi.eta.ui.components.captureForTopBar
 import io.github.mangi.eta.ui.components.rememberTopBarBackdrop
 import io.github.mangi.eta.ui.components.topBarContainerColor
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
+import io.github.mangi.eta.ui.model.ConversationTokenUsageUi
 import io.github.mangi.eta.ui.model.MessageSearchHit
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.navigation.AppRoute
@@ -66,6 +71,7 @@ fun AgentAppShell(
     onStopKimiWeb: () -> Unit,
     onRefreshKimiWeb: () -> Unit,
     onOpenBrowser: () -> Unit,
+    onOpenWorkspace: () -> Unit,
     autoCompressEnabled: Boolean = false,
     onToggleAutoCompress: (Boolean) -> Unit = {},
     onCompressConversation: (
@@ -77,6 +83,8 @@ fun AgentAppShell(
     ) -> Unit = { _, _, _, _, done -> done(false) },
     onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
     onOpenHistoryHit: (MessageSearchHit) -> Unit = {},
+    tokenUsage: ConversationTokenUsageUi = ConversationTokenUsageUi(),
+    selectedProviderId: String? = null,
     onSelectConversation: (String) -> Unit,
     onConversationRename: (ConversationSummaryUi) -> Unit,
     onConversationDelete: (ConversationSummaryUi) -> Unit,
@@ -114,12 +122,15 @@ fun AgentAppShell(
                             onStopKimiWeb = onStopKimiWeb,
                             onRefreshKimiWeb = onRefreshKimiWeb,
                             onOpenBrowser = onOpenBrowser,
+                            onOpenWorkspace = onOpenWorkspace,
                             currentConversationTitle = currentConversationTitle,
                             autoCompressEnabled = autoCompressEnabled,
                             onToggleAutoCompress = onToggleAutoCompress,
                             onCompressConversation = onCompressConversation,
                             onSearchHistory = onSearchHistory,
                             onOpenHistoryHit = onOpenHistoryHit,
+                            tokenUsage = tokenUsage,
+                            selectedProviderId = selectedProviderId,
                         )
                     }
                 }
@@ -178,6 +189,7 @@ private fun AgentTopBar(
     onStopKimiWeb: () -> Unit,
     onRefreshKimiWeb: () -> Unit,
     onOpenBrowser: () -> Unit,
+    onOpenWorkspace: () -> Unit,
     autoCompressEnabled: Boolean = false,
     onToggleAutoCompress: (Boolean) -> Unit = {},
     onCompressConversation: (
@@ -189,6 +201,8 @@ private fun AgentTopBar(
     ) -> Unit = { _, _, _, _, done -> done(false) },
     onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
     onOpenHistoryHit: (MessageSearchHit) -> Unit = {},
+    tokenUsage: ConversationTokenUsageUi = ConversationTokenUsageUi(),
+    selectedProviderId: String? = null,
 ) {
     val isHome = route is AppRoute.Home
     val navigationIcon: @Composable () -> Unit = {
@@ -203,8 +217,16 @@ private fun AgentTopBar(
             MiuixBackButton(onClick = onBack)
         }
     }
+    val balances by ProviderBalanceStore.balances.collectAsState()
+    val selectedBalance = selectedProviderId?.let(balances::get)
     val actions: @Composable RowScope.() -> Unit = {
         if (isHome) {
+            if (!selectedBalance.isNullOrBlank()) {
+                ProviderBalanceAmount(
+                    amount = selectedBalance,
+                    modifier = Modifier.padding(end = 6.dp),
+                )
+            }
             TopBarOverflowMenu(
                 onNewConversation = onNewConversation,
                 onOpenTerminal = onOpenTerminal,
@@ -214,11 +236,13 @@ private fun AgentTopBar(
                 onStopKimiWeb = onStopKimiWeb,
                 onRefreshKimiWeb = onRefreshKimiWeb,
                 onOpenBrowser = onOpenBrowser,
+                onOpenWorkspace = onOpenWorkspace,
                 autoCompressEnabled = autoCompressEnabled,
                 onToggleAutoCompress = onToggleAutoCompress,
                 onCompressConversation = onCompressConversation,
                 onSearchHistory = onSearchHistory,
                 onOpenHistoryHit = onOpenHistoryHit,
+                tokenUsage = tokenUsage,
             )
         }
     }

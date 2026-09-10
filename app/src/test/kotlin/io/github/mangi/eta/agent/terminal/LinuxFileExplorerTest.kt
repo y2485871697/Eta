@@ -125,4 +125,17 @@ class LinuxFileExplorerTest {
         assertFalse(entries.first { it.name == "notes.txt" }.isDir)
         assertEquals(1700000000L, entries.first { it.name == "DCIM" }.mtimeEpochSeconds)
     }
+
+    @Test
+    fun isProtectedPathRejectsVirtualAndRoot() {
+        assertTrue(LinuxFileExplorer.isProtectedPath("/"))
+        assertTrue(LinuxFileExplorer.isProtectedPath("/proc"))
+        assertTrue(LinuxFileExplorer.isProtectedPath("/proc/cpuinfo"))
+        assertTrue(LinuxFileExplorer.isProtectedPath("/sys/class"))
+        assertTrue(LinuxFileExplorer.isProtectedPath("/dev/null"))
+        assertFalse(LinuxFileExplorer.isProtectedPath("/workspace"))
+        assertFalse(LinuxFileExplorer.isProtectedPath("/workspace/notes.txt"))
+        assertFalse(LinuxFileExplorer.isProtectedPath("/root"))
+        assertFalse(LinuxFileExplorer.isProtectedPath("/etc/passwd"))
+    }
 }

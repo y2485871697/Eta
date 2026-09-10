@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.app
 
 import android.app.Application
+import io.github.mangi.eta.agent.terminal.LinuxExecutionBackend
 import io.github.mangi.eta.agent.terminal.TerminalPrivateStorage
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -34,5 +35,32 @@ class WorkspaceFileStoreTest {
 
         assertEquals(listOf("saved.txt"), entries.map { it.path })
         assertEquals("saved", File(legacy, "saved.txt").readText())
+    }
+
+    @Test
+    fun chrootUsesRootWorkspaceBind() {
+        val host = resolveWorkspaceHost(
+            filesDir = RuntimeEnvironment.getApplication().filesDir,
+            linuxReady = true,
+            backend = LinuxExecutionBackend.CHROOT,
+        )
+        assertEquals("/data/local/tmp/eta", host.path.replace("\\", "/"))
+    }
+
+    @Test
+    fun prootKeepsPrivateWorkspace() {
+        val context = RuntimeEnvironment.getApplication()
+        val host = resolveWorkspaceHost(
+            filesDir = context.filesDir,
+            linuxReady = true,
+            backend = LinuxExecutionBackend.PROOT,
+        )
+        assertEquals(TerminalPrivateStorage.workspace(context.filesDir), host)
+    }
+
+    @Test
+    fun guestPathStaysInsideWorkspace() {
+        assertEquals("/workspace", guestWorkspacePath(""))
+        assertEquals("/workspace/imports/a.txt", guestWorkspacePath("imports/a.txt"))
     }
 }

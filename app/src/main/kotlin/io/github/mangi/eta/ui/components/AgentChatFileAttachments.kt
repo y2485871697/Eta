@@ -72,7 +72,7 @@ internal fun AgentAttachmentPickerButton(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    var showPopup by remember { mutableStateOf(false) }
+    val menuState = rememberEtaMenuState()
     var showPathDialog by remember { mutableStateOf(false) }
     var pathInput by remember { mutableStateOf("") }
     val photoPicker = rememberLauncherForActivityResult(
@@ -104,7 +104,7 @@ internal fun AgentAttachmentPickerButton(
         ChatInputNonFocusableIconButton(
             onClick = {
                 keepIme()
-                showPopup = true
+                menuState.onAnchorClick()
             },
             contentDescription = stringResource(R.string.ui_add_attachment_dba9e8),
         ) {
@@ -116,8 +116,8 @@ internal fun AgentAttachmentPickerButton(
             )
         }
         EtaDropdownMenu(
-            expanded = showPopup,
-            onDismissRequest = { showPopup = false },
+            expanded = menuState.expanded,
+            onDismissRequest = menuState::dismiss,
             preferAbove = true,
             minWidth = 0.dp,
             focusable = false,
@@ -141,7 +141,7 @@ internal fun AgentAttachmentPickerButton(
                         )
                     },
                     onClick = {
-                        showPopup = false
+                        menuState.dismiss()
                         when (index) {
                             0 -> photoPicker.launch(
                                 PickVisualMediaRequest(

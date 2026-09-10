@@ -203,6 +203,46 @@ class AgentModelPickerProjectorTest {
     }
 
     @Test
+    fun liveContextUsage_nonVisionDoesNotCountImagePayload() {
+        val selected = AgentModelOptionUi(
+            id = "model",
+            providerId = "provider",
+            providerName = "Provider",
+            providerSourceType = ProviderSourceTypes.CUSTOM,
+            modelId = "model",
+            displayName = "Model",
+            contextWindow = 8_000,
+            supportsVision = false,
+        )
+        val huge = PendingImageUi(
+            id = "img",
+            uri = "content://img",
+            dataUrl = "data:image/png;base64," + "A".repeat(50_000),
+            mimeType = "image/png",
+        )
+        val withImage = liveContextUsage(
+            history = emptyList(),
+            currentInput = "看图",
+            pendingImages = listOf(huge),
+            selectedModel = selected,
+        )
+        val textOnly = liveContextUsage(
+            history = emptyList(),
+            currentInput = "看图",
+            pendingImages = emptyList(),
+            selectedModel = selected,
+        )
+        val vision = liveContextUsage(
+            history = emptyList(),
+            currentInput = "看图",
+            pendingImages = listOf(huge),
+            selectedModel = selected.copy(supportsVision = true),
+        )
+        assertTrue((withImage.contextTokens ?: 0) < (vision.contextTokens ?: 0) / 2)
+        assertTrue((withImage.contextTokens ?: 0) > (textOnly.contextTokens ?: 0))
+    }
+
+    @Test
     fun liveContextUsage_emptyDraftDoesNotAddCurrentTurnOverhead() {
         val selected = AgentModelOptionUi(
             id = "model",

@@ -1,4 +1,7 @@
 package io.github.mangi.eta.data.repository
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import java.util.Locale
 import io.github.mangi.eta.agent.model.AgentHttpClient
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.agent.model.CustomHeaderFilter
@@ -75,5 +78,18 @@ internal object ProviderBalanceFetcher {
             }
         }
         return current
+    }
+}
+
+internal fun formatBalanceDisplay(raw: String): String {
+    val trimmed = raw.trim()
+    val number = trimmed.toDoubleOrNull()
+    return if (number != null) {
+        DecimalFormat(
+            "#,##0.00",
+            DecimalFormatSymbols.getInstance(Locale.getDefault()),
+        ).format(number)
+    } else {
+        trimmed
     }
 }

@@ -53,6 +53,7 @@ import io.github.mangi.eta.ui.model.AgentSkillsAction
 import io.github.mangi.eta.ui.model.AgentSystemEnhanceAction
 import io.github.mangi.eta.ui.model.AgentToolsAction
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
+import io.github.mangi.eta.ui.model.conversationTokenUsage
 import io.github.mangi.eta.ui.model.PermissionHealthAction
 import io.github.mangi.eta.ui.navigation.AgentNavigator
 import io.github.mangi.eta.ui.navigation.AppRoute
@@ -147,11 +148,7 @@ fun AgentAppRoot(
         onAssistantConversationOpened(opened)
     }
 
-    fun pushRoute(
-        route: AppRoute,
-        restoreConversationPaneOnBack: Boolean = conversationPaneOpen,
-    ) {
-        conversationPaneOpen = restoreConversationPaneOnBack
+    fun pushRoute(route: AppRoute) {
         navigator.push(route)
     }
 
@@ -213,6 +210,7 @@ fun AgentAppRoot(
             onStopKimiWeb = appViewModel::stopKimiWeb,
             onRefreshKimiWeb = appViewModel::refreshKimiWeb,
             onOpenBrowser = { pushRoute(AppRoute.Browser) },
+            onOpenWorkspace = { pushRoute(AppRoute.Workspace) },
             autoCompressEnabled = agentState.autoCompressEnabled,
             onToggleAutoCompress = { agentState.updateAutoCompressEnabled(it) },
             onCompressConversation = { providerId, modelId, targetTokens, keepRecent, onFinished ->
@@ -229,6 +227,8 @@ fun AgentAppRoot(
                 conversationPaneOpen = false
                 agentState.openHistorySearchHit(hit)
             },
+            tokenUsage = conversationTokenUsage(agentState.homeState.messages),
+            selectedProviderId = agentState.modelPickerState.selectedModel?.providerId,
             onSelectConversation = { conversationId -> selectConversation(conversationId) },
             onConversationRename = { conversation ->
                 conversationRenameTarget = conversation
@@ -280,7 +280,8 @@ fun AgentAppRoot(
                                     agentState.updateReasoningEffort(action.effort)
                                 is AgentHomeAction.ModelSelected -> agentState.selectModel(action.modelId)
                                 is AgentHomeAction.SubmitMessage -> { requestExecutionNotifications(); agentState.sendCurrentMessage(action.text) }
-                                AgentHomeAction.StopRun -> agentState.stopCurrentRun()
+                                AgentHomeAction.StopRun -> agentState.pauseCurrentRun()
+                                AgentHomeAction.ContinueRun -> agentState.continuePausedGeneration()
                                 is AgentHomeAction.ImageAttached -> agentState.attachImage(action.uri)
                                 is AgentHomeAction.RemoveImage -> agentState.removePendingImage(action.id)
                                 is AgentHomeAction.FilesAttached -> agentState.attachFiles(action.uris)
@@ -332,7 +333,8 @@ fun AgentAppRoot(
                                     agentState.updateReasoningEffort(action.effort)
                                 is AgentChatAction.ModelSelected -> agentState.selectModel(action.modelId)
                                 is AgentChatAction.SubmitMessage -> { requestExecutionNotifications(); agentState.sendCurrentMessage(action.text) }
-                                AgentChatAction.StopRun -> agentState.stopCurrentRun()
+                                AgentChatAction.StopRun -> agentState.pauseCurrentRun()
+                                AgentChatAction.ContinueRun -> agentState.continuePausedGeneration()
                                 AgentChatAction.OpenBrowser -> pushRoute(AppRoute.Browser)
                                 is AgentChatAction.ImageAttached -> agentState.attachImage(action.uri)
                                 is AgentChatAction.RemoveImage -> agentState.removePendingImage(action.id)

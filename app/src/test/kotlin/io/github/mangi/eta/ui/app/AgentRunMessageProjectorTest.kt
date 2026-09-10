@@ -488,4 +488,64 @@ class AgentRunMessageProjectorTest {
         assertFalse((messages[4] as ThinkingMessageUi).isStreaming)
         assertTrue((messages[5] as AgentMessageUi).isStreaming)
     }
+
+    @Test
+    fun ignoresReasoningAndTextAfterFinalizeRun() {
+        val projector = AgentRunMessageProjector(nowElapsedRealtime = { 1_000L })
+        val runId = "run-sealed"
+        var messages: List<AgentChatMessageUi> = listOf(
+            UserMessageUi(id = "user-$runId", content = "写个故事"),
+        )
+        messages = projector.appendReasoningDelta(runId, round = 1, index = 0, delta = "构思情节", messages)
+        messages = projector.appendTextDelta(runId, round = 1, index = 1, delta = "从前有座山。", messages)
+        messages = projector.finalizeRun(runId, messages)
+
+        val finalized = messages
+        messages = projector.appendReasoningDelta(runId, round = 1, index = 0, delta = "还要再想一下", messages)
+        messages = projector.appendTextDelta(runId, round = 1, index = 1, delta = "续写", messages)
+        messages = projector.startAssistantBlock(
+            runId,
+            AgentEvent.AssistantBlockStart(
+                round = 2,
+                kind = AgentEvent.AssistantBlockKind.THINKING,
+                index = 0,
+            ),
+            messages,
+        )
+        messages = projector.ensureCompletedThinking(
+            runId = runId,
+            round = 2,
+            content = "结束后的思考",
+            messages = messages,
+        )
+
+        assertEquals(finalized, messages)
+        val thinking = messages.filterIsInstance<ThinkingMessageUi>().single()
+        assertFalse(thinking.isStreaming)
+        assertTrue(thinking.collapsed)
+        assertEquals("构思情节", thinking.content)
+        val assistant = messages.filterIsInstance<AgentMessageUi>().single()
+        assertEquals("从前有座山。", assistant.content)
+        assertFalse(assistant.isStreaming)
+    }
+
+    @Test
+    fun replayAfterFinalizeAllowsReasoningAgain() {
+        val projector = AgentRunMessageProjector(nowElapsedRealtime = { 1_000L })
+        val runId = "run-replay-seal"
+        var messages: List<AgentChatMessageUi> = projector.appendReasoningDelta(
+            runId,
+            round = 1,
+            index = 0,
+            delta = "先想",
+            messages = emptyList(),
+        )
+        messages = projector.finalizeRun(runId, messages)
+        messages = projector.resetForReplay(runId, messages)
+        messages = projector.appendReasoningDelta(runId, round = 1, index = 0, delta = "回放思考", messages)
+        val thinking = messages.filterIsInstance<ThinkingMessageUi>().single()
+        assertEquals("回放思考", thinking.content)
+        assertTrue(thinking.isStreaming)
+        assertFalse(thinking.collapsed)
+    }
 }

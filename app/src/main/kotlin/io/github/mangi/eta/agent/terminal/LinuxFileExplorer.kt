@@ -3,9 +3,9 @@ package io.github.mangi.eta.agent.terminal
 import java.io.File
 
 /**
- * 面向用户的 Linux 环境只读文件浏览后端。
+ * 面向用户的 Linux 环境文件浏览后端。
  *
- * 列举和读取都在 Linux 会话里执行（chroot / PRoot），这样 /workspace、
+ * 列举、读取、导出和删除都在 Linux 会话里执行（chroot / PRoot），这样 /workspace、
  * /storage/emulated/0 和共享目录能看到与终端 ls 相同的 bind 内容。
  * 路径只做词法归一化，拒绝逃出根。
  */
@@ -14,6 +14,7 @@ internal object LinuxFileExplorer {
 
     private const val EXIT_NOT_DIRECTORY = 41
     private const val EXIT_UNREADABLE = 42
+    private const val EXIT_FAILED = 43
 
     data class Entry(
         val name: String,
@@ -37,6 +38,22 @@ internal object LinuxFileExplorer {
         data object NotFile : ReadResult
         data object Unreadable : ReadResult
         data object CommandFailed : ReadResult
+    }
+
+    sealed interface DeleteResult {
+        data object Success : DeleteResult
+        data object NotInstalled : DeleteResult
+        data object NotFound : DeleteResult
+        data object Protected : DeleteResult
+        data object Failed : DeleteResult
+    }
+
+    sealed interface CopyResult {
+        data object Success : CopyResult
+        data object NotInstalled : CopyResult
+        data object NotFile : CopyResult
+        data object Unreadable : CopyResult
+        data object Failed : CopyResult
     }
 
     /**
@@ -186,22 +203,169 @@ internal object LinuxFileExplorer {
         return if ('/' in trimmed) trimmed.substringAfterLast('/') else trimmed
     }
 
+    fun delete(
+        supervisor: ShellProcessSupervisor,
+        rootfsDir: File,
+        linuxPath: String,
+        environment: TerminalEnvironment,
+        sharedMounts: List<SharedFolderMount> = emptyList(),
+    ): DeleteResult {
+        if (!environment.isLinux) return DeleteResult.Failed
+        if (!LinuxEnvironmentPaths.rootfsReady(rootfsDir.absolutePath)) return DeleteResult.NotInstalled
+        val guestPath = normalizeLinuxPath(linuxPath) ?: return DeleteResult.Failed
+        if (isProtectedPath(guestPath)) return DeleteResult.Protected
+        val quoted = shellQuote(guestPath)
+        val script = """
+            if [ ! -e $quoted ]; then exit $EXIT_NOT_DIRECTORY; fi
+            rm -rf -- $quoted || exit $EXIT_FAILED
+            exit 0
+        """.trimIndent()
+        val result = runExplorerShell(
+            supervisor = supervisor,
+            rootfsDir = rootfsDir,
+            environment = environment,
+            sharedMounts = sharedMounts,
+            command = script,
+            timeoutSeconds = 30,
+        )
+        return when (result.exitCode) {
+            0 -> DeleteResult.Success
+            EXIT_NOT_DIRECTORY -> DeleteResult.NotFound
+            else -> DeleteResult.Failed
+        }
+    }
+
+    fun copyToHostFile(
+        supervisor: ShellProcessSupervisor,
+        rootfsDir: File,
+        linuxPath: String,
+        environment: TerminalEnvironment,
+        destination: File,
+        sharedMounts: List<SharedFolderMount> = emptyList(),
+    ): CopyResult {
+        if (!environment.isLinux) return CopyResult.Failed
+        if (!LinuxEnvironmentPaths.rootfsReady(rootfsDir.absolutePath)) return CopyResult.NotInstalled
+        val guestPath = normalizeLinuxPath(linuxPath) ?: return CopyResult.NotFile
+        val direct = hostFileForGuest(rootfsDir, guestPath)
+        if (direct != null && direct.isFile && direct.canRead()) {
+            return runCatching {
+                destination.parentFile?.mkdirs()
+                direct.copyTo(destination, overwrite = true)
+                if (destination.isFile) CopyResult.Success else CopyResult.Failed
+            }.getOrDefault(CopyResult.Failed)
+        }
+        val stagingName = ".eta-export-" + System.nanoTime()
+        val stagingGuest = "/workspace/$stagingName"
+        val quotedGuest = shellQuote(guestPath)
+        val quotedStaging = shellQuote(stagingGuest)
+        val script = """
+            if [ ! -f $quotedGuest ]; then exit $EXIT_NOT_DIRECTORY; fi
+            if [ ! -r $quotedGuest ]; then exit $EXIT_UNREADABLE; fi
+            mkdir -p /workspace || exit $EXIT_FAILED
+            cp -- $quotedGuest $quotedStaging || exit $EXIT_FAILED
+            chmod 644 $quotedStaging 2>/dev/null || true
+            exit 0
+        """.trimIndent()
+        val result = runExplorerShell(
+            supervisor = supervisor,
+            rootfsDir = rootfsDir,
+            environment = environment,
+            sharedMounts = sharedMounts,
+            command = script,
+            timeoutSeconds = 60,
+        )
+        if (result.exitCode != 0) {
+            return when (result.exitCode) {
+                EXIT_NOT_DIRECTORY -> CopyResult.NotFile
+                EXIT_UNREADABLE -> CopyResult.Unreadable
+                else -> CopyResult.Failed
+            }
+        }
+        val staged = File(workspaceHostDir(rootfsDir), stagingName)
+        return try {
+            destination.parentFile?.mkdirs()
+            when {
+                staged.isFile && staged.canRead() -> {
+                    staged.copyTo(destination, overwrite = true)
+                }
+                staged.isFile -> copyHostFileAsRoot(staged, destination)
+                else -> return CopyResult.Failed
+            }
+            if (destination.isFile) CopyResult.Success else CopyResult.Failed
+        } catch (_: Exception) {
+            CopyResult.Failed
+        } finally {
+            runCatching { staged.delete() }
+            runExplorerShell(
+                supervisor = supervisor,
+                rootfsDir = rootfsDir,
+                environment = environment,
+                sharedMounts = sharedMounts,
+                command = "rm -f -- " + quotedStaging,
+                timeoutSeconds = 15,
+            )
+        }
+    }
+
+    internal fun isProtectedPath(linuxPath: String): Boolean {
+        val path = normalizeLinuxPath(linuxPath) ?: return true
+        if (path == "/") return true
+        return PROTECTED_ROOTS.any { path == it || path.startsWith("$it/") }
+    }
+
+    private fun hostFileForGuest(rootfsDir: File, guestPath: String): File? {
+        if (guestPath != "/workspace" && !guestPath.startsWith("/workspace/")) return null
+        val relative = guestPath.removePrefix("/workspace").trim('/')
+        val hostRoot = workspaceHostDir(rootfsDir)
+        return if (relative.isEmpty()) hostRoot else File(hostRoot, relative)
+    }
+
+    private fun workspaceHostDir(rootfsDir: File): File =
+        if (LinuxEnvironmentPaths.backendOf(rootfsDir.absolutePath) == LinuxExecutionBackend.PROOT) {
+            File(TerminalRuntime.userWorkspacePath)
+        } else {
+            File(TerminalRuntime.workspace("root"))
+        }
+
+    private fun copyHostFileAsRoot(source: File, destination: File) {
+        val supervisor = ShellProcessSupervisor()
+        try {
+            val parent = destination.parentFile?.absolutePath ?: throw java.io.IOException("EXPORT_UNAVAILABLE")
+            val result = runOneShotShell(
+                processSupervisor = supervisor,
+                identity = "root",
+                command = "mkdir -p " + shellQuote(parent) +
+                    " && cp -- " + shellQuote(source.absolutePath) + " " + shellQuote(destination.absolutePath) +
+                    " && chmod 644 " + shellQuote(destination.absolutePath),
+                timeoutSeconds = 60,
+                environment = TerminalEnvironment.ANDROID,
+            )
+            if (result.exitCode != 0) throw java.io.IOException("EXPORT_UNAVAILABLE")
+        } finally {
+            supervisor.beginClosing()
+        }
+    }
+
     private fun runExplorerShell(
         supervisor: ShellProcessSupervisor,
         rootfsDir: File,
         environment: TerminalEnvironment,
         sharedMounts: List<SharedFolderMount>,
         command: String,
+        timeoutSeconds: Long = 15,
     ): OneShotShellResult {
         val rootless = LinuxEnvironmentPaths.backendOf(rootfsDir.absolutePath) == LinuxExecutionBackend.PROOT
         return runOneShotShell(
             processSupervisor = supervisor,
             identity = if (rootless) "user" else "root",
             command = command,
-            timeoutSeconds = 15,
+            timeoutSeconds = timeoutSeconds,
             environment = environment,
             linuxRootfsPath = rootfsDir.absolutePath,
             linuxSharedMounts = sharedMounts,
         )
     }
+
+    private val PROTECTED_ROOTS = listOf("/proc", "/sys", "/dev")
 }
+

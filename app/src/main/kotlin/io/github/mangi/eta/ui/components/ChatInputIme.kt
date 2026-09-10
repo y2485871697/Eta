@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.components
 
 import android.app.Activity
+import android.view.View
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -21,6 +22,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -31,6 +33,22 @@ import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.delay
 
 internal val LocalChatInputFocusRequester = staticCompositionLocalOf<FocusRequester?> { null }
+
+internal suspend fun showChatInputIme(
+    requester: FocusRequester?,
+    keyboard: SoftwareKeyboardController?,
+    view: View,
+) {
+    repeat(3) {
+        withFrameNanos { }
+        runCatching { requester?.requestFocus() }
+        keyboard?.show()
+        (view.context as? Activity)?.window?.let { window ->
+            WindowCompat.getInsetsController(window, view).show(WindowInsetsCompat.Type.ime())
+        }
+        delay(48)
+    }
+}
 
 /**
  * Chat action control that never takes text focus, so tapping it cannot dismiss the IME.
@@ -80,15 +98,7 @@ internal fun rememberKeepImeWhenOpeningMenu(): () -> Unit {
 
     LaunchedEffect(token) {
         if (token == 0 || !shouldRestore.value) return@LaunchedEffect
-        repeat(2) {
-            withFrameNanos { }
-            requester?.requestFocus()
-            keyboard?.show()
-            (view.context as? Activity)?.window?.let { window ->
-                WindowCompat.getInsetsController(window, view).show(WindowInsetsCompat.Type.ime())
-            }
-            delay(48)
-        }
+        showChatInputIme(requester, keyboard, view)
     }
 
     return remember(imeVisible, keyboard, requester, view) {

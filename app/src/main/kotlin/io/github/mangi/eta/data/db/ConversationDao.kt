@@ -1,5 +1,6 @@
 package io.github.mangi.eta.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -40,17 +41,15 @@ internal interface ConversationDao {
     @Query("SELECT COUNT(*) FROM conversations")
     suspend fun conversationCount(): Int
 
-    @Query("SELECT COUNT(*) FROM conversation_messages")
+    /** Visible chat bubbles only; thinking/tool rows are not messages. */
+    @Query("SELECT COUNT(*) FROM conversation_messages WHERE type IN ('user', 'assistant')")
     suspend fun totalMessageCount(): Int
 
-    @Query("SELECT COALESCE(SUM(input_tokens), 0) FROM conversation_messages")
-    suspend fun totalInputTokens(): Long
-
-    @Query("SELECT COALESCE(SUM(output_tokens), 0) FROM conversation_messages")
-    suspend fun totalOutputTokens(): Long
-
-    @Query("SELECT COALESCE(SUM(cached_tokens), 0) FROM conversation_messages")
-    suspend fun totalCachedTokens(): Long
+    @Query(
+        "SELECT type, input_tokens, output_tokens, cached_tokens " +
+            "FROM conversation_messages WHERE type = 'assistant'"
+    )
+    suspend fun usageContentRows(): List<UsageContentRow>
 
     @Query(
         "SELECT date(created_at / 1000, 'unixepoch', 'localtime') AS day, COUNT(*) AS count " +
@@ -106,6 +105,13 @@ internal interface ConversationDao {
     }
 }
 
+
+internal data class UsageContentRow(
+    val type: String,
+    @ColumnInfo(name = "input_tokens") val inputTokens: Int? = null,
+    @ColumnInfo(name = "output_tokens") val outputTokens: Int? = null,
+    @ColumnInfo(name = "cached_tokens") val cachedTokens: Int? = null,
+)
 
 internal data class ConversationDayCount(
     val day: String,

@@ -3,6 +3,7 @@ package io.github.mangi.eta.data.repository
 import android.content.Context
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.db.EtaDatabase
+import io.github.mangi.eta.data.db.UsageContentRow
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
@@ -36,17 +37,38 @@ internal object UsageStatsRepository {
                 runCatching { LocalDate.parse(entry.day) to entry.count }.getOrNull()
             }
             .toMap()
+        val tokenTotals = aggregateVisibleTokens(dao.usageContentRows())
         return UsageStatsSnapshot(
             totalConversations = dao.conversationCount(),
             totalMessages = dao.totalMessageCount(),
-            totalInputTokens = dao.totalInputTokens(),
-            totalOutputTokens = dao.totalOutputTokens(),
-            totalCachedTokens = dao.totalCachedTokens(),
+            totalInputTokens = tokenTotals.input,
+            totalOutputTokens = tokenTotals.output,
+            totalCachedTokens = tokenTotals.cached,
             conversationsPerDay = perDay,
             launchCount = SettingsDataStore.launchCount(),
         )
     }
 }
+
+
+internal fun aggregateVisibleTokens(rows: List<UsageContentRow>): TokenTotals {
+    var input = 0L
+    var output = 0L
+    var cached = 0L
+    for (row in rows) {
+        if (row.type != "assistant") continue
+        input += (row.inputTokens ?: 0).toLong()
+        output += (row.outputTokens ?: 0).toLong()
+        cached += (row.cachedTokens ?: 0).toLong()
+    }
+    return TokenTotals(input = input, output = output, cached = cached)
+}
+
+internal data class TokenTotals(
+    val input: Long,
+    val output: Long,
+    val cached: Long,
+)
 
 internal fun heatmapAlpha(count: Int, q1: Int, q2: Int, q3: Int, isFuture: Boolean): Float = when {
     isFuture -> -1f

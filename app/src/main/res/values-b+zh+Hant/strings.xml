@@ -40,6 +40,9 @@
   <string name="search_history_role_thinking">思考</string>
   <string name="search_history_role_tool">工具</string>
   <string name="action_token_usage">Token 用量</string>
+  <string name="token_usage_total">總用量</string>
+  <string name="token_usage_cache_percent">快取佔比</string>
+  <string name="token_usage_empty">目前對話還沒有用量資料</string>
   <string name="action_browse_workspace_files">瀏覽工作區檔案</string>
   <string name="action_auto_compress_context">自動壓縮</string>
   <string name="action_compress_conversation">壓縮會話</string>
@@ -121,7 +124,7 @@
   <string name="route_linux_files">Linux 檔案</string>
   <string name="linux_files_title">Linux 檔案</string>
   <string name="linux_files_entry_title">檔案瀏覽</string>
-  <string name="linux_files_entry_summary">瀏覽 Linux 環境中的檔案（唯讀）</string>
+  <string name="linux_files_entry_summary">瀏覽、匯出和刪除 Linux 環境中的檔案</string>
   <string name="linux_files_not_installed">尚未安裝 Linux 環境</string>
   <string name="linux_files_invalid_distribution">未知的 Linux 發行版</string>
   <string name="linux_files_empty">該目錄為空</string>
@@ -130,6 +133,15 @@
   <string name="linux_files_error_not_file">不是一般檔案</string>
   <string name="linux_files_binary_hint">二進位檔案，無法預覽</string>
   <string name="linux_files_truncated_hint">內容過大，僅顯示開頭部分</string>
+  <string name="linux_files_export">匯出</string>
+  <string name="linux_files_delete_title">刪除檔案</string>
+  <string name="linux_files_delete_message">確定刪除「%1$s」？此操作無法復原。</string>
+  <string name="linux_files_delete_dir_message">確定刪除資料夾「%1$s」及其全部內容？此操作無法復原。</string>
+  <string name="linux_files_deleted">已刪除</string>
+  <string name="linux_files_delete_failed">刪除失敗</string>
+  <string name="linux_files_delete_protected">系統路徑不可刪除</string>
+  <string name="linux_files_exported">已匯出</string>
+  <string name="linux_files_export_failed">匯出失敗</string>
   <string name="route_model_providers">模型供應商</string>
   <string name="route_provider_details">Provider 詳細資料</string>
   <string name="route_new_provider">新增供應商</string>
@@ -1105,6 +1117,8 @@
   <string name="chat_input_hint">交給 代鱼 完成</string>
   <string name="chat_stop">停止</string>
   <string name="chat_send">傳送</string>
+  <string name="chat_continue">繼續</string>
+  <string name="chat_continue_prompt">請從上次中斷處繼續輸出，不要重複已經給出的內容。</string>
   <string name="chat_reasoning_effort">推理強度，目前為 %1$s</string>
   <string name="status_unsupported">不支援</string>
   <string name="attachment_image">圖片</string>

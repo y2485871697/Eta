@@ -1,7 +1,12 @@
 package io.github.mangi.eta.ui.screens.terminal
 
 import android.content.Context
+import android.net.Uri
 import android.text.format.Formatter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
@@ -13,8 +18,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -30,16 +37,21 @@ import io.github.mangi.eta.agent.terminal.LinuxFileExplorer
 import io.github.mangi.eta.agent.terminal.SharedFolderMounts
 import io.github.mangi.eta.agent.terminal.terminalEnvironment
 import io.github.mangi.eta.agent.terminal.ShellProcessSupervisor
+import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
+import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
- * Linux 环境只读文件浏览：目录列举与文件读取都在 Linux 会话中完成，
+ * Linux 环境文件浏览：目录列举、预览、导出和删除都在 Linux 会话中完成，
  * 因此能看到 /workspace 等 bind 挂载里的真实文件。
  * 查看文件时进入屏内查看态，页面返回键先退回列表再退出页面。
  */
@@ -57,6 +69,7 @@ internal fun LinuxFilesScreen(
         linuxDistribution?.let { LinuxEnvironmentPaths.rootfsDir(appContext, it) }
     }
     val installed = rootfsDir != null && LinuxEnvironmentPaths.rootfsReady(rootfsDir.absolutePath)
+    val scope = rememberCoroutineScope()
 
     val shellSupervisor = remember { ShellProcessSupervisor() }
     DisposableEffect(Unit) {
@@ -66,10 +79,43 @@ internal fun LinuxFilesScreen(
     var currentPath by remember { mutableStateOf("/") }
     var entries by remember { mutableStateOf<List<LinuxFileExplorer.Entry>?>(null) }
     var listError by remember { mutableStateOf<Int?>(null) }
+    var listRevision by remember { mutableIntStateOf(0) }
     var openFilePath by remember { mutableStateOf<String?>(null) }
     var fileResult by remember { mutableStateOf<LinuxFileExplorer.ReadResult?>(null) }
+    var pendingExport by remember { mutableStateOf<String?>(null) }
+    var pendingActions by remember { mutableStateOf<FileEntryActions?>(null) }
+    var pendingDelete by remember { mutableStateOf<LinuxPendingDelete?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
 
-    LaunchedEffect(currentPath, linuxDistribution) {
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        val source = pendingExport
+        pendingExport = null
+        val dir = rootfsDir
+        val dist = linuxDistribution
+        if (uri == null || source == null || dir == null || dist == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            busy = true
+            try {
+                val ok = withContext(Dispatchers.IO) {
+                    exportLinuxFile(appContext, shellSupervisor, dir, dist, source, uri)
+                }
+                notice = appContext.getString(
+                    if (ok) R.string.linux_files_exported else R.string.linux_files_export_failed,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                notice = appContext.getString(R.string.linux_files_export_failed)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    LaunchedEffect(currentPath, linuxDistribution, listRevision) {
         val dir = rootfsDir ?: return@LaunchedEffect
         val dist = linuxDistribution ?: return@LaunchedEffect
         if (!installed) return@LaunchedEffect
@@ -116,7 +162,48 @@ internal fun LinuxFilesScreen(
         fileResult = null
     }
 
-    // 查看文件时系统返回键先退回列表，再退出页面。
+    fun requestExport(path: String) {
+        pendingExport = path
+        exportLauncher.launch(path.substringAfterLast('/').ifBlank { "file" })
+    }
+
+    fun deleteItem(target: LinuxPendingDelete) {
+        val dir = rootfsDir ?: return
+        val dist = linuxDistribution ?: return
+        scope.launch {
+            busy = true
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    LinuxFileExplorer.delete(
+                        shellSupervisor,
+                        dir,
+                        target.path,
+                        dist.terminalEnvironment,
+                        SharedFolderMounts.current(),
+                    )
+                }
+                notice = appContext.getString(
+                    when (result) {
+                        LinuxFileExplorer.DeleteResult.Success -> R.string.linux_files_deleted
+                        LinuxFileExplorer.DeleteResult.Protected -> R.string.linux_files_delete_protected
+                        else -> R.string.linux_files_delete_failed
+                    },
+                )
+                if (result == LinuxFileExplorer.DeleteResult.Success) {
+                    if (openFilePath == target.path) closeFile()
+                    listRevision++
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                notice = appContext.getString(R.string.linux_files_delete_failed)
+            } finally {
+                busy = false
+                pendingDelete = null
+            }
+        }
+    }
+
     val viewerBackState = rememberNavigationEventState(NavigationEventInfo.None)
     NavigationBackHandler(
         state = viewerBackState,
@@ -141,7 +228,22 @@ internal fun LinuxFilesScreen(
             }
             openFilePath != null -> {
                 item(key = "viewer-path") {
-                    PathBar(openFilePath.orEmpty())
+                    val viewing = openFilePath.orEmpty()
+                    PathBar(
+                        path = viewing,
+                        onLongClick = if (busy) null else ({
+                            pendingActions = FileEntryActions(
+                                path = viewing,
+                                name = viewing.substringAfterLast('/').ifBlank { viewing },
+                                directory = false,
+                                canExport = true,
+                                canDelete = !LinuxFileExplorer.isProtectedPath(viewing),
+                            )
+                        }),
+                    )
+                }
+                notice?.let { text ->
+                    item(key = "viewer-notice") { HintText(text) }
                 }
                 when (val result = fileResult) {
                     is LinuxFileExplorer.ReadResult.Text -> {
@@ -185,6 +287,9 @@ internal fun LinuxFilesScreen(
                 item(key = "path-bar") {
                     PathBar(currentPath)
                 }
+                notice?.let { text ->
+                    item(key = "list-notice") { HintText(text) }
+                }
                 if (currentPath != "/") {
                     item(key = "..") {
                         FileRow(
@@ -213,6 +318,7 @@ internal fun LinuxFilesScreen(
                     }
                     currentEntries != null -> {
                         items(currentEntries, key = { it.name }) { entry ->
+                            val target = joinLinuxPath(currentPath, entry.name)
                             FileRow(
                                 name = entry.name,
                                 isDir = entry.isDir,
@@ -221,8 +327,18 @@ internal fun LinuxFilesScreen(
                                 } else {
                                     Formatter.formatShortFileSize(appContext, entry.sizeBytes)
                                 },
+                                enabled = !busy,
+                                onLongClick = {
+                                    val actions = FileEntryActions(
+                                        path = target,
+                                        name = entry.name,
+                                        directory = entry.isDir,
+                                        canExport = !entry.isDir,
+                                        canDelete = !LinuxFileExplorer.isProtectedPath(target),
+                                    )
+                                    if (actions.canExport || actions.canDelete) pendingActions = actions
+                                },
                                 onClick = {
-                                    val target = currentPath.trimEnd('/') + "/" + entry.name
                                     if (entry.isDir) {
                                         currentPath = target
                                     } else {
@@ -236,17 +352,104 @@ internal fun LinuxFilesScreen(
             }
         }
     }
+
+    pendingActions?.let { target ->
+        FileEntryActionsDialog(
+            target = target,
+            enabled = !busy,
+            onExport = {
+                pendingActions = null
+                requestExport(target.path)
+            },
+            onDelete = {
+                pendingActions = null
+                pendingDelete = LinuxPendingDelete(
+                    path = target.path,
+                    name = target.name,
+                    directory = target.directory,
+                )
+            },
+            onDismiss = { pendingActions = null },
+        )
+    }
+
+    pendingDelete?.let { target ->
+        WindowDialog(
+            show = true,
+            title = stringResource(R.string.linux_files_delete_title),
+            summary = stringResource(
+                if (target.directory) R.string.linux_files_delete_dir_message
+                else R.string.linux_files_delete_message,
+                target.name,
+            ),
+            onDismissRequest = { if (!busy) pendingDelete = null },
+        ) {
+            MiuixDialogActions(
+                confirmText = stringResource(R.string.action_delete),
+                destructive = true,
+                confirmEnabled = !busy,
+                onCancel = { if (!busy) pendingDelete = null },
+                onConfirm = { if (!busy) deleteItem(target) },
+            )
+        }
+    }
 }
 
+private data class LinuxPendingDelete(
+    val path: String,
+    val name: String,
+    val directory: Boolean,
+)
+
+private fun joinLinuxPath(parent: String, name: String): String =
+    if (parent == "/") "/$name" else parent.trimEnd('/') + "/" + name
+
+private fun exportLinuxFile(
+    context: Context,
+    supervisor: ShellProcessSupervisor,
+    rootfsDir: File,
+    distribution: LinuxDistribution,
+    linuxPath: String,
+    destination: Uri,
+): Boolean {
+    val tmp = File(context.cacheDir, "linux-export-${System.nanoTime()}")
+    return try {
+        val copied = LinuxFileExplorer.copyToHostFile(
+            supervisor = supervisor,
+            rootfsDir = rootfsDir,
+            linuxPath = linuxPath,
+            environment = distribution.terminalEnvironment,
+            destination = tmp,
+            sharedMounts = SharedFolderMounts.current(),
+        )
+        if (copied != LinuxFileExplorer.CopyResult.Success || !tmp.isFile) return false
+        tmp.inputStream().use { input ->
+            val output = context.contentResolver.openOutputStream(destination, "wt") ?: return false
+            output.use { input.copyTo(it) }
+        }
+        true
+    } finally {
+        tmp.delete()
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PathBar(path: String) {
+private fun PathBar(
+    path: String,
+    onLongClick: (() -> Unit)? = null,
+) {
     Text(
         text = path,
         style = MiuixTheme.textStyles.body2.copy(fontFamily = FontFamily.Monospace),
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         modifier = Modifier
             .padding(horizontal = 24.dp)
-            .padding(bottom = 8.dp),
+            .padding(bottom = 8.dp)
+            .then(
+                if (onLongClick == null) Modifier
+                else Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick),
+            ),
     )
 }
 
@@ -272,16 +475,25 @@ private fun HintText(message: String) {
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileRow(
     name: String,
     isDir: Boolean,
     summary: String?,
     onClick: () -> Unit,
+    enabled: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
 ) {
     BasicComponent(
+        modifier = Modifier.combinedClickable(
+            enabled = enabled,
+            onClick = onClick,
+            onLongClick = onLongClick,
+        ),
         title = name,
         summary = summary,
+        enabled = enabled,
         startAction = {
             Icon(
                 imageVector = if (isDir) Icons.Rounded.Folder else Icons.AutoMirrored.Rounded.InsertDriveFile,
@@ -292,6 +504,5 @@ private fun FileRow(
                 tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
             )
         },
-        onClick = onClick,
     )
 }

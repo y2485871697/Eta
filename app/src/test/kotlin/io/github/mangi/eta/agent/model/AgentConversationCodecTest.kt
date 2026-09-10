@@ -56,6 +56,26 @@ class AgentConversationCodecTest {
     }
 
     @Test
+    fun durableUserAttachmentKeepsImageFilePathWithoutBase64() {
+        val message = AgentConversationCodec.durableMessage(
+            AgentConversationCodec.userPersistedImageMessage(
+                text = "看这张图",
+                images = listOf(
+                    AgentConversationCodec.PersistedImage(
+                        path = "/data/user/0/io.github.mangi.eta/cache/eta-chat-images/c1/a.jpg",
+                        mimeType = "image/jpeg",
+                        displayName = "chat-image-1.jpg",
+                    ),
+                ),
+            )
+        )
+        assertTrue(message.contentJson.contains("image_file"))
+        assertTrue(message.contentJson.contains("/data/user/0/io.github.mangi.eta/cache/eta-chat-images/c1/a.jpg"))
+        assertFalse(message.contentJson.contains("base64"))
+        assertFalse(message.contentJson.contains("未写入持久会话"))
+    }
+
+    @Test
     fun ipcTranscriptHasHardBudgetAndNeverStartsWithOrphanToolResult() {
         val messages = buildList {
             repeat(30) { index ->

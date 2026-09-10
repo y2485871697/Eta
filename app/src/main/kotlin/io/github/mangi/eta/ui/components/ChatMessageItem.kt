@@ -170,13 +170,9 @@ import org.intellij.markdown.flavours.gfm.GFMTokenTypes.CHECK_BOX
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.RichTooltip
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TooltipAnchorPosition
 import top.yukonga.miuix.kmp.basic.TooltipBox
-import top.yukonga.miuix.kmp.basic.TooltipDefaults
-import top.yukonga.miuix.kmp.basic.rememberTooltipState
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -362,9 +358,8 @@ internal fun AgentWorkProcess(
     var manuallyExpanded by rememberSaveable(id) { mutableStateOf(false) }
 
     LaunchedEffect(running) {
-        if (running && !manuallyExpanded) {
-            expanded = true
-        }
+        if (manuallyExpanded) return@LaunchedEffect
+        expanded = running
     }
 
     val pulseAlpha = rememberActivePulse(active = running, label = "work_pulse")
@@ -500,156 +495,153 @@ private fun UserMessageBubble(
 ) {
     @Suppress("DEPRECATION")
     val clipboardManager = LocalClipboardManager.current
-    val tooltipState = rememberTooltipState(isPersistent = true)
-    LaunchedEffect(actionsEnabled) {
-        if (!actionsEnabled) tooltipState.dismiss()
+    var copied by remember(message.id) { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            kotlinx.coroutines.delay(1_400)
+            copied = false
+        }
     }
     val visiblePrompt = remember(message.content) {
         AgentFileReferencePromptCodec.parse(message.content)
     }
+    val copyText = visiblePrompt.request.ifBlank { message.content }
 
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.End,
+        horizontalAlignment = Alignment.End,
     ) {
-        TooltipBox(
-            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
-                positioning = TooltipAnchorPosition.Below,
-            ),
-            tooltip = {
-                RichTooltip(insideMargin = PaddingValues(horizontal = 8.dp, vertical = 6.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        MessageTooltipAction(
-                            icon = Icons.Rounded.ContentCopy,
-                            label = stringResource(R.string.ui_copy_4edd1d),
-                            onClick = {
-                                @Suppress("DEPRECATION")
-                                clipboardManager.setText(AnnotatedString(message.content))
-                                tooltipState.dismiss()
-                            },
+        Column(
+            modifier = Modifier
+                .widthIn(max = 320.dp)
+                .squircleSurface(
+                    color = MiuixTheme.colorScheme.surfaceContainerHigh,
+                    topStart = 20.dp,
+                    topEnd = 20.dp,
+                    bottomEnd = 6.dp,
+                    bottomStart = 20.dp,
+                )
+                .then(
+                    if (isEditing) {
+                        Modifier.squircleBorder(
+                            width = 1.dp,
+                            color = MiuixTheme.colorScheme.primary,
+                            cornerRadius = 20.dp,
                         )
-                        MessageTooltipAction(
-                            icon = Icons.Rounded.Edit,
-                            label = stringResource(R.string.ui_edit_a7f814),
-                            onClick = {
-                                tooltipState.dismiss()
-                                onEdit()
-                            },
-                        )
-                        MessageTooltipAction(
-                            icon = Icons.Rounded.Delete,
-                            label = stringResource(R.string.ui_delete_3755f5),
-                            onClick = {
-                                tooltipState.dismiss()
-                                onDelete()
-                            },
-                        )
+                    } else {
+                        Modifier
                     }
-                }
-            },
-            state = tooltipState,
-            focusable = true,
-            enableUserInput = actionsEnabled,
+                )
+                .padding(horizontal = 16.dp, vertical = 11.dp),
         ) {
-            Column(
-                modifier = Modifier
-                    .widthIn(max = 320.dp)
-                    .squircleSurface(
-                        color = MiuixTheme.colorScheme.surfaceContainerHigh,
-                        topStart = 20.dp,
-                        topEnd = 20.dp,
-                        bottomEnd = 6.dp,
-                        bottomStart = 20.dp,
-                    )
-                    .then(
-                        if (isEditing) {
-                            Modifier.squircleBorder(
-                                width = 1.dp,
-                                color = MiuixTheme.colorScheme.primary,
-                                cornerRadius = 20.dp,
+            if (message.images.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                ) {
+                    message.images.forEach { dataUrl ->
+                        val bitmap = rememberDataUrlBitmap(dataUrl)
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(100.dp)
+                                    .clip(RoundedCornerShape(12.dp)),
+                                contentScale = ContentScale.Crop,
                             )
-                        } else {
-                            Modifier
-                        }
-                    )
-                    .padding(horizontal = 16.dp, vertical = 11.dp),
-            ) {
-                if (message.images.isNotEmpty()) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    ) {
-                        message.images.forEach { dataUrl ->
-                            val bitmap = rememberDataUrlBitmap(dataUrl)
-                            if (bitmap != null) {
-                                Image(
-                                    bitmap = bitmap,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(100.dp)
-                                        .clip(RoundedCornerShape(12.dp)),
-                                    contentScale = ContentScale.Crop,
-                                )
-                            }
                         }
                     }
                 }
-                if (visiblePrompt.references.isNotEmpty()) {
-                    SentFileReferenceFlow(
-                        references = visiblePrompt.references,
-                        modifier = Modifier.padding(
-                            bottom = if (visiblePrompt.request.isNotBlank()) 8.dp else 0.dp
-                        ),
-                    )
-                }
-                if (visiblePrompt.request.isNotBlank()) {
-                    SelectionContainer {
-                        Text(
-                            text = visiblePrompt.request,
-                            style = MiuixTheme.textStyles.body1,
-                            color = MiuixTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-                if (message.isEdited) {
+            }
+            if (visiblePrompt.references.isNotEmpty()) {
+                SentFileReferenceFlow(
+                    references = visiblePrompt.references,
+                    modifier = Modifier.padding(
+                        bottom = if (visiblePrompt.request.isNotBlank()) 8.dp else 0.dp
+                    ),
+                )
+            }
+            if (visiblePrompt.request.isNotBlank()) {
+                SelectionContainer {
                     Text(
-                        text = stringResource(R.string.ui_edited_c36776),
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(top = 4.dp),
+                        text = visiblePrompt.request,
+                        style = MiuixTheme.textStyles.body1,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            if (message.isEdited) {
+                Text(
+                    text = stringResource(R.string.ui_edited_c36776),
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.padding(top = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TooltipBox(text = stringResource(R.string.ui_copy_4edd1d), enabled = actionsEnabled) {
+                IconButton(
+                    onClick = {
+                        @Suppress("DEPRECATION")
+                        clipboardManager.setText(AnnotatedString(copyText))
+                        copied = true
+                    },
+                    enabled = actionsEnabled,
+                    minWidth = 30.dp,
+                    minHeight = 30.dp,
+                ) {
+                    Icon(
+                        imageVector = if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
+                        contentDescription = stringResource(
+                            if (copied) R.string.copy_copied else R.string.ui_copy_4edd1d,
+                        ),
+                        modifier = Modifier.size(15.dp),
+                        tint = if (copied) {
+                            MiuixTheme.colorScheme.primary
+                        } else {
+                            MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.75f)
+                        },
+                    )
+                }
+            }
+            TooltipBox(text = stringResource(R.string.ui_edit_a7f814), enabled = actionsEnabled) {
+                IconButton(
+                    onClick = onEdit,
+                    enabled = actionsEnabled,
+                    minWidth = 30.dp,
+                    minHeight = 30.dp,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Edit,
+                        contentDescription = stringResource(R.string.ui_edit_a7f814),
+                        modifier = Modifier.size(15.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.75f),
+                    )
+                }
+            }
+            TooltipBox(text = stringResource(R.string.ui_delete_3755f5), enabled = actionsEnabled) {
+                IconButton(
+                    onClick = onDelete,
+                    enabled = actionsEnabled,
+                    minWidth = 30.dp,
+                    minHeight = 30.dp,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = stringResource(R.string.ui_delete_3755f5),
+                        modifier = Modifier.size(15.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.75f),
                     )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun MessageTooltipAction(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            modifier = Modifier.size(16.dp),
-            tint = MiuixTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = label,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurface,
-        )
     }
 }
 
@@ -2065,7 +2057,8 @@ private fun ThinkingRow(
         null
     }
     LaunchedEffect(message.isStreaming) {
-        if (message.isStreaming && !manuallyExpanded) expanded = true
+        if (manuallyExpanded) return@LaunchedEffect
+        expanded = message.isStreaming
     }
 
     // Markdown 状态在行级提前创建：行进入组合（工作过程展开或滚动到可视区）时就开始

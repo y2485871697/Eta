@@ -122,6 +122,34 @@ internal class AgentRuntimeClient(
         }
     }
 
+    fun steerRun(runId: String, text: String): Boolean {
+        if (runId.isBlank() || text.isBlank()) return false
+        return withRuntimeMessenger(false) { serviceMessenger ->
+            val msg = Message.obtain(null, AgentRuntimeWire.MSG_STEER_RUN)
+            msg.data = AgentRuntimeWire.steerBundle(runId, text)
+            serviceMessenger.send(msg)
+            true
+        }
+    }
+
+    fun pauseRun(runId: String) {
+        if (runId.isBlank()) return
+        withRuntimeMessenger(Unit) { serviceMessenger ->
+            val msg = Message.obtain(null, AgentRuntimeWire.MSG_PAUSE_RUN)
+            msg.data = AgentRuntimeWire.ackBundle(runId)
+            serviceMessenger.send(msg)
+        }
+    }
+
+    fun resumeRun(runId: String) {
+        if (runId.isBlank()) return
+        withRuntimeMessenger(Unit) { serviceMessenger ->
+            val msg = Message.obtain(null, AgentRuntimeWire.MSG_RESUME_RUN)
+            msg.data = AgentRuntimeWire.ackBundle(runId)
+            serviceMessenger.send(msg)
+        }
+    }
+
     fun ackResult(runId: String): Boolean {
         if (runId.isBlank()) return false
         return withRuntimeMessenger(false) { serviceMessenger ->

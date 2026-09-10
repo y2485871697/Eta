@@ -20,6 +20,7 @@ internal object AgentConversationCodec {
     private const val MAX_TOOL_ARGUMENT_CHARS = 32_000
     private const val MAX_TOOL_CALLS_PER_MESSAGE = 64
     private const val IMAGE_OMITTED_TEXT = "[图片观察已在当前回合使用，未写入持久会话]"
+    internal const val IMAGE_FILE_TYPE = "image_file"
     private const val SENSITIVE_TOOL_OMITTED_TEXT =
         "[敏感工具参数与原始结果仅供当前回合使用，未写入持久会话]"
     private const val COMPACTION_NOTICE =
@@ -120,6 +121,36 @@ internal object AgentConversationCodec {
                 JSONObject()
                     .put("type", "image_url")
                     .put("image_url", JSONObject().put("url", image.reference))
+            )
+        }
+        return JSONObject()
+            .put("role", "user")
+            .put("content", content)
+    }
+
+    data class PersistedImage(
+        val path: String,
+        val mimeType: String,
+        val displayName: String,
+    )
+
+    fun userPersistedImageMessage(
+        text: String,
+        images: List<PersistedImage>,
+    ): JSONObject {
+        if (images.isEmpty()) return userTextMessage(text)
+        val content = JSONArray().put(
+            JSONObject()
+                .put("type", "text")
+                .put("text", text),
+        )
+        images.forEach { image ->
+            content.put(
+                JSONObject()
+                    .put("type", IMAGE_FILE_TYPE)
+                    .put("path", image.path)
+                    .put("mime", image.mimeType)
+                    .put("name", image.displayName),
             )
         }
         return JSONObject()
@@ -308,11 +339,24 @@ internal object AgentConversationCodec {
         var omittedImage = false
         for (index in 0 until source.length()) {
             val item = source.optJSONObject(index) ?: continue
-            if (item.optString("type") == "image_url" || item.has("source")) {
-                omittedImage = true
-                continue
+            when {
+                item.optString("type") == IMAGE_FILE_TYPE -> {
+                    val path = item.optString("path")
+                    if (path.startsWith("/") && path.length <= 1_024) {
+                        target.put(
+                            JSONObject()
+                                .put("type", IMAGE_FILE_TYPE)
+                                .put("path", path)
+                                .put("mime", item.optString("mime").take(128))
+                                .put("name", item.optString("name").take(80)),
+                        )
+                    }
+                }
+                item.optString("type") == "image_url" || item.has("source") -> {
+                    omittedImage = true
+                }
+                else -> target.put(sanitizeContentObject(item))
             }
-            target.put(sanitizeContentObject(item))
         }
         if (omittedImage) {
             target.put(JSONObject().put("type", "text").put("text", IMAGE_OMITTED_TEXT))

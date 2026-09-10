@@ -40,6 +40,9 @@
   <string name="search_history_role_thinking">思考</string>
   <string name="search_history_role_tool">工具</string>
   <string name="action_token_usage">Token 用量</string>
+  <string name="token_usage_total">总用量</string>
+  <string name="token_usage_cache_percent">缓存占比</string>
+  <string name="token_usage_empty">当前会话还没有用量数据</string>
   <string name="action_browse_workspace_files">浏览工作区文件</string>
   <string name="action_auto_compress_context">自动压缩</string>
   <string name="action_compress_conversation">压缩会话</string>
@@ -121,7 +124,7 @@
   <string name="route_linux_files">Linux 文件</string>
   <string name="linux_files_title">Linux 文件</string>
   <string name="linux_files_entry_title">文件浏览</string>
-  <string name="linux_files_entry_summary">浏览 Linux 环境中的文件（只读）</string>
+  <string name="linux_files_entry_summary">浏览、导出和删除 Linux 环境中的文件</string>
   <string name="linux_files_not_installed">尚未安装 Linux 环境</string>
   <string name="linux_files_invalid_distribution">未知的 Linux 发行版</string>
   <string name="linux_files_empty">该目录为空</string>
@@ -130,6 +133,15 @@
   <string name="linux_files_error_not_file">不是普通文件</string>
   <string name="linux_files_binary_hint">二进制文件，无法预览</string>
   <string name="linux_files_truncated_hint">内容过大，仅显示开头部分</string>
+  <string name="linux_files_export">导出</string>
+  <string name="linux_files_delete_title">删除文件</string>
+  <string name="linux_files_delete_message">确定删除“%1$s”？此操作无法撤销。</string>
+  <string name="linux_files_delete_dir_message">确定删除文件夹“%1$s”及其全部内容？此操作无法撤销。</string>
+  <string name="linux_files_deleted">已删除</string>
+  <string name="linux_files_delete_failed">删除失败</string>
+  <string name="linux_files_delete_protected">系统路径不可删除</string>
+  <string name="linux_files_exported">已导出</string>
+  <string name="linux_files_export_failed">导出失败</string>
   <string name="route_model_providers">模型提供商</string>
   <string name="route_provider_details">Provider 详情</string>
   <string name="route_new_provider">新建提供商</string>
@@ -1105,6 +1117,8 @@
   <string name="chat_input_hint">交给 代鱼 去完成</string>
   <string name="chat_stop">停止</string>
   <string name="chat_send">发送</string>
+  <string name="chat_continue">继续</string>
+  <string name="chat_continue_prompt">请从上次中断处继续输出，不要重复已经给出的内容。</string>
   <string name="chat_reasoning_effort">推理强度，当前为 %1$s</string>
   <string name="status_unsupported">不支持</string>
   <string name="attachment_image">图片</string>

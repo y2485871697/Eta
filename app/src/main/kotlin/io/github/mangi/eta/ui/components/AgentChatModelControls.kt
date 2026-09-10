@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +40,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.data.repository.ProviderBalanceStore
+import io.github.mangi.eta.ui.pages.providers.ProviderBalanceAmount
 import io.github.mangi.eta.ui.model.AgentContextUsageUi
 import io.github.mangi.eta.ui.model.AgentModelOptionUi
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
@@ -136,6 +139,7 @@ private fun ModelPickerPopupContent(
     onProviderExpandedChange: (String, Boolean) -> Unit,
     onModelSelected: (String) -> Unit,
 ) {
+    val balances by ProviderBalanceStore.balances.collectAsState()
     ListPopupColumn {
         state.providerGroups.forEachIndexed { groupIndex, group ->
             if (groupIndex > 0) {
@@ -145,6 +149,7 @@ private fun ModelPickerPopupContent(
             ModelProviderGroupHeader(
                 name = group.providerName,
                 expanded = expanded,
+                balance = balances[group.providerId],
                 onClick = {
                     onProviderExpandedChange(group.providerId, !expanded)
                 },
@@ -166,6 +171,7 @@ private fun ModelPickerPopupContent(
 private fun ModelProviderGroupHeader(
     name: String,
     expanded: Boolean,
+    balance: String? = null,
     onClick: () -> Unit,
 ) {
     val arrowRotation by animateFloatAsState(
@@ -188,6 +194,10 @@ private fun ModelProviderGroupHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (!balance.isNullOrBlank()) {
+            Spacer(modifier = Modifier.width(8.dp))
+            ProviderBalanceAmount(amount = balance)
+        }
         Spacer(modifier = Modifier.width(8.dp))
         Icon(
             imageVector = Icons.Rounded.ExpandMore,
@@ -252,7 +262,7 @@ internal fun AgentContextUsageButton(
     sendBlocked: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    var showDetail by remember { mutableStateOf(false) }
+    val menuState = rememberEtaMenuState()
     val progress = usage.progress
     val progressColor = when {
         progress == null -> MiuixTheme.colorScheme.onSurfaceVariantActions
@@ -280,7 +290,7 @@ internal fun AgentContextUsageButton(
         ChatInputNonFocusableIconButton(
             onClick = {
                 keepIme()
-                showDetail = !showDetail
+                menuState.onAnchorClick()
             },
         ) {
             CircularProgressIndicator(
@@ -298,8 +308,8 @@ internal fun AgentContextUsageButton(
             )
         }
         EtaDropdownMenu(
-            expanded = showDetail,
-            onDismissRequest = { showDetail = false },
+            expanded = menuState.expanded,
+            onDismissRequest = menuState::dismiss,
             alignEnd = true,
             preferAbove = true,
             focusable = false,

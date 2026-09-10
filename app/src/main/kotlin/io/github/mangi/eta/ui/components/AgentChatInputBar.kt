@@ -40,6 +40,7 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
@@ -66,6 +67,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
@@ -119,6 +122,8 @@ internal fun AgentChatInputBar(
     onModelSelected: (String) -> Unit,
     onSubmit: (String) -> Unit,
     onStop: () -> Unit,
+    onContinue: () -> Unit = {},
+    isPaused: Boolean = false,
     onAttachImage: (String) -> Unit,
     onRemoveImage: (String) -> Unit,
     onAttachFiles: (List<String>) -> Unit,
@@ -166,11 +171,16 @@ internal fun AgentChatInputBar(
     }.minus(ChatInputPopupMargin * 2)
         .coerceAtLeast(ListPopupDefaults.MinPopupHeight)
 
+    val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
     LaunchedEffect(isEditingMessage) {
         // 编辑态由外部业务状态驱动；普通输入只保留在本地，避免每个字符把聊天舞台
         // 的消息流、滚动和 Markdown 一起带入重组。
         if (isEditingMessage || wasEditingMessage) {
             textFieldState.setTextAndPlaceCursorAtEnd(input)
+        }
+        if (isEditingMessage && !wasEditingMessage) {
+            showChatInputIme(focusRequester, keyboard, view)
         }
         wasEditingMessage = isEditingMessage
     }
@@ -359,27 +369,32 @@ internal fun AgentChatInputBar(
                             onModelSelected = onModelSelected,
                         )
 
+                        val sendMode = resolveChatComposerSendMode(
+                            isStreaming = isStreaming,
+                            isPaused = isPaused,
+                            hasSteerText = textFieldState.text.isNotBlank(),
+                            canStartNewSend = canSend,
+                        )
                         IconButton(
-                            onClick = if (isStreaming) {
-                                onStop
-                            } else {
-                                {
-                                    if (canSend) {
+                            onClick = {
+                                when (sendMode) {
+                                    "stop" -> onStop()
+                                    "continue" -> onContinue()
+                                    "send" -> {
                                         val submittedText = textFieldState.text.toString()
                                         textFieldState.clearText()
                                         onSubmit(submittedText)
                                     }
                                 }
                             },
-                            enabled = isStreaming || canSend,
+                            enabled = sendMode != "idle",
                             minWidth = ChatInputActionSize,
                             minHeight = ChatInputActionSize,
                         ) {
-                            // 保留统一的点击区域，仅让可见圆形与相邻操作图标保持同一尺寸。
                             val sendButtonColor by animateColorAsState(
-                                targetValue = when {
-                                    isStreaming -> MiuixTheme.colorScheme.onSurface
-                                    canSend -> MiuixTheme.colorScheme.primary
+                                targetValue = when (sendMode) {
+                                    "stop" -> MiuixTheme.colorScheme.onSurface
+                                    "continue", "send" -> MiuixTheme.colorScheme.primary
                                     else -> MiuixTheme.colorScheme.surfaceContainerHigh
                                 },
                                 animationSpec = tween(durationMillis = 160),
@@ -393,7 +408,7 @@ internal fun AgentChatInputBar(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 AnimatedContent(
-                                    targetState = isStreaming,
+                                    targetState = sendMode,
                                     transitionSpec = {
                                         (fadeIn(tween(130)) + scaleIn(tween(160), initialScale = 0.72f))
                                             .togetherWith(
@@ -402,20 +417,24 @@ internal fun AgentChatInputBar(
                                             )
                                     },
                                     label = "send_stop_icon",
-                                ) { streaming ->
+                                ) { mode ->
                                     Icon(
-                                        imageVector = if (streaming) {
-                                            Icons.Rounded.Stop
-                                        } else {
-                                            Icons.Rounded.ArrowUpward
+                                        imageVector = when (mode) {
+                                            "stop" -> Icons.Rounded.Stop
+                                            "continue" -> Icons.Rounded.PlayArrow
+                                            else -> Icons.Rounded.ArrowUpward
                                         },
-                                        contentDescription = if (streaming) stringResource(R.string.chat_stop) else stringResource(R.string.chat_send),
+                                        contentDescription = when (mode) {
+                                            "stop" -> stringResource(R.string.chat_stop)
+                                            "continue" -> stringResource(R.string.chat_continue)
+                                            else -> stringResource(R.string.chat_send)
+                                        },
                                         modifier = Modifier.size(
-                                            if (streaming) StopIconSize else SendIconSize
+                                            if (mode == "stop") StopIconSize else SendIconSize
                                         ),
-                                        tint = when {
-                                            streaming -> MiuixTheme.colorScheme.surface
-                                            canSend -> MiuixTheme.colorScheme.onPrimary
+                                        tint = when (mode) {
+                                            "stop" -> MiuixTheme.colorScheme.surface
+                                            "continue", "send" -> MiuixTheme.colorScheme.onPrimary
                                             else -> MiuixTheme.colorScheme.onSurfaceVariantActions
                                         },
                                     )
@@ -439,11 +458,11 @@ private fun ThinkingEffortChip(
     onEffortChange: (ReasoningEffort) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showPopup by remember { mutableStateOf(false) }
+    val menuState = rememberEtaMenuState()
     val active = effort != ReasoningEffort.OFF
     val menuEnabled = enabled && options.isNotEmpty()
     LaunchedEffect(menuEnabled) {
-        if (!menuEnabled) showPopup = false
+        if (!menuEnabled) menuState.dismiss()
     }
     val contentColor by animateColorAsState(
         targetValue = if (active) {
@@ -456,7 +475,7 @@ private fun ThinkingEffortChip(
     )
     Box(modifier = modifier) {
         ChatInputNonFocusableIconButton(
-            onClick = { if (menuEnabled) showPopup = !showPopup },
+            onClick = { if (menuEnabled) menuState.onAnchorClick() },
             contentDescription = stringResource(R.string.chat_reasoning_effort, effort.displayName),
         ) {
             Icon(
@@ -467,8 +486,8 @@ private fun ThinkingEffortChip(
             )
         }
         EtaDropdownMenu(
-            expanded = showPopup && menuEnabled,
-            onDismissRequest = { showPopup = false },
+            expanded = menuState.expanded && menuEnabled,
+            onDismissRequest = menuState::dismiss,
             preferAbove = true,
             minWidth = 0.dp,
             focusable = false,
@@ -493,7 +512,7 @@ private fun ThinkingEffortChip(
                         null
                     },
                     onClick = {
-                        showPopup = false
+                        menuState.dismiss()
                         onEffortChange(option)
                     },
                 )
@@ -553,4 +572,17 @@ private fun PendingImageStrip(
             }
         }
     }
+}
+
+internal fun resolveChatComposerSendMode(
+    isStreaming: Boolean,
+    isPaused: Boolean,
+    hasSteerText: Boolean,
+    canStartNewSend: Boolean,
+): String = when {
+    (isStreaming || isPaused) && hasSteerText -> "send"
+    isPaused -> "continue"
+    isStreaming -> "stop"
+    canStartNewSend -> "send"
+    else -> "idle"
 }

@@ -20,6 +20,7 @@ import io.github.mangi.eta.agent.accessibility.AgentAccessibilityService
 import io.github.mangi.eta.agent.device.AgentFileReferenceGateway
 import io.github.mangi.eta.agent.device.DeviceLocationProvider
 import io.github.mangi.eta.agent.device.RootAccess
+import io.github.mangi.eta.agent.media.AgentChatImageCache
 import io.github.mangi.eta.agent.media.AgentImageCodec
 import io.github.mangi.eta.agent.memory.AgentMemoryContextBuilder
 import io.github.mangi.eta.agent.model.AgentFileReference
@@ -27,6 +28,7 @@ import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.agent.model.AgentFileReferencePolicy
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.model.AgentContextCompactor
+import io.github.mangi.eta.agent.model.AgentConversationCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentExecutionService
@@ -47,6 +49,7 @@ import io.github.mangi.eta.data.repository.AgentMemoryRepository
 import io.github.mangi.eta.data.repository.EtaBackupRepository
 import io.github.mangi.eta.data.repository.EtaBackupSummary
 import io.github.mangi.eta.data.repository.ModelRepository
+import io.github.mangi.eta.data.repository.ProviderBalanceStore
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 
@@ -60,6 +63,7 @@ import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.liveContextUsage
+import io.github.mangi.eta.ui.model.cacheDisplayName
 import io.github.mangi.eta.ui.model.toLiveModelImage
 import io.github.mangi.eta.ui.model.shouldBlockSendForContextWindow
 import io.github.mangi.eta.ui.model.AgentSkillsUiState
@@ -129,6 +133,8 @@ internal class AgentAppState(
     private var currentReasoningCapabilities: ModelReasoningCapabilities? = null
     private var lastAppliedReasoningModelId: String? = null
     private var fileAttachmentOwnerVersion = 0L
+    private val chatImageCache = AgentChatImageCache(appContext)
+
 
     private var selectedConversationId: String? = initialConversations.selectedConversationId
     private var conversationsById: Map<String, AgentChatHomeUiState> = initialConversations.conversationsById
@@ -174,12 +180,14 @@ internal class AgentAppState(
         refreshConversationSummaries()
         observeRuntimeSelection()
         observeAutoCompressEnabled()
+        ProviderBalanceStore.start(scope)
         scope.launch {
             RootAccess.state.collectLatest { refreshPermissionHealth() }
         }
         runtimeRecoveryInProgress.set(true)
         scope.launch(Dispatchers.IO) {
             try {
+                chatImageCache.deleteOrphans(conversationsById.keys)
                 recoverRuntimeRuns()
                 importArchivedExternalRuns()
             } finally {
@@ -910,6 +918,7 @@ internal class AgentAppState(
         conversationsById = conversationsById - conversationId
         conversationTitles = conversationTitles - conversationId
         conversationUpdatedAt = conversationUpdatedAt - conversationId
+        scope.launch(Dispatchers.IO) { chatImageCache.deleteConversation(conversationId) }
         if (wasSelected) {
             fileAttachmentOwnerVersion += 1
             val nextId = conversationsById.keys.firstOrNull()
@@ -940,10 +949,11 @@ internal class AgentAppState(
         val prompt = (submittedText ?: homeState.input).trim()
         val pendingImages = homeState.pendingImages
         val pendingFileReferences = homeState.pendingFileReferences
-        if (
-            (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty()) ||
-            homeState.isStreaming
-        ) {
+        if (homeState.isStreaming || homeState.isPaused) {
+            if (prompt.isNotBlank()) steerCurrentRun(prompt)
+            return
+        }
+        if (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty()) {
             return
         }
         if (compressionJob?.isActive == true) {
@@ -985,16 +995,57 @@ internal class AgentAppState(
         if (rejectSendIfContextWindowExceeded(history, prompt, pendingImages, pendingFileReferences)) {
             return
         }
-        val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences)
-
         val conversationId = selectedConversationId ?: newConversationId().also {
             selectedConversationId = it
         }
+        val supportsVision = modelPickerState.selectedModel?.supportsVision ?: true
+        if (pendingImages.isNotEmpty()) {
+            scope.launch(Dispatchers.IO) {
+                val staged = stageChatImages(conversationId, pendingImages)
+                withContext(Dispatchers.Main) {
+                    if (homeState.isStreaming) return@withContext
+                    startPreparedSend(
+                        prompt = prompt,
+                        uiImages = pendingImages,
+                        modelImages = if (supportsVision) pendingImages else emptyList(),
+                        fileReferences = if (supportsVision) fileReferences else fileReferences + staged,
+                        persistedImages = staged,
+                        history = history,
+                        editBoundary = editBoundary,
+                        conversationId = conversationId,
+                    )
+                }
+            }
+            return
+        }
+        startPreparedSend(
+            prompt = prompt,
+            uiImages = pendingImages,
+            modelImages = pendingImages,
+            fileReferences = fileReferences,
+            persistedImages = emptyList(),
+            history = history,
+            editBoundary = editBoundary,
+            conversationId = conversationId,
+        )
+    }
+
+    private fun startPreparedSend(
+        prompt: String,
+        uiImages: List<PendingImageUi>,
+        modelImages: List<PendingImageUi>,
+        fileReferences: List<AgentFileReference>,
+        persistedImages: List<AgentFileReference>,
+        history: List<AgentModelClient.ConversationMessage>,
+        editBoundary: AgentConversationRevisionReducer.Boundary?,
+        conversationId: String,
+    ) {
+        val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences)
         val runId = "run-${UUID.randomUUID()}"
         val userMessage = UserMessageUi(
             id = editBoundary?.userMessage?.id ?: "user-$runId",
             content = runtimePrompt,
-            images = pendingImages.map { it.dataUrl },
+            images = uiImages.map { it.dataUrl },
             isEdited = editBoundary != null,
         )
         val messages = if (editBoundary == null) {
@@ -1004,7 +1055,13 @@ internal class AgentAppState(
         }
         val userHistoryMessage = AgentModelClient.buildUserHistoryMessage(
             text = runtimePrompt,
-            images = pendingImages.toHistoryImages(),
+            persistedImages = persistedImages.map { reference ->
+                AgentConversationCodec.PersistedImage(
+                    path = reference.absolutePath,
+                    mimeType = mimeTypeForFileName(reference.displayName),
+                    displayName = reference.displayName,
+                )
+            },
         )
 
         val currentTitle = conversationTitles[conversationId]
@@ -1029,7 +1086,7 @@ internal class AgentAppState(
             conversationId = conversationId,
             runId = runId,
             prompt = runtimePrompt,
-            images = pendingImages,
+            images = modelImages,
             history = history,
             userHistoryMessage = userHistoryMessage,
             messages = messages,
@@ -1043,8 +1100,20 @@ internal class AgentAppState(
         )
     }
 
+    private fun stageChatImages(
+        conversationId: String,
+        images: List<PendingImageUi>,
+    ): List<AgentFileReference> =
+        images.mapIndexedNotNull { index, image ->
+            val bytes = AgentChatImageCache.decodeImageBytes(image.uri)
+                ?: AgentChatImageCache.decodeImageBytes(image.dataUrl)
+                ?: return@mapIndexedNotNull null
+            chatImageCache.stage(conversationId, bytes, image.cacheDisplayName(index))
+        }
+
     fun beginMessageEdit(messageId: String) {
-        if (homeState.isStreaming || homeState.messageEdit != null) return
+        if (homeState.messageEdit != null) return
+        abortActiveRunForRevision()
         val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: return
         val images = boundary.userMessage.images.mapIndexed { index, dataUrl ->
             PendingImageUi(
@@ -1096,13 +1165,15 @@ internal class AgentAppState(
         }
 
     fun deleteMessageTurn(messageId: String) {
-        if (homeState.isStreaming || homeState.messageEdit != null) return
+        if (homeState.messageEdit != null) return
+        abortActiveRunForRevision()
         val conversationId = selectedConversationId ?: return
         val revised = AgentConversationRevisionReducer.deleteFromTurn(homeState, messageId) ?: return
         if (revised.messages.isEmpty()) {
             conversationsById = conversationsById - conversationId
             conversationTitles = conversationTitles - conversationId
             conversationUpdatedAt = conversationUpdatedAt - conversationId
+            scope.launch(Dispatchers.IO) { chatImageCache.deleteConversation(conversationId) }
             fileAttachmentOwnerVersion += 1
             selectedConversationId = null
             homeState = emptyChatState(false).withPreferredReasoningEffort()
@@ -1117,7 +1188,8 @@ internal class AgentAppState(
     }
 
     fun regenerateMessage(messageId: String) {
-        if (homeState.isStreaming || homeState.messageEdit != null) return
+        if (homeState.messageEdit != null) return
+        abortActiveRunForRevision()
         val conversationId = selectedConversationId ?: return
         val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: return
         val images = boundary.userMessage.images.mapIndexed { index, dataUrl ->
@@ -1128,15 +1200,58 @@ internal class AgentAppState(
                 mimeType = dataUrl.imageMimeType(),
             )
         }
+        val parsed = AgentFileReferencePromptCodec.parse(boundary.userMessage.content)
+        val supportsVision = modelPickerState.selectedModel?.supportsVision ?: true
+        if (rejectSendIfContextWindowExceeded(boundary.historyPrefix, parsed.request, images, parsed.references.mapIndexed { index, reference ->
+                PendingFileReferenceUi(id = "regen-$index", reference = reference)
+            })) {
+            return
+        }
+        if (boundary.contextWasCompacted) showCompactedRevisionNotice()
+        if (images.isNotEmpty()) {
+            scope.launch(Dispatchers.IO) {
+                val extra = if (parsed.references.isEmpty()) {
+                    stageChatImages(conversationId, images)
+                } else {
+                    emptyList()
+                }
+                val runtimePrompt = AgentFileReferencePromptCodec.format(
+                    parsed.request,
+                    if (supportsVision) parsed.references else parsed.references + extra,
+                )
+                val persisted = extra.ifEmpty { parsed.references }.map { reference ->
+                    AgentConversationCodec.PersistedImage(
+                        path = reference.absolutePath,
+                        mimeType = mimeTypeForFileName(reference.displayName),
+                        displayName = reference.displayName,
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    if (homeState.isStreaming) return@withContext
+                    val runId = "run-${UUID.randomUUID()}"
+                    launchConversationRun(
+                        conversationId = conversationId,
+                        runId = runId,
+                        prompt = runtimePrompt,
+                        images = if (supportsVision) images else emptyList(),
+                        history = boundary.historyPrefix,
+                        userHistoryMessage = AgentModelClient.buildUserHistoryMessage(
+                            text = runtimePrompt,
+                            persistedImages = persisted,
+                        ),
+                        messages = homeState.messages.take(boundary.userMessageIndex + 1),
+                        state = homeState,
+                        reasoningEffort = homeState.reasoningEffort,
+                    )
+                }
+            }
+            return
+        }
         val runId = "run-${UUID.randomUUID()}"
         val userHistoryMessage = AgentModelClient.buildUserHistoryMessage(
             text = boundary.userMessage.content,
             images = images.toHistoryImages(),
         )
-        if (rejectSendIfContextWindowExceeded(boundary.historyPrefix, boundary.userMessage.content, images)) {
-            return
-        }
-        if (boundary.contextWasCompacted) showCompactedRevisionNotice()
         launchConversationRun(
             conversationId = conversationId,
             runId = runId,
@@ -1258,6 +1373,7 @@ internal class AgentAppState(
             conversationId,
             state.copy(
                 isStreaming = true,
+                isPaused = false,
                 history = history + userHistoryMessage,
                 messages = messages,
                 messageEdit = null,
@@ -1385,6 +1501,13 @@ internal class AgentAppState(
 
     private fun List<PendingImageUi>.toHistoryImages(): List<AgentModelClient.ModelImage> =
         map { it.toLiveModelImage() }
+
+    private fun mimeTypeForFileName(name: String): String = when {
+        name.endsWith(".png", ignoreCase = true) -> "image/png"
+        name.endsWith(".webp", ignoreCase = true) -> "image/webp"
+        name.endsWith(".gif", ignoreCase = true) -> "image/gif"
+        else -> "image/jpeg"
+    }
 
     private fun String.imageMimeType(): String =
         takeIf { startsWith("data:") }
@@ -1605,11 +1728,85 @@ internal class AgentAppState(
             runMessageProjector.failRunningTools(SYNTHETIC_STATUS_STOPPED, finalizedText)
         }
         replaceLatestAssistantWithNotice(runId, SystemNoticeCode.Stopped)
+        snapshotPartialAssistantToHistory(runId)
         setConversationStreaming(runId, false)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
         refreshConversationSummaries()
         persistConversations()
+    }
+
+    fun pauseCurrentRun() {
+        val runId = currentRunId ?: return
+        if (homeState.isPaused) return
+        scope.launch(Dispatchers.IO) {
+            AgentRuntimeClient(appContext, AndroidAgentLogger).pauseRun(runId)
+        }
+        updateCurrentConversation(
+            homeState.copy(
+                isPaused = true,
+                messages = freezeStreamingMessages(homeState.messages),
+            )
+        )
+    }
+
+    private fun abortActiveRunForRevision() {
+        val runId = currentRunId ?: return
+        currentRunJob?.cancel()
+        currentRunJob = null
+        currentRunId = null
+        scope.launch(Dispatchers.IO) {
+            AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
+        }
+        runMessageProjector.clearRun(runId)
+        runConversationIds.remove(runId)
+        updateCurrentConversation(
+            homeState.copy(
+                isStreaming = false,
+                isPaused = false,
+                messages = freezeStreamingMessages(homeState.messages),
+            )
+        )
+    }
+
+    fun continuePausedGeneration() {
+        val runId = currentRunId ?: return
+        if (!homeState.isPaused) return
+        scope.launch(Dispatchers.IO) {
+            AgentRuntimeClient(appContext, AndroidAgentLogger).resumeRun(runId)
+        }
+        updateCurrentConversation(homeState.copy(isPaused = false))
+    }
+
+    fun steerCurrentRun(text: String) {
+        val runId = currentRunId ?: return
+        val prompt = text.trim()
+        if (prompt.isBlank()) return
+        scope.launch(Dispatchers.IO) {
+            AgentRuntimeClient(appContext, AndroidAgentLogger).steerRun(runId, prompt)
+        }
+        if (homeState.isPaused) {
+            continuePausedGeneration()
+        }
+    }
+
+    private fun snapshotPartialAssistantToHistory(runId: String) {
+        val conversationId = conversationIdForRun(runId) ?: selectedConversationId ?: return
+        val state = conversationsById[conversationId] ?: return
+        val assistant = state.messages.lastOrNull { message ->
+            message is AgentMessageUi && message.content.isNotBlank()
+        } as? AgentMessageUi ?: return
+        val last = state.history.lastOrNull()
+        if (last?.role == "assistant" && last.content == assistant.content) return
+        updateConversation(
+            conversationId,
+            state.copy(
+                history = state.history + AgentModelClient.ConversationMessage(
+                    role = "assistant",
+                    content = assistant.content,
+                ),
+            ),
+        )
     }
 
     private var permissionRefreshJob: Job? = null
@@ -1839,6 +2036,11 @@ internal class AgentAppState(
     }
 
     private fun enqueueRunEvent(runId: String, event: AgentEvent) {
+        if (runMessageProjector.isSealed(runId) && !event.allowedAfterSeal()) {
+            runEventFlushJobs.remove(runId)?.cancel()
+            runEventCoalescer.flush(runId)
+            return
+        }
         if (event is AgentEvent.AssistantBlockDelta) {
             if (event.kind == AgentEvent.AssistantBlockKind.TOOL_CALL || event.delta.isEmpty()) return
 
@@ -1852,6 +2054,9 @@ internal class AgentAppState(
         flushPendingRunDelta(runId)
         applyRunEvent(runId, event)
     }
+
+    private fun AgentEvent.allowedAfterSeal(): Boolean =
+        this is AgentEvent.UsageReceived
 
     private fun scheduleRunDeltaFlush(runId: String) {
         if (runEventFlushJobs[runId]?.isActive == true) return
@@ -2134,6 +2339,7 @@ internal class AgentAppState(
                     val finalizedText = runMessageProjector.finalizeText(runId, finalizedThinking)
                     runMessageProjector.failRunningTools(event.reason, finalizedText)
                 }
+                runMessageProjector.seal(runId)
             }
 
             is AgentEvent.AssistantReceived -> {
@@ -2154,6 +2360,7 @@ internal class AgentAppState(
                     val finalizedThinking = runMessageProjector.finalizeThinking(runId, messages)
                     runMessageProjector.finalizeText(runId, finalizedThinking)
                 }
+                runMessageProjector.seal(runId)
             }
 
             is AgentEvent.RunStarted,
@@ -2349,9 +2556,12 @@ internal class AgentAppState(
     ) {
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return
+        val nextMessages = transform(state.messages).let { messages ->
+            if (state.isPaused) freezeStreamingMessages(messages) else messages
+        }
         updateConversation(
             conversationId = conversationId,
-            state = state.copy(messages = transform(state.messages)),
+            state = state.copy(messages = nextMessages),
             updateTimestamp = updateTimestamp,
         )
     }
@@ -2367,11 +2577,15 @@ internal class AgentAppState(
     }
 
     private fun updateCurrentConversation(state: AgentChatHomeUiState) {
+        val wasStreaming = homeState.isStreaming
         val conversationId = selectedConversationId
         if (conversationId == null) {
             homeState = state
         } else {
             updateConversation(conversationId, state)
+        }
+        if (wasStreaming && !state.isStreaming) {
+            ProviderBalanceStore.requestRefresh(scope)
         }
     }
 
@@ -2406,7 +2620,10 @@ internal class AgentAppState(
     private fun setConversationStreaming(runId: String, isStreaming: Boolean) {
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return
-        updateConversation(conversationId, state.copy(isStreaming = isStreaming))
+        updateConversation(
+            conversationId,
+            state.copy(isStreaming = isStreaming, isPaused = if (isStreaming) state.isPaused else false),
+        )
     }
 
     private fun conversationIdForRun(runId: String): String? = runConversationIds[runId]
@@ -2572,7 +2789,6 @@ internal class AgentAppState(
         }
         val history = homeState.history
         val keepRecentMessages = keepRecent.coerceIn(0, 100)
-        persistCompressPreferences(providerId, modelId, targetTokens, keepRecentMessages)
         if (AgentContextCompactor.recentKeepStartIndex(history, keepRecentMessages) <= 0) {
             Toast.makeText(
                 appContext,
@@ -2626,6 +2842,17 @@ internal class AgentAppState(
                 ).show()
                 onFinished(true)
             }
+        }
+    }
+
+
+    private fun freezeStreamingMessages(
+        messages: List<AgentChatMessageUi>,
+    ): List<AgentChatMessageUi> = messages.map { message ->
+        when (message) {
+            is AgentMessageUi -> if (message.isStreaming) message.copy(isStreaming = false) else message
+            is ThinkingMessageUi -> if (message.isStreaming) message.copy(isStreaming = false) else message
+            else -> message
         }
     }
 

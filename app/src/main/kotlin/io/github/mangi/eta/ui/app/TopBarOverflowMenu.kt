@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.components.EtaDropdownMenu
+import io.github.mangi.eta.ui.components.rememberEtaMenuState
+import io.github.mangi.eta.ui.model.ConversationTokenUsageUi
 import io.github.mangi.eta.ui.model.MessageSearchHit
 import io.github.mangi.eta.ui.CompressConversationDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -52,6 +54,7 @@ internal fun TopBarOverflowMenu(
     onStopKimiWeb: () -> Unit,
     onRefreshKimiWeb: () -> Unit,
     onOpenBrowser: () -> Unit,
+    onOpenWorkspace: () -> Unit,
     autoCompressEnabled: Boolean,
     onToggleAutoCompress: (Boolean) -> Unit,
     onCompressConversation: (
@@ -63,16 +66,18 @@ internal fun TopBarOverflowMenu(
     ) -> Unit = { _, _, _, _, done -> done(false) },
     onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
     onOpenHistoryHit: (MessageSearchHit) -> Unit = {},
+    tokenUsage: ConversationTokenUsageUi = ConversationTokenUsageUi(),
 ) {
-    var showMenu by remember { mutableStateOf(false) }
+    val menuState = rememberEtaMenuState()
     var showCompressDialog by remember { mutableStateOf(false) }
     var showSearchDialog by remember { mutableStateOf(false) }
+    var showTokenUsageDialog by remember { mutableStateOf(false) }
 
     androidx.compose.foundation.layout.Box {
         IconButton(
             onClick = {
                 onRefreshKimiWeb()
-                showMenu = true
+                menuState.onAnchorClick()
             }
         ) {
             Icon(
@@ -82,8 +87,8 @@ internal fun TopBarOverflowMenu(
         }
 
         EtaDropdownMenu(
-            expanded = showMenu,
-            onDismissRequest = { showMenu = false },
+            expanded = menuState.expanded,
+            onDismissRequest = menuState::dismiss,
             offset = DpOffset(x = (-2).dp, y = 10.dp),
             alignEnd = true,
         ) {
@@ -98,7 +103,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { showMenu = false; onNewConversation() },
+                onClick = { menuState.dismiss(); onNewConversation() },
             )
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -111,7 +116,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { showMenu = false; showSearchDialog = true },
+                onClick = { menuState.dismiss(); showSearchDialog = true },
             )
             MenuSectionDivider()
             DropdownMenuItem(
@@ -125,7 +130,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { showMenu = false; onOpenTerminal() },
+                onClick = { menuState.dismiss(); onOpenTerminal() },
             )
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -138,7 +143,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { showMenu = false; onOpenBrowser() },
+                onClick = { menuState.dismiss(); onOpenBrowser() },
             )
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -151,7 +156,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { showMenu = false },
+                onClick = { menuState.dismiss(); onOpenWorkspace() },
             )
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -164,7 +169,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { showMenu = false; onLaunchKimiWeb() },
+                onClick = { menuState.dismiss(); onLaunchKimiWeb() },
             )
             MenuSectionDivider()
             DropdownMenuItem(
@@ -178,7 +183,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { showMenu = false },
+                onClick = { menuState.dismiss(); showTokenUsageDialog = true },
             )
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -192,7 +197,7 @@ internal fun TopBarOverflowMenu(
                     )
                 },
                 onClick = {
-                    showMenu = false
+                    menuState.dismiss()
                     showCompressDialog = true
                 },
             )
@@ -231,7 +236,7 @@ internal fun TopBarOverflowMenu(
                             modifier = Modifier.size(TopBarMenuIconSize),
                         )
                     },
-                    onClick = { showMenu = false; onStopKimiWeb() },
+                    onClick = { menuState.dismiss(); onStopKimiWeb() },
                 )
             }
         }
@@ -247,6 +252,11 @@ internal fun TopBarOverflowMenu(
         onDismiss = { showSearchDialog = false },
         onSearch = onSearchHistory,
         onOpenHit = onOpenHistoryHit,
+    )
+    ConversationTokenUsageDialog(
+        show = showTokenUsageDialog,
+        usage = tokenUsage,
+        onDismiss = { showTokenUsageDialog = false },
     )
 }
 

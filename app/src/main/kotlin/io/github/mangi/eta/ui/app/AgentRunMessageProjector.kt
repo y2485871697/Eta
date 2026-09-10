@@ -15,6 +15,14 @@ internal class AgentRunMessageProjector(
     private val nowElapsedRealtime: () -> Long = { SystemClock.elapsedRealtime() },
 ) {
     private val thinkingStartedAt = mutableMapOf<String, Long>()
+    /** 终态之后不再接受思考/正文增量，避免回答已经结束后又展开一轮推理。 */
+    private val sealedRunIds = mutableSetOf<String>()
+
+    fun isSealed(runId: String): Boolean = runId in sealedRunIds
+
+    fun seal(runId: String) {
+        if (runId.isNotBlank()) sealedRunIds += runId
+    }
 
     /** 回放从该 run 的空轨迹重建；仅重排有回放事件的补充输入，旧 handoff 独有的输入必须保留。 */
     fun resetForReplay(
@@ -23,6 +31,7 @@ internal class AgentRunMessageProjector(
         replaySupplementIndexes: Set<Int> = emptySet(),
     ): List<AgentChatMessageUi> {
         if (runId.isBlank()) return messages
+        sealedRunIds.remove(runId)
         clearRun(runId)
         val replaySupplementIds = replaySupplementIndexes.mapTo(mutableSetOf()) { index ->
             AgentPendingResultRecovery.supplementMessageId(runId, index)
@@ -45,6 +54,7 @@ internal class AgentRunMessageProjector(
         event: AgentEvent.ModelRetryScheduled,
         messages: List<AgentChatMessageUi>,
     ): List<AgentChatMessageUi> {
+        if (isSealed(runId)) return messages
         val finalized = finalizeTextRound(
             runId, event.round, finalizeThinkingRound(runId, event.round, messages),
         )
@@ -60,13 +70,16 @@ internal class AgentRunMessageProjector(
         runId: String,
         event: AgentEvent.AssistantBlockStart,
         messages: List<AgentChatMessageUi>,
-    ): List<AgentChatMessageUi> = transitionVisibleBlock(
-        runId = runId,
-        round = event.round,
-        kind = event.kind,
-        index = event.index,
-        messages = messages,
-    )
+    ): List<AgentChatMessageUi> {
+        if (isSealed(runId)) return messages
+        return transitionVisibleBlock(
+            runId = runId,
+            round = event.round,
+            kind = event.kind,
+            index = event.index,
+            messages = messages,
+        )
+    }
 
     fun appendTextDelta(
         runId: String,
@@ -75,7 +88,7 @@ internal class AgentRunMessageProjector(
         delta: String,
         messages: List<AgentChatMessageUi>,
     ): List<AgentChatMessageUi> {
-        if (delta.isEmpty()) return messages
+        if (delta.isEmpty() || isSealed(runId)) return messages
 
         val transitioned = transitionVisibleBlock(
             runId = runId,
@@ -115,7 +128,7 @@ internal class AgentRunMessageProjector(
         delta: String,
         messages: List<AgentChatMessageUi>,
     ): List<AgentChatMessageUi> {
-        if (delta.isEmpty()) return messages
+        if (delta.isEmpty() || isSealed(runId)) return messages
 
         val transitioned = transitionVisibleBlock(
             runId = runId,
@@ -157,6 +170,7 @@ internal class AgentRunMessageProjector(
         content: String,
         messages: List<AgentChatMessageUi>,
     ): List<AgentChatMessageUi> {
+        if (isSealed(runId)) return messages
         if (messages.any {
                 it is ThinkingMessageUi && isThinkingMessageForRound(it.id, runId, round)
             }
@@ -188,8 +202,9 @@ internal class AgentRunMessageProjector(
         }
 
     /** 终态不依赖各块结束事件全部到齐；缺少工具结果时只能标为未知，不能推断执行成功。 */
-    fun finalizeRun(runId: String, messages: List<AgentChatMessageUi>): List<AgentChatMessageUi> =
-        finalizeText(runId, finalizeThinking(runId, messages)).map { message ->
+    fun finalizeRun(runId: String, messages: List<AgentChatMessageUi>): List<AgentChatMessageUi> {
+        seal(runId)
+        return finalizeText(runId, finalizeThinking(runId, messages)).map { message ->
             if (
                 message is ToolActivityMessageUi &&
                 message.id.startsWith("$runId-tool-") &&
@@ -200,6 +215,7 @@ internal class AgentRunMessageProjector(
                 message
             }
         }
+    }
 
     fun finalizeThinkingRound(
         runId: String,
@@ -303,7 +319,7 @@ internal class AgentRunMessageProjector(
             argumentsSummary = event.argsPreview,
             command = event.command,
         )
-        if (messages.any { it.id == message.id }) return messages
+        if (isSealed(runId) || messages.any { it.id == message.id }) return messages
         return messages + message
     }
 
@@ -350,7 +366,8 @@ internal class AgentRunMessageProjector(
             status = ToolActivityStatusUi.Running,
             argumentsSummary = "",
         )
-        return if (messages.any { it.id == message.id }) messages else messages + message
+        if (isSealed(runId) || messages.any { it.id == message.id }) return messages
+        return messages + message
     }
 
     fun finishHostedTool(

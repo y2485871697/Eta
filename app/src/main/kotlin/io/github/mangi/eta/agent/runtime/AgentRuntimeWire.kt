@@ -72,12 +72,22 @@ internal object AgentRuntimeWire {
     /** service -> client：返回是否成功重新订阅指定 run。 */
     const val MSG_ATTACH_RUN_RESPONSE = 12
 
+    /** client -> service：向当前 run 追加补充指令。 */
+    const val MSG_STEER_RUN = 13
+
+    /** client -> service：暂停当前 run。 */
+    const val MSG_PAUSE_RUN = 14
+
+    /** client -> service：恢复当前 run。 */
+    const val MSG_RESUME_RUN = 15
+
     private const val MODULE_PACKAGE = "io.github.mangi.eta"
     private const val SERVICE_CLASS = "io.github.mangi.eta.agent.runtime.AgentRuntimeService"
 
     private const val KEY_TYPE = "type"
     private const val KEY_RUN_ID = "run_id"
     private const val KEY_PROMPT = "prompt"
+    private const val KEY_STEER_TEXT = "steer_text"
     private const val KEY_PROVIDER_ID = "provider_id"
     private const val KEY_PROVIDER_NAME = "provider_name"
     private const val KEY_PROVIDER_TYPE = "provider_type"
@@ -507,6 +517,14 @@ internal object AgentRuntimeWire {
     fun ackBundle(runId: String): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)
     }
+
+    fun steerBundle(runId: String, text: String): Bundle = Bundle().apply {
+        putString(KEY_RUN_ID, runId)
+        putString(KEY_STEER_TEXT, text)
+    }
+
+    fun steerTextFromBundle(bundle: Bundle): String =
+        bundle.getString(KEY_STEER_TEXT).orEmpty()
 
     fun attachRunResponseBundle(runId: String, attached: Boolean): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)

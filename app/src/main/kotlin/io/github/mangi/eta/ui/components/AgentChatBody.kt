@@ -79,7 +79,9 @@ import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
 import io.github.mangi.eta.ui.app.LocalBlurEnabled
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
+import io.github.mangi.eta.ui.model.isRetryableFailure
 import io.github.mangi.eta.ui.model.AgentMessageUi
+import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.MessageEditUiState
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
@@ -127,6 +129,7 @@ internal fun AgentChatBody(
     autoCompressEnabled: Boolean = false,
     input: String,
     isStreaming: Boolean,
+    isPaused: Boolean = false,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -136,6 +139,7 @@ internal fun AgentChatBody(
     onModelSelected: (String) -> Unit,
     onSubmit: (String) -> Unit,
     onStop: () -> Unit,
+    onContinue: () -> Unit = {},
     onAttachImage: (String) -> Unit,
     onRemoveImage: (String) -> Unit,
     onAttachFiles: (List<String>) -> Unit,
@@ -212,6 +216,7 @@ internal fun AgentChatBody(
         history = history,
         autoCompressEnabled = autoCompressEnabled,
         isStreaming = isStreaming,
+        isPaused = isPaused,
         reasoningEffort = reasoningEffort,
         availableReasoningEfforts = availableReasoningEfforts,
         pendingImages = pendingImages,
@@ -230,6 +235,7 @@ internal fun AgentChatBody(
         onReasoningEffortChange = onReasoningEffortChange,
         onModelSelected = onModelSelected,
         onStop = onStop,
+        onContinue = onContinue,
         onAttachImage = onAttachImage,
         onRemoveImage = onRemoveImage,
         onAttachFiles = onAttachFiles,
@@ -261,6 +267,7 @@ private fun AgentChatScaffold(
     history: List<AgentModelClient.ConversationMessage>,
     autoCompressEnabled: Boolean,
     isStreaming: Boolean,
+    isPaused: Boolean = false,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -273,6 +280,7 @@ private fun AgentChatScaffold(
     onReasoningEffortChange: (ReasoningEffort) -> Unit,
     onModelSelected: (String) -> Unit,
     onStop: () -> Unit,
+    onContinue: () -> Unit = {},
     onAttachImage: (String) -> Unit,
     onRemoveImage: (String) -> Unit,
     onAttachFiles: (List<String>) -> Unit,
@@ -317,6 +325,7 @@ private fun AgentChatScaffold(
                 autoCompressEnabled = autoCompressEnabled,
                 showContextUsage = hasMessages,
                 isStreaming = isStreaming,
+                isPaused = isPaused,
                 reasoningEffort = reasoningEffort,
                 availableReasoningEfforts = availableReasoningEfforts,
                 pendingImages = pendingImages,
@@ -326,6 +335,7 @@ private fun AgentChatScaffold(
                 onReasoningEffortChange = onReasoningEffortChange,
                 onModelSelected = onModelSelected,
                 onStop = onStop,
+                onContinue = onContinue,
                 onAttachImage = onAttachImage,
                 onRemoveImage = onRemoveImage,
                 onAttachFiles = onAttachFiles,
@@ -349,7 +359,7 @@ private fun AgentChatScaffold(
             AgentConversationMessages(
                 visibleMessages = visibleMessages,
                 scrollState = scrollState,
-                isStreaming = isStreaming,
+                isStreaming = isStreaming && !isPaused,
                 bottomInset = bottomPadding,
                 keepBottomAnchored = keepBottomAnchored,
                 onBottomAnchorChanged = onBottomAnchorChanged,
@@ -359,7 +369,7 @@ private fun AgentChatScaffold(
                 onEditMessage = onEditMessage,
                 onDeleteMessage = onDeleteMessage,
                 onRegenerateMessage = onRegenerateMessage,
-                messageActionsEnabled = !isStreaming && messageEdit == null,
+                messageActionsEnabled = (!isStreaming || isPaused) && messageEdit == null,
                 editTargetMessageId = messageEdit?.targetMessageId,
                 currentBrowserMessageId = currentBrowserMessageId,
                 scrollToMessageId = scrollToMessageId,
@@ -819,6 +829,9 @@ internal fun resolveFinalResultMessageIds(
                 lastAgentMessageId = null
             }
             is AgentMessageUi -> lastAgentMessageId = message.id
+            is SystemNoticeMessageUi -> if (message.code.isRetryableFailure()) {
+                lastAgentMessageId = message.id
+            }
             else -> Unit
         }
     }
@@ -837,6 +850,7 @@ private fun AgentChatBottomBar(
     autoCompressEnabled: Boolean,
     showContextUsage: Boolean,
     isStreaming: Boolean,
+    isPaused: Boolean = false,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -846,6 +860,7 @@ private fun AgentChatBottomBar(
     onReasoningEffortChange: (ReasoningEffort) -> Unit,
     onModelSelected: (String) -> Unit,
     onStop: () -> Unit,
+    onContinue: () -> Unit = {},
     onAttachImage: (String) -> Unit,
     onRemoveImage: (String) -> Unit,
     onAttachFiles: (List<String>) -> Unit,
@@ -919,6 +934,7 @@ private fun AgentChatBottomBar(
                 autoCompressEnabled = autoCompressEnabled,
                 showContextUsage = showContextUsage,
                 isStreaming = isStreaming,
+                isPaused = isPaused,
                 reasoningEffort = reasoningEffort,
                 availableReasoningEfforts = availableReasoningEfforts,
                 pendingImages = pendingImages,
@@ -929,6 +945,7 @@ private fun AgentChatBottomBar(
                 onReasoningEffortChange = onReasoningEffortChange,
                 onModelSelected = onModelSelected,
                 onStop = onStop,
+                onContinue = onContinue,
                 onAttachImage = onAttachImage,
                 onRemoveImage = onRemoveImage,
                 onAttachFiles = onAttachFiles,
