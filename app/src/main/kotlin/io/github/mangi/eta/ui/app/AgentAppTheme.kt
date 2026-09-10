@@ -20,6 +20,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeColorSpec
 import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.theme.ThemePaletteStyle
+import top.yukonga.miuix.kmp.theme.darkColorScheme as miuixDarkColorScheme
+import top.yukonga.miuix.kmp.theme.lightColorScheme as miuixLightColorScheme
 import top.yukonga.miuix.kmp.theme.platformDynamicColors
 
 @Composable
@@ -35,36 +37,37 @@ fun AgentAppTheme(
         AppearanceThemeMode.LIGHT -> false
         AppearanceThemeMode.DARK -> true
     }
-    val colorSchemeMode = when {
-        !appearance.monetEnabled && appearance.themeMode == AppearanceThemeMode.LIGHT -> ColorSchemeMode.Light
-        !appearance.monetEnabled && appearance.themeMode == AppearanceThemeMode.DARK -> ColorSchemeMode.Dark
-        !appearance.monetEnabled -> ColorSchemeMode.System
-        appearance.themeMode == AppearanceThemeMode.LIGHT -> ColorSchemeMode.MonetLight
-        appearance.themeMode == AppearanceThemeMode.DARK -> ColorSchemeMode.MonetDark
-        else -> ColorSchemeMode.MonetSystem
-    }
-    val systemSeedColor = if (
-        appearance.monetEnabled && appearance.accentColor == AppearanceAccentColor.SYSTEM
-    ) {
-        platformDynamicColors(isDark).primary
+    val colors = if (appearance.monetEnabled) {
+        val colorSchemeMode = when (appearance.themeMode) {
+            AppearanceThemeMode.LIGHT -> ColorSchemeMode.MonetLight
+            AppearanceThemeMode.DARK -> ColorSchemeMode.MonetDark
+            AppearanceThemeMode.SYSTEM -> ColorSchemeMode.MonetSystem
+        }
+        val keyColor = if (appearance.accentColor == AppearanceAccentColor.SYSTEM) {
+            platformDynamicColors(isDark).primary
+        } else {
+            appearance.accentColor.seedColor()
+        }
+        val controller = remember(
+            colorSchemeMode,
+            keyColor.value,
+            appearance.paletteStyle,
+            isDark,
+        ) {
+            ThemeController(
+                colorSchemeMode = colorSchemeMode,
+                keyColor = keyColor,
+                colorSpec = ThemeColorSpec.Spec2025,
+                paletteStyle = appearance.paletteStyle.toMiuixPaletteStyle(),
+                isDark = isDark,
+            )
+        }
+        controller.currentColors()
     } else {
-        null
+        remember(isDark) {
+            if (isDark) miuixDarkColorScheme() else miuixLightColorScheme()
+        }
     }
-    val keyColor = when {
-        !appearance.monetEnabled -> null
-        appearance.accentColor == AppearanceAccentColor.SYSTEM -> systemSeedColor
-        else -> appearance.accentColor.seedColor()
-    }
-    val controller = remember(appearance, colorSchemeMode, keyColor, isDark) {
-        ThemeController(
-            colorSchemeMode = colorSchemeMode,
-            keyColor = keyColor,
-            colorSpec = ThemeColorSpec.Spec2025,
-            paletteStyle = appearance.paletteStyle.toMiuixPaletteStyle(),
-            isDark = isDark,
-        )
-    }
-    val colors = controller.currentColors()
     val themedColors = remember(colors, isDark, appearance.monetEnabled, appearance.pureBlackEnabled) {
         if (appearance.monetEnabled && appearance.pureBlackEnabled && isDark) {
             colors.copy(
