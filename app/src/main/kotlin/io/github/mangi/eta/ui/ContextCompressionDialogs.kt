@@ -1,17 +1,24 @@
 package io.github.mangi.eta.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.SharedPreferences
+import android.view.ViewTreeObserver
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -20,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -29,11 +37,21 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.config.Prefs
@@ -52,6 +70,39 @@ import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.window.WindowDialog
+
+
+private val CompressDialogChrome = 200.dp
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+@Composable
+private fun rememberActivityImeBottomDp(): Dp {
+    val density = LocalDensity.current
+    val context = LocalContext.current
+    val composeImePx = WindowInsets.ime.getBottom(density)
+    var viewImePx by remember { mutableIntStateOf(0) }
+    DisposableEffect(context) {
+        val target = context.findActivity()?.window?.decorView
+        if (target == null) {
+            return@DisposableEffect onDispose { }
+        }
+        val listener = ViewTreeObserver.OnGlobalLayoutListener {
+            val insets = ViewCompat.getRootWindowInsets(target) ?: return@OnGlobalLayoutListener
+            viewImePx = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+        }
+        target.viewTreeObserver.addOnGlobalLayoutListener(listener)
+        listener.onGlobalLayout()
+        onDispose {
+            target.viewTreeObserver.removeOnGlobalLayoutListener(listener)
+        }
+    }
+    return with(density) { maxOf(composeImePx, viewImePx).toDp() }
+}
 
 private val CompressTargetTokenOptions = listOf(500, 1000, 2000, 4000)
 
@@ -80,6 +131,14 @@ internal fun CompressConversationDialog(
     var showModelDialog by remember { mutableStateOf(false) }
     var isLoadingModels by remember { mutableStateOf(false) }
     var compressing by remember { mutableStateOf(false) }
+    var keepRecentFocused by remember { mutableStateOf(false) }
+    val imeBottom = rememberActivityImeBottomDp()
+    val configuration = LocalConfiguration.current
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val dialogImeOffset = -(imeBottom / 2)
+    val maxBodyHeight = (configuration.screenHeightDp.dp - imeBottom - CompressDialogChrome)
+        .coerceIn(140.dp, 360.dp)
 
     LaunchedEffect(show, prefs) {
         if (!show) {
@@ -103,20 +162,24 @@ internal fun CompressConversationDialog(
     WindowDialog(
         show = show,
         title = stringResource(R.string.action_compress_conversation),
+        modifier = Modifier.offset(y = dialogImeOffset),
         onDismissRequest = {
             if (!compressing) onDismiss()
         },
     ) {
         val scrollState = rememberScrollState()
+        LaunchedEffect(keepRecentFocused, imeBottom, scrollState.maxValue) {
+            if (keepRecentFocused && imeBottom > 0.dp) {
+                scrollState.animateScrollTo(scrollState.maxValue)
+            }
+        }
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .imePadding(),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 360.dp)
+                    .heightIn(max = maxBodyHeight)
                     .verticalScroll(scrollState),
             ) {
             Text(
@@ -184,10 +247,22 @@ internal fun CompressConversationDialog(
                     keepRecentField = TextFieldValue(next, TextRange(next.length))
                 },
                 enabled = !compressing,
+                singleLine = true,
                 label = { Text(stringResource(R.string.ui_compress_keep_recent_title)) },
                 supportingText = { Text(stringResource(R.string.ui_compress_keep_recent_summary)) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        focusManager.clearFocus()
+                        keyboard?.hide()
+                    },
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { keepRecentFocused = it.isFocused },
             )
 
             if (compressing) {
@@ -216,6 +291,8 @@ internal fun CompressConversationDialog(
                 onCancel = onDismiss,
                 onConfirm = {
                     if (compressing) return@MiuixDialogActions
+                    focusManager.clearFocus()
+                    keyboard?.hide()
                     compressing = true
                     val parsedKeepRecent = keepRecentField.text.toIntOrNull()?.coerceIn(0, 100) ?: keepRecent
                     onConfirm(
