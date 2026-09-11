@@ -376,6 +376,7 @@ private fun AgentChatScaffold(
                 visibleMessages = visibleMessages,
                 scrollState = scrollState,
                 isStreaming = isStreaming && !isPaused,
+                isPaused = isPaused,
                 bottomInset = bottomPadding,
                 keepBottomAnchored = keepBottomAnchored,
                 onBottomAnchorChanged = onBottomAnchorChanged,
@@ -404,6 +405,7 @@ internal fun AgentConversationMessages(
     visibleMessages: List<AgentChatMessageUi>,
     scrollState: LazyListState,
     isStreaming: Boolean,
+    isPaused: Boolean = false,
     bottomInset: Dp,
     keepBottomAnchored: Boolean,
     onBottomAnchorChanged: (Boolean) -> Unit,
@@ -677,6 +679,7 @@ internal fun AgentConversationMessages(
                             onEditMessage = onEditMessage,
                             onDeleteMessage = onDeleteMessage,
                             onRegenerateMessage = onRegenerateMessage,
+                            isPaused = isPaused,
                             modifier = itemModifier,
                         )
                     }
@@ -695,6 +698,7 @@ internal fun AgentConversationMessages(
                             onOpenBrowser = onOpenBrowser,
                             currentBrowserMessageId = currentBrowserMessageId,
                             retainedStreamingStates = streamingMarkdownStates,
+                            isPaused = isPaused,
                             modifier = itemModifier,
                         )
                     }

@@ -31,4 +31,12 @@ class KimiWebUiStateTest {
         assertEquals(context.getString(R.string.capability_kimi_exited),
             KimiWebLaunchResult.Failed("KIMI_EXITED").message(context))
     }
+
+    @Test
+    fun observedKimiWebStateDoesNotTreatIdleErrorsAsLaunchFailure() {
+        assertEquals(KimiWebPhase.NOT_INSTALLED, observedKimiWebState(installed = false, running = false).phase)
+        assertEquals(KimiWebPhase.READY, observedKimiWebState(installed = true, running = false).phase)
+        assertEquals(KimiWebPhase.RUNNING, observedKimiWebState(installed = true, running = true).phase)
+        assertEquals(null, observedKimiWebState(installed = true, running = false).errorCode)
+    }
 }

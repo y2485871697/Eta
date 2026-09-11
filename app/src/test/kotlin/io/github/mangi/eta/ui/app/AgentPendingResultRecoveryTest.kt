@@ -316,4 +316,54 @@ class AgentPendingResultRecoveryTest {
         assertEquals(listOf("user", "assistant"), recovered.state.history.map { it.role })
         assertEquals("继续检查", recovered.state.history.first().content)
     }
+
+    @Test
+    fun liveSupplementAppendsAfterStreamingAssistantInsteadOfPreviousUser() {
+        val user = io.github.mangi.eta.ui.model.UserMessageUi(id = "user-1", content = "帮我查天气")
+        val streaming = AgentMessageUi(
+            id = "assistant-run-live-1",
+            content = "正在查询",
+            isStreaming = true,
+            renderMarkdown = false,
+        )
+        val merged = AgentPendingResultRecovery.mergeSupplements(
+            runId = "run-live",
+            supplements = listOf(
+                AgentUiHandoffPayload.Supplement(index = 0, text = "只要上海", createdAt = 1L),
+            ),
+            messages = listOf(user, streaming),
+        )
+        assertEquals(
+            listOf("user-1", "assistant-run-live-1", "user-run-live-supplement-0"),
+            merged.map { it.id },
+        )
+    }
+
+    @Test
+    fun liveSupplementStillAppendsWhenCurrentRoundHasTools() {
+        val user = io.github.mangi.eta.ui.model.UserMessageUi(id = "user-1", content = "帮我查天气")
+        val tool = ToolActivityMessageUi(
+            id = "run-live-tool-1-call",
+            toolName = "web_search",
+            status = ToolActivityStatusUi.Success,
+            argumentsSummary = "上海天气",
+        )
+        val streaming = AgentMessageUi(
+            id = "assistant-run-live-2",
+            content = "上海晴",
+            isStreaming = true,
+            renderMarkdown = false,
+        )
+        val merged = AgentPendingResultRecovery.mergeSupplements(
+            runId = "run-live",
+            supplements = listOf(
+                AgentUiHandoffPayload.Supplement(index = 0, text = "再看下明天", createdAt = 1L),
+            ),
+            messages = listOf(user, tool, streaming),
+        )
+        assertEquals(
+            listOf("user-1", "run-live-tool-1-call", "assistant-run-live-2", "user-run-live-supplement-0"),
+            merged.map { it.id },
+        )
+    }
 }

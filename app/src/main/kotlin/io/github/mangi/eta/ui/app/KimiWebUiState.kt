@@ -21,6 +21,17 @@ internal data class KimiWebUiState(
     })
 }
 
+/**
+ * 菜单只反映“现在能不能开 / 已经在跑”，不把巡检错误当成一次启动失败。
+ * 点开溢出菜单和回到前台都会 refresh；已退出的守护记录、临时 Root 不可用
+ * 如果映射成 FAILED，用户会看到“启动失败 · 重试”，即使从未点过启动。
+ */
+internal fun observedKimiWebState(installed: Boolean, running: Boolean): KimiWebUiState = when {
+    !installed -> KimiWebUiState(KimiWebPhase.NOT_INSTALLED)
+    running -> KimiWebUiState(KimiWebPhase.RUNNING)
+    else -> KimiWebUiState(KimiWebPhase.READY)
+}
+
 internal fun KimiWebLaunchResult.Failed.message(context: Context): String = context.getString(when (code) {
     "ROOT_REQUIRED" -> R.string.capability_kimi_root_required
     "BACKGROUND_START_NOT_ALLOWED" -> R.string.capability_background_failed

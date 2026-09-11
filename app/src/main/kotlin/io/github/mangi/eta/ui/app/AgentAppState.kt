@@ -1875,12 +1875,9 @@ internal class AgentAppState(
         scope.launch(Dispatchers.IO) {
             AgentRuntimeClient(appContext, AndroidAgentLogger).pauseRun(runId)
         }
-        updateCurrentConversation(
-            homeState.copy(
-                isPaused = true,
-                messages = freezeStreamingMessages(homeState.messages),
-            )
-        )
+        // 只标记暂停，不把消息冻成 isStreaming=false。否则 StreamingMarkdown 会当成
+        // 生成结束切到整段 Text；继续后每个 token 都整段重组，流式输出会明显卡顿。
+        updateCurrentConversation(homeState.copy(isPaused = true))
     }
 
     fun abandonPausedRun() {
@@ -2743,9 +2740,7 @@ internal class AgentAppState(
     ) {
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return
-        val nextMessages = transform(state.messages).let { messages ->
-            if (state.isPaused) freezeStreamingMessages(messages) else messages
-        }
+        val nextMessages = transform(state.messages)
         updateConversation(
             conversationId = conversationId,
             state = state.copy(messages = nextMessages),

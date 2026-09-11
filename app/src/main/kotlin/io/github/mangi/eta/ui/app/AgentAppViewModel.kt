@@ -52,17 +52,9 @@ internal class AgentAppViewModel(application: Application) : AndroidViewModel(ap
             val status = withContext(Dispatchers.IO) {
                 val distribution = LinuxEnvironmentSettingsRepository.current(getApplication())
                 val rootfs = LinuxEnvironmentPaths.rootfsDir(getApplication(), distribution)
-                if (!linuxPackageProfileReady(rootfs, LinuxPackageProfiles.KIMI)) {
-                    KimiWebUiState(KimiWebPhase.NOT_INSTALLED)
-                } else {
-                    val runtime = kimiWebLauncher.status(distribution.terminalEnvironment)
-                    when {
-                        runtime.running -> KimiWebUiState(KimiWebPhase.RUNNING)
-                        runtime.code != null -> KimiWebUiState(KimiWebPhase.FAILED, runtime.code)
-                        kimiWebState.phase == KimiWebPhase.FAILED -> kimiWebState
-                        else -> KimiWebUiState(KimiWebPhase.READY)
-                    }
-                }
+                val installed = linuxPackageProfileReady(rootfs, LinuxPackageProfiles.KIMI)
+                val runtime = if (installed) kimiWebLauncher.status(distribution.terminalEnvironment) else null
+                observedKimiWebState(installed = installed, running = runtime?.running == true)
             }
             if (kimiWebJob?.isActive != true) kimiWebState = status
         }
@@ -80,7 +72,8 @@ internal class AgentAppViewModel(application: Application) : AndroidViewModel(ap
             }
             kimiWebState = when (result) {
                 is KimiWebLaunchResult.Opened -> KimiWebUiState(KimiWebPhase.RUNNING)
-                is KimiWebLaunchResult.Failed -> KimiWebUiState(KimiWebPhase.FAILED, result.code)
+                // 失败原因走 Toast；菜单回到“启动”，避免巡检/点开菜单看起来像自动启动失败。
+                is KimiWebLaunchResult.Failed -> KimiWebUiState(KimiWebPhase.READY)
             }
             onFinished(result)
         }
@@ -93,10 +86,8 @@ internal class AgentAppViewModel(application: Application) : AndroidViewModel(ap
             preparation?.join()
             val distribution = LinuxEnvironmentSettingsRepository.current(getApplication())
             val status = kimiWebLauncher.status(distribution.terminalEnvironment)
-            val stopped = if (status.taskId == null) status.code == null
-                else kimiWebLauncher.stop(distribution.terminalEnvironment)
-            kimiWebState = if (stopped) KimiWebUiState(KimiWebPhase.READY)
-                else KimiWebUiState(KimiWebPhase.FAILED, status.code ?: "STOP_FAILED")
+            val stopped = status.taskId == null || kimiWebLauncher.stop(distribution.terminalEnvironment)
+            kimiWebState = observedKimiWebState(installed = true, running = !stopped && status.running)
         }
     }
 }

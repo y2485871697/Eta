@@ -113,10 +113,16 @@ internal object AgentPendingResultRecovery {
             val id = supplementMessageId(runId, supplement.index)
             if (updated.any { it.id == id }) return@forEach
             val userMessage = UserMessageUi(id = id, content = supplement.text)
+            // 实时追加必须接到当前列表末尾：steering 在本 turn 结束后才注入，
+            // 用户消息应出现在正在生成的回答下面。插到流式助手前面时，
+            // 跟底滚动会把补充挡在上一条用户消息下面，要等生成完才看得见。
+            // 恢复路径才需要插到最终助手之前，对齐已完成的 transcript。
+            if (!beforeLatestAssistant) {
+                updated = updated + userMessage
+                return@forEach
+            }
             val assistantIndex = updated.indexOfLast {
-                it is AgentMessageUi &&
-                    it.isAssistantForRun(runId) &&
-                    (beforeLatestAssistant || it.isStreaming)
+                it is AgentMessageUi && it.isAssistantForRun(runId)
             }
             updated = if (assistantIndex >= 0) {
                 updated.toMutableList().also { it.add(assistantIndex, userMessage) }

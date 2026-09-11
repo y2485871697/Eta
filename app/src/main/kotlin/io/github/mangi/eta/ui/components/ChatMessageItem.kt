@@ -267,6 +267,7 @@ internal fun ChatMessageItem(
     onEditMessage: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
     onRegenerateMessage: (String) -> Unit = {},
+    isPaused: Boolean = false,
 ) {
     when (message) {
         is UserMessageUi -> UserMessageBubble(
@@ -283,6 +284,7 @@ internal fun ChatMessageItem(
             showCopyAction = showCopyAction,
             showMessageActions = showMessageActions,
             messageActionsEnabled = messageActionsEnabled,
+            isPaused = isPaused,
             onDelete = { onDeleteMessage(message.id) },
             onRegenerate = { onRegenerateMessage(message.id) },
             modifier = modifier,
@@ -313,6 +315,7 @@ internal fun ChatMessageItem(
             showCopyAction = showCopyAction,
             showMessageActions = showMessageActions,
             messageActionsEnabled = messageActionsEnabled,
+            isPaused = isPaused,
             onDelete = { onDeleteMessage(message.id) },
             onRegenerate = { onRegenerateMessage(message.id) },
             modifier = modifier,
@@ -322,6 +325,7 @@ internal fun ChatMessageItem(
             retainedStreamingState = retainedStreamingState,
             modifier = modifier,
             compact = compact,
+            isPaused = isPaused,
         )
         is RunTraceMessageUi -> RunTraceRow(message = message, onClick = onRunTraceClick, modifier = modifier)
         is ToolActivityMessageUi -> ToolActivityInline(
@@ -347,6 +351,7 @@ internal fun AgentWorkProcess(
     currentBrowserMessageId: String?,
     retainedStreamingStates: Map<String, StreamingMarkdownState>,
     modifier: Modifier = Modifier,
+    isPaused: Boolean = false,
 ) {
     val running = messages.any { message ->
         (message is ThinkingMessageUi && message.isStreaming) ||
@@ -366,7 +371,7 @@ internal fun AgentWorkProcess(
         expanded = running
     }
 
-    val pulseAlpha = rememberActivePulse(active = running, label = "work_pulse")
+    val pulseAlpha = rememberActivePulse(active = running && !isPaused, label = "work_pulse")
 
     Column(
         modifier = modifier
@@ -401,8 +406,8 @@ internal fun AgentWorkProcess(
                 contentDescription = null,
                 modifier = Modifier
                     .size(15.dp)
-                    .graphicsLayer(alpha = if (running) pulseAlpha else 1f),
-                tint = if (running) {
+                    .graphicsLayer(alpha = if (running && !isPaused) pulseAlpha else 1f),
+                tint = if (running && !isPaused) {
                     MiuixTheme.colorScheme.primary
                 } else {
                     MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -425,7 +430,7 @@ internal fun AgentWorkProcess(
                     else -> stringResource(R.string.work_completed)
                 },
                 style = MiuixTheme.textStyles.body2,
-                color = if (running) {
+                color = if (running && !isPaused) {
                     MiuixTheme.colorScheme.onSurface
                 } else {
                     MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -478,6 +483,7 @@ internal fun AgentWorkProcess(
                             showBrowserShortcut = message.id == currentBrowserMessageId,
                             retainedStreamingState = retainedStreamingStates[message.id],
                             compact = true,
+                            isPaused = isPaused,
                         )
                     }
                 }
@@ -669,6 +675,7 @@ private fun AgentMessageBlock(
     onDelete: () -> Unit,
     onRegenerate: () -> Unit,
     modifier: Modifier = Modifier,
+    isPaused: Boolean = false,
 ) {
     @Suppress("DEPRECATION")
     val clipboardManager = LocalClipboardManager.current
@@ -677,6 +684,9 @@ private fun AgentMessageBlock(
     val keepStreamingMarkdown = remember(message.id) { message.isStreaming }
     var streamingRevealComplete by remember(message.id) {
         mutableStateOf(!keepStreamingMarkdown)
+    }
+    LaunchedEffect(message.isStreaming) {
+        if (message.isStreaming) streamingRevealComplete = false
     }
     // 渲染会话由列表层按 message.id 持有，item 滚出视口被销毁后滑回时复用同一
     // 会话；没有外部持有者时（如嵌套条目）退回组合内 remember，行为与之前一致。
@@ -736,9 +746,9 @@ private fun AgentMessageBlock(
 
         if (
             showCopyAction &&
-            !message.isStreaming &&
+            (!message.isStreaming || isPaused) &&
             message.content.isNotBlank() &&
-            (!keepStreamingMarkdown || streamingRevealComplete)
+            (!keepStreamingMarkdown || streamingRevealComplete || isPaused)
         ) {
             Row(
                 modifier = Modifier
@@ -2087,6 +2097,7 @@ private fun ThinkingRow(
     retainedStreamingState: StreamingMarkdownState?,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    isPaused: Boolean = false,
 ) {
     var expanded by rememberSaveable(message.id) { mutableStateOf(!message.collapsed) }
     var manuallyExpanded by rememberSaveable(message.id) { mutableStateOf(false) }
@@ -2116,7 +2127,7 @@ private fun ThinkingRow(
     }
 
     val pulseAlpha = rememberActivePulse(
-        active = message.isStreaming,
+        active = message.isStreaming && !isPaused,
         label = "thinking_pulse",
     )
 
@@ -2157,8 +2168,8 @@ private fun ThinkingRow(
                 contentDescription = null,
                 modifier = Modifier
                     .size(15.dp)
-                    .graphicsLayer(alpha = if (message.isStreaming) pulseAlpha else 1f),
-                tint = if (message.isStreaming) {
+                    .graphicsLayer(alpha = if (message.isStreaming && !isPaused) pulseAlpha else 1f),
+                tint = if (message.isStreaming && !isPaused) {
                     MiuixTheme.colorScheme.primary
                 } else {
                     MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -2178,7 +2189,7 @@ private fun ThinkingRow(
                     } ?: stringResource(R.string.reasoning_completed)
                 },
                 style = MiuixTheme.textStyles.body2,
-                color = if (message.isStreaming) {
+                color = if (message.isStreaming && !isPaused) {
                     MiuixTheme.colorScheme.onSurface
                 } else {
                     MiuixTheme.colorScheme.onSurfaceVariantSummary

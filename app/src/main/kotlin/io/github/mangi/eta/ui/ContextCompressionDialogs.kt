@@ -254,7 +254,10 @@ internal fun CompressConversationDialog(
                         selected = selected,
                         onClick = {
                             TouchHaptics.click(view)
-                            targetTokens = value
+                            if (value != targetTokens) {
+                                targetTokens = value
+                                Prefs.putInt(Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS, value)
+                            }
                         },
                         enabled = !compressing,
                         label = { Text(value.toString()) },
@@ -355,6 +358,8 @@ internal fun CompressConversationDialog(
         onDismiss = { showModelDialog = false },
         onModelSelected = { providerId, modelId ->
             showModelDialog = false
+            Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID, providerId)
+            Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_ID, modelId)
             scope.launch {
                 val pickerState = withContext(Dispatchers.IO) {
                     buildCompressModelPickerState(providerId, modelId)
