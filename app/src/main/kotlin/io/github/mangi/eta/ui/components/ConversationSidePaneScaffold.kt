@@ -57,6 +57,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -94,6 +95,7 @@ import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.screens.assistants.AssistantPickerDialog
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.DropdownDefaults
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -114,9 +116,9 @@ private object DrawerMetrics {
     val PaneMaxWidth = 320.dp
     val PaneWidthFraction = 0.78f
     val DrawerCornerRadius = 28.dp
-    const val OpenDurationMs = 280
-    const val CloseDurationMs = 320
-    const val SettleDurationMs = 260
+    const val OpenDurationMs = 220
+    const val CloseDurationMs = 200
+    const val SettleDurationMs = 160
     val PaneHorizontalPadding = 16.dp
     val TopInset = 8.dp
     val AfterSearch = 12.dp
@@ -185,10 +187,22 @@ fun ConversationSidePaneScaffold(
         drawerState.applyEtaDrawerMotion()
         true
     }
+    val drawerScope = rememberCoroutineScope()
     val currentVisible by rememberUpdatedState(visible)
     val currentOnOpen by rememberUpdatedState(onOpen)
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     var drawerBlocksIme by remember { mutableStateOf(visible) }
+
+    fun launchAfterDrawerClosed(action: () -> Unit) {
+        drawerScope.launch {
+            if (drawerState.targetValue != DrawerValue.Closed ||
+                drawerState.currentValue != DrawerValue.Closed
+            ) {
+                drawerState.snapTo(DrawerValue.Closed)
+            }
+            action()
+        }
+    }
 
     LaunchedEffect(visible) {
         val target = if (visible) DrawerValue.Open else DrawerValue.Closed
@@ -207,8 +221,11 @@ fun ConversationSidePaneScaffold(
     }
 
     LaunchedEffect(drawerState) {
-        snapshotFlow { drawerState.currentValue }
-            .collectLatest { value ->
+        snapshotFlow { drawerState.currentValue to drawerState.isAnimationRunning }
+            .collectLatest { (value, running) ->
+                // 快滑时 currentValue 会在 settle 开始就切换。立刻改 visible 会让
+                // 聊天页在惯性动画中间整页重组，看起来就是顿一下。
+                if (running) return@collectLatest
                 if (value == DrawerValue.Open) {
                     if (!currentVisible) currentOnOpen()
                 } else if (currentVisible) {
@@ -268,19 +285,19 @@ fun ConversationSidePaneScaffold(
                     onMoveConversationToFolder = onMoveConversationToFolder,
                     onNewConversation = onNewConversation,
                     onConversationTogglePin = onConversationTogglePin,
-                    onOpenManageChats = onOpenManageChats,
+                    onOpenManageChats = { launchAfterDrawerClosed(onOpenManageChats) },
                     onSelectFolder = onSelectFolder,
                     onCreateFolder = onCreateFolder,
                     onRenameFolder = onRenameFolder,
                     onDeleteFolder = onDeleteFolder,
                     onSelectAssistant = onSelectAssistant,
-                    onEditAssistant = onEditAssistant,
-                    onOpenAssistants = onOpenAssistants,
-                    onOpenSettings = onOpenSettings,
-                    onOpenModelProviders = onOpenModelProviders,
-                    onOpenUsageStats = onOpenUsageStats,
-                    onOpenSkills = onOpenSkills,
-                    onOpenPermissions = onOpenPermissions,
+                    onEditAssistant = { id -> launchAfterDrawerClosed { onEditAssistant(id) } },
+                    onOpenAssistants = { launchAfterDrawerClosed(onOpenAssistants) },
+                    onOpenSettings = { launchAfterDrawerClosed(onOpenSettings) },
+                    onOpenModelProviders = { launchAfterDrawerClosed(onOpenModelProviders) },
+                    onOpenUsageStats = { launchAfterDrawerClosed(onOpenUsageStats) },
+                    onOpenSkills = { launchAfterDrawerClosed(onOpenSkills) },
+                    onOpenPermissions = { launchAfterDrawerClosed(onOpenPermissions) },
                     modifier = Modifier.fillMaxHeight(),
                 )
             },
