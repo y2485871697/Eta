@@ -90,6 +90,25 @@ class AgentTraceFormatterTest {
     }
 
     @Test
+    fun runCommandSummaryReflectsRealEnvironment() {
+        val debian = AgentModelClient.ToolCall(
+            id = "rc-d",
+            name = "run_command",
+            argumentsJson = """{"command":"gh --version","environment":"debian","identity":"root"}""",
+        )
+        val android = AgentModelClient.ToolCall(
+            id = "rc-a",
+            name = "run_command",
+            argumentsJson = """{"command":"pm list packages","identity":"root"}""",
+        )
+        assertTrue(formatter.summarizeArguments(debian).contains("Debian"))
+        assertTrue(formatter.summarizeArguments(debian).contains("root"))
+        assertFalse(formatter.summarizeArguments(debian).contains("Android"))
+        assertTrue(formatter.summarizeArguments(android).contains("Android"))
+        assertFalse(formatter.summarizeArguments(android).contains("gh --version"))
+    }
+
+    @Test
     fun terminalCommandsAreExposedOnlyThroughDisplayField() {
         val terminal = AgentModelClient.ToolCall(
             id = "terminal-call",

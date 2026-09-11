@@ -13,7 +13,7 @@ internal class AgentTraceFormatter(
             BROWSER_TOOL_NAME -> summarizeBrowserArguments(toolCall.argumentsJson)
             "open_uri" -> summarizeOpenUriArguments(toolCall.argumentsJson)
             "terminal" -> summarizeTerminalArguments(toolCall.argumentsJson)
-            "run_command" -> "执行命令 · Android · root"
+            "run_command" -> summarizeRunCommandArguments(toolCall.argumentsJson)
             "write_file" -> summarizeTextLength("写入文件", toolCall.argumentsJson, "content")
             "read_file" -> "读取文件"
             "list_directory" -> "列出目录"
@@ -104,6 +104,20 @@ internal class AgentTraceFormatter(
             val host = safeHttpHost(arguments.optString("url"))
             listOfNotNull(action, host).joinToString(" · ")
         }.getOrElse { "浏览器操作" }
+
+    private fun summarizeRunCommandArguments(argumentsJson: String): String =
+        runCatching {
+            val arguments = JSONObject(argumentsJson)
+            val environment = arguments.optString("environment", "android")
+                .terminalEnvironmentLabel()
+            val identity = arguments.optString("identity", "root")
+                .takeIf { it == "root" || it == "user" }
+            buildList {
+                add("执行命令")
+                add(environment)
+                identity?.let(::add)
+            }.joinToString(" · ")
+        }.getOrDefault("执行命令")
 
     private fun summarizeTerminalArguments(argumentsJson: String): String =
         runCatching {
