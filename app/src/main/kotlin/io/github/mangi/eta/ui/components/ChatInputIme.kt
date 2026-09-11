@@ -22,6 +22,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -60,6 +61,7 @@ internal fun ChatInputNonFocusableIconButton(
     contentDescription: String? = null,
     content: @Composable () -> Unit,
 ) {
+    val view = LocalView.current
     Box(
         modifier = modifier
             .size(ChatInputActionSize)
@@ -70,12 +72,16 @@ internal fun ChatInputNonFocusableIconButton(
                     this.contentDescription = contentDescription
                 }
                 onClick {
+                    TouchHaptics.click(view)
                     onClick()
                     true
                 }
             }
             .pointerInput(onClick) {
-                detectTapGestures { onClick() }
+                detectTapGestures {
+                    TouchHaptics.click(view)
+                    onClick()
+                }
             },
         contentAlignment = Alignment.Center,
         content = { content() },

@@ -28,8 +28,15 @@ internal object ReasoningCapabilityResolver {
         if (model.effectiveReasoning == false) return null
         if (model.reasoningOverride == true) {
             val override = model.reasoningCapabilitiesOverride
-            if (override != null && hasUsableEffortTiers(override)) return override
-            if (isToggleOnly(override)) return override
+            if (override != null && (hasUsableEffortTiers(override) || isToggleOnly(override))) {
+                return allReasoningCapabilities(
+                    canDisable = override.canDisable || !override.mandatory,
+                    mandatory = override.mandatory,
+                    supportsBudget = override.supportsBudget,
+                    maxBudgetTokens = override.maxBudgetTokens,
+                    defaultEffort = override.defaultEffort ?: ReasoningEffort.MEDIUM,
+                )
+            }
             return catalogByModelId(model.modelId) ?: allReasoningCapabilities()
         }
 

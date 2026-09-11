@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,6 +48,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.agent.model.AgentFileReference
 import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
@@ -72,6 +74,7 @@ internal fun AgentAttachmentPickerButton(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     val menuState = rememberEtaMenuState()
     var showPathDialog by remember { mutableStateOf(false) }
     var pathInput by remember { mutableStateOf("") }
@@ -141,6 +144,7 @@ internal fun AgentAttachmentPickerButton(
                         )
                     },
                     onClick = {
+                        TouchHaptics.click(view)
                         menuState.dismiss()
                         when (index) {
                             0 -> photoPicker.launch(

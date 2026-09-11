@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.components
 
 import android.graphics.BitmapFactory
+import android.os.SystemClock
 import android.util.Base64
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -63,6 +64,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -71,6 +73,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -134,6 +137,7 @@ import com.mikepenz.markdown.model.markdownPadding
 import com.mikepenz.markdown.model.rememberMarkdownState
 import com.mikepenz.markdown.utils.getUnescapedTextInNode
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.agent.browser.AgentBrowserSession
 import io.github.mangi.eta.agent.browser.BrowserSessionSnapshot
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
@@ -506,6 +510,7 @@ private fun UserMessageBubble(
         AgentFileReferencePromptCodec.parse(message.content)
     }
     val copyText = visiblePrompt.request.ifBlank { message.content }
+    val view = LocalView.current
 
     Column(
         modifier = modifier
@@ -589,6 +594,7 @@ private fun UserMessageBubble(
             TooltipBox(text = stringResource(R.string.ui_copy_4edd1d), enabled = actionsEnabled) {
                 IconButton(
                     onClick = {
+                        TouchHaptics.click(view)
                         @Suppress("DEPRECATION")
                         clipboardManager.setText(AnnotatedString(copyText))
                         copied = true
@@ -613,7 +619,10 @@ private fun UserMessageBubble(
             }
             TooltipBox(text = stringResource(R.string.ui_edit_a7f814), enabled = actionsEnabled) {
                 IconButton(
-                    onClick = onEdit,
+                    onClick = {
+                        TouchHaptics.click(view)
+                        onEdit()
+                    },
                     enabled = actionsEnabled,
                     minWidth = 30.dp,
                     minHeight = 30.dp,
@@ -628,7 +637,10 @@ private fun UserMessageBubble(
             }
             TooltipBox(text = stringResource(R.string.ui_delete_3755f5), enabled = actionsEnabled) {
                 IconButton(
-                    onClick = onDelete,
+                    onClick = {
+                        TouchHaptics.click(view)
+                        onDelete()
+                    },
                     enabled = actionsEnabled,
                     minWidth = 30.dp,
                     minHeight = 30.dp,
@@ -660,6 +672,7 @@ private fun AgentMessageBlock(
 ) {
     @Suppress("DEPRECATION")
     val clipboardManager = LocalClipboardManager.current
+    val view = LocalView.current
     var copied by remember(message.id) { mutableStateOf(false) }
     val keepStreamingMarkdown = remember(message.id) { message.isStreaming }
     var streamingRevealComplete by remember(message.id) {
@@ -735,6 +748,7 @@ private fun AgentMessageBlock(
             ) {
                 IconButton(
                     onClick = {
+                        TouchHaptics.click(view)
                         @Suppress("DEPRECATION")
                         clipboardManager.setText(AnnotatedString(message.content))
                         copied = true
@@ -759,7 +773,10 @@ private fun AgentMessageBlock(
                 if (showMessageActions) {
                     TooltipBox(text = stringResource(R.string.ui_regenerate_2e1905), enabled = messageActionsEnabled) {
                         IconButton(
-                            onClick = onRegenerate,
+                            onClick = {
+                                TouchHaptics.click(view)
+                                onRegenerate()
+                            },
                             enabled = messageActionsEnabled,
                             minWidth = 30.dp,
                             minHeight = 30.dp,
@@ -774,7 +791,10 @@ private fun AgentMessageBlock(
                     }
                     TooltipBox(text = stringResource(R.string.ui_delete_3755f5), enabled = messageActionsEnabled) {
                         IconButton(
-                            onClick = onDelete,
+                            onClick = {
+                                TouchHaptics.click(view)
+                                onDelete()
+                            },
                             enabled = messageActionsEnabled,
                             minWidth = 30.dp,
                             minHeight = 30.dp,
@@ -881,6 +901,9 @@ private fun StreamingMarkdown(
     val currentContent by rememberUpdatedState(content)
     val currentIsStreaming by rememberUpdatedState(isStreaming)
     val restoreGeneration = state.restoreState.generation
+    val view = LocalView.current
+    var lastGenerationHapticAt by remember { mutableLongStateOf(0L) }
+    val lastHapticContentLength = remember { intArrayOf(0) }
 
     LifecycleResumeEffect(state) {
         revealCoordinator.pauseAnimationsAndCatchUp()
@@ -908,7 +931,25 @@ private fun StreamingMarkdown(
                 isStreaming = isStreaming,
             )
         )
-        if (isStreaming) currentRevealCompleteCallback(false)
+        if (isStreaming) {
+            currentRevealCompleteCallback(false)
+        }
+    }
+
+    SideEffect {
+        if (!isStreaming) {
+            lastHapticContentLength[0] = content.length
+            return@SideEffect
+        }
+        val grew = content.length > lastHapticContentLength[0]
+        lastHapticContentLength[0] = content.length
+        if (grew && TouchHaptics.isMessageGenerationEnabled()) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastGenerationHapticAt >= 16L) {
+                lastGenerationHapticAt = now
+                TouchHaptics.tick(view)
+            }
+        }
     }
 
     LaunchedEffect(parserSession, parseTargets) {

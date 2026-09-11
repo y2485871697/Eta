@@ -51,6 +51,7 @@ import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.AppearanceSettingsScreen
+import io.github.mangi.eta.ui.HapticsSettingsScreen
 import io.github.mangi.eta.ui.ContextCompressionSettingsScreen
 import io.github.mangi.eta.ui.SettingsScreen
 import io.github.mangi.eta.ui.components.MiuixDialogActions
@@ -436,6 +437,9 @@ fun AgentAppRoot(
                         onOpenEnvironment = { pushRoute(AppRoute.LinuxEnvironment) },
                     )
                 }
+            }
+            entry<AppRoute.Haptics>(swipeDismiss = swipeDismiss) {
+                HapticsSettingsScreen(onBack = ::popRoute)
             }
             entry<AppRoute.Tools>(swipeDismiss = swipeDismiss) {
                 AgentToolsScreen(

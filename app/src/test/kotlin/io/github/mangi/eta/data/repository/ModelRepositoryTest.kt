@@ -158,6 +158,32 @@ class ModelRepositoryTest {
     }
 
     @Test
+    fun saveModelPersistsPreferredReasoningEffortPerModel() = runBlocking {
+        addEmptyProvider()
+        val first = ModelRepository.saveModel(
+            PROVIDER_ID,
+            Model(id = "", modelId = "model-a", displayName = "Model A"),
+        )
+        val second = ModelRepository.saveModel(
+            PROVIDER_ID,
+            Model(id = "", modelId = "model-b", displayName = "Model B"),
+        )
+
+        ModelRepository.saveModel(
+            PROVIDER_ID,
+            first.copy(preferredReasoningEffort = ReasoningEffort.HIGH),
+        )
+        ModelRepository.saveModel(
+            PROVIDER_ID,
+            second.copy(preferredReasoningEffort = ReasoningEffort.LOW),
+        )
+
+        val restored = ModelRepository.modelsByProvider(PROVIDER_ID).associateBy { it.modelId }
+        assertEquals(ReasoningEffort.HIGH, restored.getValue("model-a").preferredReasoningEffort)
+        assertEquals(ReasoningEffort.LOW, restored.getValue("model-b").preferredReasoningEffort)
+    }
+
+    @Test
     fun providerConfigSaveDoesNotOverwriteModelsAddedFromAnotherDraft() = runBlocking {
         addEmptyProvider()
         val staleProviderDraft = ProviderRepository.providerById(PROVIDER_ID)!!

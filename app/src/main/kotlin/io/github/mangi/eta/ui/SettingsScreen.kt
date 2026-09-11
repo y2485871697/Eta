@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.SwipeUp
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.runtime.Composable
@@ -48,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -71,6 +73,7 @@ import io.github.mangi.eta.ui.app.rememberDeviceCapabilities
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.components.PreferenceIcon
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.navigation.AppRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -336,6 +339,18 @@ internal fun SettingsScreen(
                         summary = stringResource(R.string.capability_workspace_summary),
                         startAction = { PreferenceIcon(Icons.Rounded.Folder) },
                         onClick = { onNavigate(AppRoute.Workspace) },
+                    )
+                }
+            }
+
+            item(key = "section_haptics") {
+                SmallTitle(stringResource(R.string.haptics_title))
+                Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                    ArrowPreference(
+                        title = stringResource(R.string.haptics_list),
+                        summary = stringResource(R.string.haptics_entry_summary),
+                        startAction = { PreferenceIcon(Icons.Rounded.Vibration) },
+                        onClick = { onNavigate(AppRoute.Haptics) },
                     )
                 }
             }
@@ -778,6 +793,7 @@ private fun SwitchPref(
     icon: ImageVector,
 ) {
     val enabled = prefs != null
+    val view = LocalView.current
     val history = remember(context.applicationContext) { EnhancementSettingsHistory(context) }
     val default = Prefs.Keys.BOOLEAN_DEFAULTS[key] ?: true
     var checked by remember(prefs, key) {
@@ -802,6 +818,7 @@ private fun SwitchPref(
             // 避免 UI 显示已切换而 hook 进程实际未收到。
             val targetPrefs = prefs ?: return@SwitchPreference
             if (putBooleanSync(targetPrefs, key, value)) {
+                TouchHaptics.click(view)
                 checked = value
                 history.recordCommittedBoolean(key, value)
                 if (key in Prefs.Keys.LOCAL_AGENT_KEYS) {

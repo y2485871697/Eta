@@ -1,6 +1,5 @@
 package io.github.mangi.eta.ui.screens.assistants
 
-import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
@@ -32,6 +31,7 @@ import io.github.mangi.eta.data.model.AssistantProfile
 import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.components.AssistantAvatar
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -185,9 +185,13 @@ internal fun AssistantProfileCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    onClick = onClick,
+                    hapticFeedbackEnabled = false,
+                    onClick = {
+                        TouchHaptics.click(view)
+                        onClick()
+                    },
                     onLongClick = {
-                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        TouchHaptics.longPress(view)
                         onLongClick()
                     },
                 )

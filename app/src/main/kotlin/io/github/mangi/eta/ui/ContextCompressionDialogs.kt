@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
@@ -61,6 +62,7 @@ import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.ui.components.MiuixDialogActions
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.model.AgentModelOptionUi
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
@@ -156,6 +158,7 @@ internal fun CompressConversationDialog(
     val configuration = LocalConfiguration.current
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
     val dialogImeOffset = -(imeBottom / 2)
     val maxBodyHeight = (configuration.screenHeightDp.dp - imeBottom - CompressDialogChrome)
         .coerceIn(140.dp, 360.dp)
@@ -220,6 +223,7 @@ internal fun CompressConversationDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = !compressing && !isLoadingModels) {
+                        TouchHaptics.click(view)
                         showModelDialog = true
                     }
                     .padding(vertical = 10.dp),
@@ -248,7 +252,10 @@ internal fun CompressConversationDialog(
                     val selected = targetTokens == value
                     androidx.compose.material3.FilterChip(
                         selected = selected,
-                        onClick = { targetTokens = value },
+                        onClick = {
+                            TouchHaptics.click(view)
+                            targetTokens = value
+                        },
                         enabled = !compressing,
                         label = { Text(value.toString()) },
                     )
@@ -367,6 +374,7 @@ internal fun CompressModelPickerDialog(
     onDismiss: () -> Unit,
     onModelSelected: (String, String) -> Unit,
 ) {
+    val view = LocalView.current
     var expandedProviderIds by remember { mutableStateOf(emptySet<String>()) }
     LaunchedEffect(show, state.selectedModel?.providerId, state.providerGroups) {
         if (!show) return@LaunchedEffect
@@ -409,6 +417,7 @@ internal fun CompressModelPickerDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
+                                TouchHaptics.click(view)
                                 expandedProviderIds = if (expanded) {
                                     expandedProviderIds - group.providerId
                                 } else {
@@ -429,7 +438,10 @@ internal fun CompressModelPickerDialog(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onModelSelected(model.providerId, model.id) }
+                                    .clickable {
+                                        TouchHaptics.click(view)
+                                        onModelSelected(model.providerId, model.id)
+                                    }
                                     .padding(start = 20.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {

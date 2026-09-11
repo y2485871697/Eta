@@ -4,8 +4,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 
@@ -17,7 +19,14 @@ fun MiuixBackButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    IconButton(onClick = onClick, modifier = modifier) {
+    val view = LocalView.current
+    IconButton(
+        onClick = {
+            TouchHaptics.click(view)
+            onClick()
+        },
+        modifier = modifier,
+    ) {
         Icon(
             imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
             contentDescription = stringResource(R.string.action_back),

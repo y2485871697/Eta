@@ -49,6 +49,13 @@
   <string name="route_chat">Chat</string>
   <string name="route_browser">Agent browser</string>
   <string name="route_tools">Tools</string>
+  <string name="haptics_title">Haptics</string>
+  <string name="haptics_list">Haptics list</string>
+  <string name="haptics_entry_summary">Touch feedback and generation vibration</string>
+  <string name="haptics_touch_feedback">Touch feedback</string>
+  <string name="haptics_touch_feedback_summary">Vibrate when tapping buttons, switches and menus</string>
+  <string name="haptics_message_generation">Message generation haptic</string>
+  <string name="haptics_message_generation_summary">Light vibration while the model is writing</string>
   <string name="route_skills">Skills</string>
   <string name="route_permissions">Permissions</string>
   <string name="route_system_enhancements">System enhancements</string>
@@ -1153,6 +1160,8 @@
   <string name="chat_continue_abort">Long press to end the paused reply</string>
   <string name="chat_continue_prompt">Continue from where you left off. Do not repeat content already written.</string>
   <string name="chat_reasoning_effort">思考强度：%1$s</string>
+  <string name="reasoning_picker_title">Adjust thinking depth</string>
+  <string name="reasoning_picker_hint">Not all models support depth adjustment. Please refer to the model and provider documentation.</string>
   <string name="status_unsupported">Unsupported</string>
   <string name="attachment_image">Image</string>
   <string name="attachment_file">File</string>

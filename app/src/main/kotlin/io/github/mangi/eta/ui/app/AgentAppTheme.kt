@@ -15,6 +15,7 @@ import io.github.mangi.eta.data.model.AppearanceAccentColor
 import io.github.mangi.eta.data.model.AppearancePaletteStyle
 import io.github.mangi.eta.data.model.AppearanceSettings
 import io.github.mangi.eta.data.model.AppearanceThemeMode
+import io.github.mangi.eta.ui.haptics.ApplyTouchHapticFeedbackEnabled
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeColorSpec
@@ -156,8 +157,10 @@ fun AgentAppTheme(
             // MaterialTheme 仅向 markdown-renderer-m3 提供与 Miuix 一致的颜色上下文。
             MaterialTheme(
                 colorScheme = materialColors,
-                content = content,
-            )
+            ) {
+                ApplyTouchHapticFeedbackEnabled()
+                content()
+            }
         }
     }
 }

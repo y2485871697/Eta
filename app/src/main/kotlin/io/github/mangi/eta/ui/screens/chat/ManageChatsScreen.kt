@@ -32,7 +32,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
@@ -40,12 +42,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.app.SearchHistoryDialog
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.model.MessageSearchHit
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
@@ -155,13 +159,31 @@ private fun SwipeableManageChatRow(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dismissState = rememberSwipeToDismissBoxState()
+    val view = LocalView.current
+    val dismissState = rememberSwipeToDismissBoxState(
+        positionalThreshold = { distance -> distance * 0.4f },
+    )
     var collapsing by remember { mutableStateOf(false) }
     var deleted by remember { mutableStateOf(false) }
+    var crossedDeleteThreshold by remember { mutableStateOf(false) }
 
-    LaunchedEffect(dismissState.currentValue) {
-        if (!collapsing && dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-            collapsing = true
+    LaunchedEffect(dismissState) {
+        snapshotFlow { dismissState.targetValue }.collectLatest { target ->
+            val crossed = target == SwipeToDismissBoxValue.EndToStart
+            if (crossed && !crossedDeleteThreshold) {
+                crossedDeleteThreshold = true
+                TouchHaptics.gestureThreshold(view)
+            } else if (!crossed) {
+                crossedDeleteThreshold = false
+            }
+        }
+    }
+
+    LaunchedEffect(dismissState) {
+        snapshotFlow { dismissState.settledValue }.collectLatest { settled ->
+            if (!collapsing && settled == SwipeToDismissBoxValue.EndToStart) {
+                collapsing = true
+            }
         }
     }
 

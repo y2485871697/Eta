@@ -56,6 +56,13 @@
   <string name="route_chat">對話</string>
   <string name="route_browser">Agent 瀏覽器</string>
   <string name="route_tools">工具</string>
+  <string name="haptics_title">震動</string>
+  <string name="haptics_list">震動列表</string>
+  <string name="haptics_entry_summary">觸控回饋與訊息生成震動</string>
+  <string name="haptics_touch_feedback">觸控回饋</string>
+  <string name="haptics_touch_feedback_summary">點擊按鈕、開關和選單時震動</string>
+  <string name="haptics_message_generation">訊息生成觸控回饋</string>
+  <string name="haptics_message_generation_summary">模型輸出內容時提供輕觸回饋</string>
   <string name="route_skills">Skills</string>
   <string name="route_permissions">權限</string>
   <string name="route_system_enhancements">系統增強</string>
@@ -1144,6 +1151,8 @@
   <string name="chat_continue_abort">長按結束暫停的回覆</string>
   <string name="chat_continue_prompt">請從上次中斷處繼續輸出，不要重複已經給出的內容。</string>
   <string name="chat_reasoning_effort">推理強度，目前為 %1$s</string>
+  <string name="reasoning_picker_title">調整思考深度</string>
+  <string name="reasoning_picker_hint">並非所有模型都支援深度調節，請參考模型和提供商文檔</string>
   <string name="status_unsupported">不支援</string>
   <string name="attachment_image">圖片</string>
   <string name="attachment_file">檔案</string>

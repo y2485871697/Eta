@@ -249,23 +249,7 @@ internal class AgentAppState(
         lastAppliedReasoningModelId = selectedModelId
         currentReasoningCapabilities = capabilities
         val next = when {
-            firstApply -> {
-                val restored = currentReasoningCapabilities?.normalize(
-                    homeState.reasoningEffort.takeUnless { it == ReasoningEffort.DEFAULT }
-                        ?: ReasoningEffort.OFF,
-                ) ?: ReasoningEffort.OFF
-                if (
-                    modelPickerState.selectedModel?.preferredReasoningEffort == null &&
-                    restored != ReasoningEffort.OFF
-                ) {
-                    persistPreferredReasoningEffort(restored)
-                }
-                homeState.copy(
-                    thinkingEnabled = restored.enablesReasoning,
-                    reasoningEffort = restored,
-                    availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
-                )
-            }
+            firstApply -> restoreReasoningEffortOnFirstApply()
             modelChanged -> homeState.withPreferredReasoningEffort()
             else -> homeState.withCurrentReasoningCapabilities()
         }
@@ -299,11 +283,51 @@ internal class AgentAppState(
         )
     }
 
+    private fun restoreReasoningEffortOnFirstApply(): AgentChatHomeUiState {
+        val preferred = modelPickerState.selectedModel?.preferredReasoningEffort
+        if (preferred != null) {
+            return homeState.withPreferredReasoningEffort()
+        }
+        val restored = currentReasoningCapabilities?.normalize(
+            homeState.reasoningEffort.takeUnless { it == ReasoningEffort.DEFAULT }
+                ?: ReasoningEffort.OFF,
+        ) ?: ReasoningEffort.OFF
+        if (restored != ReasoningEffort.OFF) {
+            persistPreferredReasoningEffort(restored)
+        }
+        return homeState.copy(
+            thinkingEnabled = restored.enablesReasoning,
+            reasoningEffort = restored,
+            availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
+        )
+    }
+
     private fun persistPreferredReasoningEffort(effort: ReasoningEffort) {
         val selected = modelPickerState.selectedModel ?: return
+        if (selected.preferredReasoningEffort != effort) {
+            modelPickerState = modelPickerState.copy(
+                selectedModel = selected.copy(preferredReasoningEffort = effort),
+                providerGroups = modelPickerState.providerGroups.map { group ->
+                    if (group.providerId != selected.providerId) {
+                        group
+                    } else {
+                        group.copy(
+                            models = group.models.map { model ->
+                                if (model.id == selected.id) {
+                                    model.copy(preferredReasoningEffort = effort)
+                                } else {
+                                    model
+                                }
+                            },
+                        )
+                    }
+                },
+            )
+        }
         scope.launch(Dispatchers.IO) {
             val provider = ProviderRepository.providerById(selected.providerId) ?: return@launch
             val model = provider.models.firstOrNull { it.id == selected.id } ?: return@launch
+            if (model.preferredReasoningEffort == effort) return@launch
             runCatching {
                 ModelRepository.saveModel(
                     selected.providerId,

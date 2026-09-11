@@ -1,6 +1,5 @@
 package io.github.mangi.eta.ui.components
 
-import android.view.HapticFeedbackConstants
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -17,6 +16,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -51,9 +52,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +70,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -85,6 +89,7 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentContextBudget
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.ReasoningEffort
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.ui.screens.assistants.AssistantPickerDialog
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
@@ -96,11 +101,14 @@ import io.github.mangi.eta.ui.model.PendingImageUi
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Slider
+import top.yukonga.miuix.kmp.basic.SliderDefaults
 import top.yukonga.miuix.kmp.basic.ListPopupDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 private val SendButtonVisualSize = ChatInputActionIconSize
 private val SendIconSize = 16.dp
@@ -406,7 +414,9 @@ internal fun AgentChatInputBar(
                                     enabled = sendMode != "idle",
                                     indication = null,
                                     interactionSource = sendInteraction,
+                                    hapticFeedbackEnabled = false,
                                     onClick = {
+                                        TouchHaptics.click(view)
                                         when (sendMode) {
                                             "stop" -> onStop()
                                             "continue" -> onContinue()
@@ -419,7 +429,7 @@ internal fun AgentChatInputBar(
                                     },
                                     onLongClick = {
                                         if (sendMode != "continue") return@combinedClickable
-                                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                        TouchHaptics.longPress(view)
                                         onAbortPausedRun()
                                     },
                                 ),
@@ -482,7 +492,7 @@ internal fun AgentChatInputBar(
 
 }
 
-/** 思考强度选择保持为单一图标，当前状态仅通过图标颜色表达。 */
+/** 思考强度选择保持为单一图标，当前状态仅通过图标颜色区分。 */
 @Composable
 private fun ThinkingEffortChip(
     effort: ReasoningEffort,
@@ -491,11 +501,11 @@ private fun ThinkingEffortChip(
     onEffortChange: (ReasoningEffort) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val menuState = rememberEtaMenuState()
+    var showPicker by remember { mutableStateOf(false) }
     val active = effort != ReasoningEffort.OFF
-    val menuEnabled = enabled && options.isNotEmpty()
-    LaunchedEffect(menuEnabled) {
-        if (!menuEnabled) menuState.dismiss()
+    val pickerEnabled = enabled && options.isNotEmpty()
+    LaunchedEffect(pickerEnabled) {
+        if (!pickerEnabled) showPicker = false
     }
     val contentColor by animateColorAsState(
         targetValue = if (active) {
@@ -506,71 +516,155 @@ private fun ThinkingEffortChip(
         animationSpec = tween(durationMillis = 160),
         label = "thinking_content",
     )
-    Box(modifier = modifier) {
-        ChatInputNonFocusableIconButton(
-            onClick = { if (menuEnabled) menuState.onAnchorClick() },
-            contentDescription = stringResource(R.string.chat_reasoning_effort, effort.displayName),
+    ChatInputNonFocusableIconButton(
+        onClick = { if (pickerEnabled) showPicker = true },
+        contentDescription = stringResource(R.string.chat_reasoning_effort, effort.displayName),
+        modifier = modifier,
+    ) {
+        Icon(
+            imageVector = ImageVector.vectorResource(R.drawable.ic_atom),
+            contentDescription = null,
+            modifier = Modifier.size(ThinkingIconSize),
+            tint = if (pickerEnabled) contentColor else contentColor.copy(alpha = 0.38f),
+        )
+    }
+    ThinkingEffortPickerDialog(
+        show = showPicker && pickerEnabled,
+        effort = effort,
+        options = options,
+        onDismiss = { showPicker = false },
+        onEffortChange = onEffortChange,
+    )
+}
+
+@Composable
+private fun ThinkingEffortPickerDialog(
+    show: Boolean,
+    effort: ReasoningEffort,
+    options: List<ReasoningEffort>,
+    onDismiss: () -> Unit,
+    onEffortChange: (ReasoningEffort) -> Unit,
+) {
+    if (options.isEmpty()) return
+    val view = LocalView.current
+    val selectedIndex = options.indexOf(effort).coerceAtLeast(0)
+    var sliderValue by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
+    var lastHapticIndex by remember { mutableIntStateOf(selectedIndex) }
+    val latestEffort by rememberUpdatedState(effort)
+    val latestOptions by rememberUpdatedState(options)
+    val latestOnEffortChange by rememberUpdatedState(onEffortChange)
+    LaunchedEffect(show, selectedIndex, options) {
+        if (show) {
+            sliderValue = selectedIndex.toFloat()
+            lastHapticIndex = selectedIndex
+        }
+    }
+    val previewIndex = sliderValue.roundToInt().coerceIn(0, options.lastIndex)
+    val preview = options[previewIndex]
+    val maxIndex = (options.size - 1).toFloat().coerceAtLeast(0f)
+
+    WindowDialog(
+        show = show,
+        title = stringResource(R.string.reasoning_picker_title),
+        onDismissRequest = onDismiss,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            Text(
+                text = stringResource(R.string.reasoning_picker_hint),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Icon(
                 imageVector = ImageVector.vectorResource(R.drawable.ic_atom),
                 contentDescription = null,
-                modifier = Modifier.size(ThinkingIconSize),
-                tint = if (menuEnabled) contentColor else contentColor.copy(alpha = 0.38f),
+                modifier = Modifier
+                    .padding(top = 18.dp)
+                    .size(32.dp),
+                tint = if (preview != ReasoningEffort.OFF) {
+                    MiuixTheme.colorScheme.primary
+                } else {
+                    MiuixTheme.colorScheme.onSurface
+                },
             )
-        }
-        EtaDropdownMenu(
-            expanded = menuState.expanded && menuEnabled,
-            onDismissRequest = menuState::dismiss,
-            preferAbove = true,
-            minWidth = 120.dp,
-            focusable = false,
-        ) {
-            options.forEach { option ->
-                ThinkingEffortMenuRow(
-                    option = option,
-                    selected = option == effort,
-                    onClick = {
-                        menuState.dismiss()
-                        onEffortChange(option)
-                    },
-                )
+            Text(
+                text = preview.displayName,
+                style = MiuixTheme.textStyles.title3,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
+            )
+            if (options.size > 1) {
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Slider(
+                        value = sliderValue.coerceIn(0f, maxIndex),
+                        onValueChange = {},
+                        modifier = Modifier.fillMaxWidth(),
+                        valueRange = 0f..maxIndex,
+                        steps = (options.size - 2).coerceAtLeast(0),
+                        showKeyPoints = true,
+                        keyPoints = options.indices.map { it.toFloat() },
+                        magnetThreshold = 0.18f,
+                        hapticEffect = SliderDefaults.SliderHapticEffect.None,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .pointerInput(options.size) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown()
+                                    down.consume()
+                                    val width = size.width.toFloat().coerceAtLeast(1f)
+                                    var current = discreteSliderIndexForTap(
+                                        down.position.x,
+                                        width,
+                                        latestOptions.size,
+                                    )
+                                    sliderValue = current.toFloat()
+                                    lastHapticIndex = current
+                                    TouchHaptics.click(view)
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull() ?: break
+                                        val index = discreteSliderIndexForTap(
+                                            change.position.x,
+                                            width,
+                                            latestOptions.size,
+                                        )
+                                        if (index != current) {
+                                            current = index
+                                            sliderValue = current.toFloat()
+                                            if (current != lastHapticIndex) {
+                                                lastHapticIndex = current
+                                                TouchHaptics.click(view)
+                                            }
+                                        }
+                                        change.consume()
+                                        if (!event.changes.any { it.pressed }) break
+                                    }
+                                    val coerced = current.coerceIn(0, latestOptions.lastIndex)
+                                    sliderValue = coerced.toFloat()
+                                    lastHapticIndex = coerced
+                                    val next = latestOptions[coerced]
+                                    if (next != latestEffort) latestOnEffortChange(next)
+                                }
+                            },
+                    )
+                }
             }
         }
     }
 }
 
-@Composable
-private fun ThinkingEffortMenuRow(
-    option: ReasoningEffort,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-            .squircleSurface(
-                color = if (selected) {
-                    MiuixTheme.colorScheme.surfaceContainerHigh
-                } else {
-                    Color.Transparent
-                },
-                cornerRadius = 12.dp,
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = option.displayName,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
+internal fun discreteSliderIndexForTap(x: Float, width: Float, count: Int): Int {
+    if (count <= 1 || width <= 0f) return 0
+    val fraction = (x / width).coerceIn(0f, 1f)
+    return (fraction * (count - 1)).roundToInt().coerceIn(0, count - 1)
 }
+
 
 /**
  * 横向跟随 Chip，竖向则避开整个输入面板；默认下拉定位只会避开 Chip 自身。

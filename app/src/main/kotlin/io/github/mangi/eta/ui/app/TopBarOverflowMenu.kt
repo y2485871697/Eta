@@ -27,12 +27,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.components.EtaDropdownMenu
 import io.github.mangi.eta.ui.components.rememberEtaMenuState
 import io.github.mangi.eta.ui.model.ConversationTokenUsageUi
@@ -69,6 +71,7 @@ internal fun TopBarOverflowMenu(
     tokenUsage: ConversationTokenUsageUi = ConversationTokenUsageUi(),
 ) {
     val menuState = rememberEtaMenuState()
+    val view = LocalView.current
     var showCompressDialog by remember { mutableStateOf(false) }
     var showSearchDialog by remember { mutableStateOf(false) }
     var showTokenUsageDialog by remember { mutableStateOf(false) }
@@ -76,6 +79,7 @@ internal fun TopBarOverflowMenu(
     androidx.compose.foundation.layout.Box {
         IconButton(
             onClick = {
+                TouchHaptics.click(view)
                 onRefreshKimiWeb()
                 menuState.onAnchorClick()
             }
@@ -103,7 +107,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { menuState.dismiss(); onNewConversation() },
+                onClick = { TouchHaptics.click(view); menuState.dismiss(); onNewConversation() },
             )
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -116,7 +120,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { menuState.dismiss(); showSearchDialog = true },
+                onClick = { TouchHaptics.click(view); menuState.dismiss(); showSearchDialog = true },
             )
             MenuSectionDivider()
             DropdownMenuItem(
@@ -130,7 +134,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { menuState.dismiss(); onOpenTerminal() },
+                onClick = { TouchHaptics.click(view); menuState.dismiss(); onOpenTerminal() },
             )
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -143,7 +147,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { menuState.dismiss(); onOpenBrowser() },
+                onClick = { TouchHaptics.click(view); menuState.dismiss(); onOpenBrowser() },
             )
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -156,7 +160,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { menuState.dismiss(); onOpenWorkspace() },
+                onClick = { TouchHaptics.click(view); menuState.dismiss(); onOpenWorkspace() },
             )
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -169,7 +173,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { menuState.dismiss(); onLaunchKimiWeb() },
+                onClick = { TouchHaptics.click(view); menuState.dismiss(); onLaunchKimiWeb() },
             )
             MenuSectionDivider()
             DropdownMenuItem(
@@ -183,7 +187,7 @@ internal fun TopBarOverflowMenu(
                         modifier = Modifier.size(TopBarMenuIconSize),
                     )
                 },
-                onClick = { menuState.dismiss(); showTokenUsageDialog = true },
+                onClick = { TouchHaptics.click(view); menuState.dismiss(); showTokenUsageDialog = true },
             )
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
@@ -197,6 +201,7 @@ internal fun TopBarOverflowMenu(
                     )
                 },
                 onClick = {
+                    TouchHaptics.click(view)
                     menuState.dismiss()
                     showCompressDialog = true
                 },
@@ -220,6 +225,7 @@ internal fun TopBarOverflowMenu(
                     )
                 },
                 onClick = {
+                    TouchHaptics.click(view)
                     onToggleAutoCompress(!autoCompressEnabled)
                 },
             )
@@ -236,7 +242,7 @@ internal fun TopBarOverflowMenu(
                             modifier = Modifier.size(TopBarMenuIconSize),
                         )
                     },
-                    onClick = { menuState.dismiss(); onStopKimiWeb() },
+                    onClick = { TouchHaptics.click(view); menuState.dismiss(); onStopKimiWeb() },
                 )
             }
         }

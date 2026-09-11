@@ -24,6 +24,9 @@ class PrefsDefaultsTest {
                 Prefs.Keys.AGENT_DEVICE_SENSITIVE_READ_TOOLS to true,
                 Prefs.Keys.AGENT_DEVICE_SENSITIVE_ACTION_TOOLS to true,
                 Prefs.Keys.AGENT_THINKING_ENABLED to true,
+                Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED to false,
+                Prefs.Keys.HAPTIC_TOUCH_FEEDBACK to true,
+                Prefs.Keys.HAPTIC_MESSAGE_GENERATION to false,
             ),
             Prefs.Keys.BOOLEAN_DEFAULTS,
         )
@@ -42,6 +45,9 @@ class PrefsDefaultsTest {
                 Prefs.Keys.AGENT_DEVICE_SENSITIVE_READ_TOOLS,
                 Prefs.Keys.AGENT_DEVICE_SENSITIVE_ACTION_TOOLS,
                 Prefs.Keys.AGENT_THINKING_ENABLED,
+                Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED,
+                Prefs.Keys.HAPTIC_TOUCH_FEEDBACK,
+                Prefs.Keys.HAPTIC_MESSAGE_GENERATION,
             ),
             Prefs.Keys.LOCAL_AGENT_KEYS,
         )

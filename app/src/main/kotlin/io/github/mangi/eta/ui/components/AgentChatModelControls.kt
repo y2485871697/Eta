@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.data.repository.ProviderBalanceStore
 import io.github.mangi.eta.ui.pages.providers.ProviderBalanceAmount
 import io.github.mangi.eta.ui.model.AgentContextUsageUi
@@ -155,6 +157,7 @@ private fun ModelProviderGroupHeader(
     balance: String? = null,
     onClick: () -> Unit,
 ) {
+    val view = LocalView.current
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(durationMillis = 160),
@@ -163,7 +166,10 @@ private fun ModelProviderGroupHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable {
+                TouchHaptics.click(view)
+                onClick()
+            }
             .padding(start = 12.dp, end = 10.dp, top = 9.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -201,6 +207,7 @@ private fun ModelPickerRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val view = LocalView.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -213,7 +220,10 @@ private fun ModelPickerRow(
                 },
                 cornerRadius = 12.dp,
             )
-            .clickable(onClick = onClick)
+            .clickable {
+                TouchHaptics.click(view)
+                onClick()
+            }
             .padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

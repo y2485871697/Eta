@@ -53,6 +53,8 @@ internal object Prefs {
         const val AGENT_MANUAL_COMPRESS_KEEP_RECENT = "agent_manual_compress_keep_recent"
         const val AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID = "agent_manual_compress_model_provider_id"
         const val AGENT_MANUAL_COMPRESS_MODEL_ID = "agent_manual_compress_model_id"
+        const val HAPTIC_TOUCH_FEEDBACK = "haptic_touch_feedback"
+        const val HAPTIC_MESSAGE_GENERATION = "haptic_message_generation"
 
         /** 全部布尔开关及其默认值。 */
         val BOOLEAN_DEFAULTS: Map<String, Boolean> = mapOf(
@@ -72,6 +74,8 @@ internal object Prefs {
             AGENT_DEVICE_SENSITIVE_ACTION_TOOLS to true,
             AGENT_THINKING_ENABLED to true,
             AGENT_AUTO_COMPRESS_ENABLED to false,
+            HAPTIC_TOUCH_FEEDBACK to true,
+            HAPTIC_MESSAGE_GENERATION to false,
         )
 
         /** 由 Eta Runtime 最终裁决、不要求 Xposed 框架在线的开关。 */
@@ -83,6 +87,8 @@ internal object Prefs {
             AGENT_DEVICE_SENSITIVE_ACTION_TOOLS,
             AGENT_THINKING_ENABLED,
             AGENT_AUTO_COMPRESS_ENABLED,
+            HAPTIC_TOUCH_FEEDBACK,
+            HAPTIC_MESSAGE_GENERATION,
         )
     }
 

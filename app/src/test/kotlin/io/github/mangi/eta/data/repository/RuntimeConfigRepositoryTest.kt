@@ -59,4 +59,27 @@ class RuntimeConfigRepositoryTest {
         )
         assertEquals(config, Json.decodeFromString<AgentModelClient.ModelConfig>(raw))
     }
+
+    @Test
+    fun buildRuntimeConfigUsesModelPreferredReasoningEffort() {
+        val provider = OpenAiCompatibleProviderSetting(
+            id = "p1",
+            name = "Provider",
+            baseUrl = "https://api.example.com/v1",
+            apiKey = "key",
+            sourceType = ProviderSourceTypes.OPENAI,
+        )
+        val model = Model(
+            id = "m1",
+            modelId = "gpt-5.5",
+            displayName = "GPT-5.5",
+            reasoning = true,
+            reasoningOverride = true,
+            preferredReasoningEffort = ReasoningEffort.HIGH,
+        )
+
+        val config = RuntimeConfigRepository.buildRuntimeConfig(provider, model)
+        assertEquals(ReasoningEffort.HIGH, config.reasoningEffort)
+        assertEquals(true, config.thinkingEnabled)
+    }
 }

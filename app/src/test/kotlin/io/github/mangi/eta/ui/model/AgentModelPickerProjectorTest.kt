@@ -8,6 +8,7 @@ import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ProviderSourceTypes
+import io.github.mangi.eta.data.model.ReasoningEffort
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -365,6 +366,29 @@ class AgentModelPickerProjectorTest {
                 contextSendBlocked = true,
                 usage = AgentContextUsageUi(contextTokens = 99, contextWindow = 100),
             )
+        )
+    }
+
+    @Test
+    fun project_exposesPreferredReasoningEffortForSelectedModel() {
+        val selected = model(id = "model-selected").copy(preferredReasoningEffort = ReasoningEffort.HIGH)
+        val other = model(id = "model-other").copy(preferredReasoningEffort = ReasoningEffort.LOW)
+        val result = AgentModelPickerProjector.project(
+            providers = listOf(
+                provider(
+                    id = "openai",
+                    name = "OpenAI",
+                    sourceType = ProviderSourceTypes.OPENAI,
+                    models = listOf(selected, other),
+                ),
+            ),
+            selectedProviderId = "openai",
+            selectedModelId = selected.id,
+        )
+        assertEquals(ReasoningEffort.HIGH, result.selectedModel?.preferredReasoningEffort)
+        assertEquals(
+            listOf(ReasoningEffort.HIGH, ReasoningEffort.LOW),
+            result.providerGroups.single().models.map { it.preferredReasoningEffort },
         )
     }
 

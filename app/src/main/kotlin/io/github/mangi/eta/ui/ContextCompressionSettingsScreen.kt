@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -30,6 +31,7 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.model.AgentModelOptionUi
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +54,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
     var showModelDialog by remember { mutableStateOf(false) }
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
     var isLoadingModels by remember { mutableStateOf(prefs != null) }
+    val view = LocalView.current
 
     LaunchedEffect(prefs) {
         prefs?.let { currentPrefs ->
@@ -105,6 +108,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                     Switch(
                         checked = enabled,
                         onCheckedChange = { value ->
+                            TouchHaptics.click(view)
                             prefs?.edit()?.putBoolean(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED, value)?.apply()
                             enabled = value
                         }
@@ -120,7 +124,10 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                     title = stringResource(R.string.ui_compress_model_title),
                     summary = selectedCompressModel?.displayName
                         ?: stringResource(R.string.model_not_selected),
-                    onClick = { showModelDialog = true },
+                    onClick = {
+                        TouchHaptics.click(view)
+                        showModelDialog = true
+                    },
                     holdDownState = showModelDialog,
                 )
             }
@@ -137,6 +144,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                         val selected = targetTokens == value
                         androidx.compose.material3.Button(
                             onClick = {
+                                TouchHaptics.click(view)
                                 prefs?.edit()?.putInt(Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS, value)?.apply()
                                 targetTokens = value
                             },

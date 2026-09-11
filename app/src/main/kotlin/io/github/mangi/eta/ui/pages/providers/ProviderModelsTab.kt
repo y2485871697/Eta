@@ -90,8 +90,6 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.CheckboxLocation
-import top.yukonga.miuix.kmp.preference.CheckboxPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.LocalContentColor
@@ -100,8 +98,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 private val modelSearchSeparators = Regex("""[^\p{L}\p{N}]+""")
-private val editableReasoningEfforts = listOf(
-    ReasoningEffort.OFF,
+private val allReasoningEffortTiers = listOf(
     ReasoningEffort.MINIMAL,
     ReasoningEffort.LOW,
     ReasoningEffort.MEDIUM,
@@ -787,21 +784,6 @@ private fun ModelEditDialog(
             }
         )
     }
-    var selectedReasoningEfforts by remember(model.id, isNew) {
-        mutableStateOf(
-            if (model.reasoningOverride != null || model.reasoningCapabilitiesOverride != null) {
-                model.effectiveReasoningCapabilities
-                    ?.selectableEfforts
-                    ?.takeIf { efforts -> efforts.any { it != ReasoningEffort.OFF } }
-                    ?.toSet()
-                    ?: editableReasoningEfforts.toSet()
-            } else if (reasoningEnabled) {
-                editableReasoningEfforts.toSet()
-            } else {
-                emptySet()
-            }
-        )
-    }
     val contextError = contextWindowInputError(
         contextWindowOverrideText,
         context.getString(R.string.page_the_context_length_must_be_a_positive_integer_06ca7a),
@@ -810,7 +792,6 @@ private fun ModelEditDialog(
     fun resetAutomaticReasoning() {
         reasoningOverrideActive = false
         reasoningEnabled = automaticReasoning != null
-        selectedReasoningEfforts = if (reasoningEnabled) editableReasoningEfforts.toSet() else emptySet()
     }
 
     fun updated(): Model = model.copy(
@@ -821,19 +802,16 @@ private fun ModelEditDialog(
             ?.toInt(),
         reasoningOverride = reasoningEnabled.takeIf { reasoningOverrideActive },
         reasoningCapabilitiesOverride = if (reasoningOverrideActive && reasoningEnabled) {
-            val selectedTiers = editableReasoningEfforts.filter { effort ->
-                effort != ReasoningEffort.OFF && effort in selectedReasoningEfforts
-            }.ifEmpty { suggestedReasoning.supportedEfforts }
-            val canDisable = ReasoningEffort.OFF in selectedReasoningEfforts ||
-                suggestedReasoning.canDisable
             (model.effectiveReasoningCapabilities ?: suggestedReasoning).copy(
-                supportedEfforts = selectedTiers,
+                supportedEfforts = allReasoningEffortTiers,
                 defaultEffort = model.effectiveReasoningCapabilities
                     ?.defaultEffort
-                    ?.takeIf { it in selectedReasoningEfforts },
+                    ?.takeIf { it != ReasoningEffort.OFF }
+                    ?: suggestedReasoning.defaultEffort
+                    ?: ReasoningEffort.MEDIUM,
                 defaultEnabled = true,
-                mandatory = !canDisable,
-                canDisable = canDisable,
+                mandatory = false,
+                canDisable = true,
             )
         } else {
             null
@@ -936,9 +914,6 @@ private fun ModelEditDialog(
                         onCheckedChange = { enabled ->
                             reasoningOverrideActive = true
                             reasoningEnabled = enabled
-                            if (enabled) {
-                                selectedReasoningEfforts = editableReasoningEfforts.toSet()
-                            }
                         },
                         title = stringResource(R.string.ui_support_thinking_5b9e4c),
                         summary = if (reasoningOverrideActive) {
@@ -954,38 +929,7 @@ private fun ModelEditDialog(
                         },
                         enabled = !isSaving,
                     )
-                    if (reasoningEnabled) {
-                        HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                        editableReasoningEfforts.forEach { effort ->
-                            HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                            CheckboxPreference(
-                                title = effort.displayName,
-                                summary = if (effort == ReasoningEffort.OFF) {
-                                    context.getString(R.string.page_allow_thinking_to_be_turned_off_during_conversations_5a32a9)
-                                } else {
-                                    null
-                                },
-                                checked = effort in selectedReasoningEfforts,
-                                onCheckedChange = { checked ->
-                                    reasoningOverrideActive = true
-                                    selectedReasoningEfforts = if (checked) {
-                                        selectedReasoningEfforts + effort
-                                    } else {
-                                        selectedReasoningEfforts - effort
-                                    }
-                                },
-                                checkboxLocation = CheckboxLocation.End,
-                                enabled = !isSaving,
-                            )
-                        }
-                    }
                 }
-                Text(
-                    text = stringResource(R.string.ui_only_check_the_ranges_actually_supported_by_the_mode_2c343d),
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
                 error?.let { message ->
                     Text(
                         text = message,

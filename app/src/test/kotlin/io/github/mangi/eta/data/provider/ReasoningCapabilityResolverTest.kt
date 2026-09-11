@@ -81,7 +81,8 @@ class ReasoningCapabilityResolverTest {
                 reasoningCapabilitiesOverride = overridden,
             ),
         )
-        assertEquals(overridden, resolved)
+        assertEquals(allSelectable, resolved?.selectableEfforts)
+        assertEquals(true, resolved?.canDisable)
     }
 
     @Test

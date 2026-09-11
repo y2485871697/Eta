@@ -5,7 +5,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.AnchoredDraggableDefaults
 import androidx.compose.foundation.gestures.AnchoredDraggableState
 import androidx.compose.foundation.gestures.DraggableAnchors
@@ -13,7 +12,9 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.anchoredDraggable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.animateTo
+import androidx.compose.foundation.gestures.snapTo
 import androidx.compose.foundation.gestures.FlingBehavior
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -60,6 +61,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -70,10 +72,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -81,7 +82,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigationevent.NavigationEventInfo
@@ -91,9 +91,11 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.ui.model.ConversationFolderUi
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.screens.assistants.AssistantPickerDialog
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.DropdownDefaults
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -143,12 +145,15 @@ private object DrawerMetrics {
     val EmptyVerticalPadding = 28.dp
     val DockTopGap = 8.dp
     val AssistantBarHeight = 48.dp
+    val EdgeOpenHotspot = 24.dp
+    val EdgeOpenTopExclusion = 88.dp
 }
 
 private enum class ConversationPaneAnchor {
     Closed,
     Open,
 }
+
 
 @Composable
 fun ConversationSidePaneScaffold(
@@ -216,24 +221,50 @@ fun ConversationSidePaneScaffold(
         val currentVisible by rememberUpdatedState(visible)
         val currentOnOpen by rememberUpdatedState(onOpen)
         val currentOnDismiss by rememberUpdatedState(onDismiss)
-        val showScrim by remember(paneDragState) {
+        val paneScope = rememberCoroutineScope()
+        var suppressOpenSettle by remember { mutableStateOf(false) }
+        val paneOffset by remember(paneDragState) {
             derivedStateOf {
-                val offset = paneDragState.offset
-                !offset.isNaN() && offset > 0.5f
+                paneDragState.offset.takeUnless(Float::isNaN) ?: 0f
             }
         }
+        val showScrim = paneOffset > 0f
+        val scrimInteractionSource = remember { MutableInteractionSource() }
         val drawerShape = AbsoluteRoundedCornerShape(
             topLeft = 0.dp,
             topRight = DrawerMetrics.DrawerCornerRadius,
             bottomRight = DrawerMetrics.DrawerCornerRadius,
             bottomLeft = 0.dp,
         )
+        fun paneDragModifier(): Modifier = Modifier.anchoredDraggable(
+            state = paneDragState,
+            reverseDirection = false,
+            orientation = Orientation.Horizontal,
+            enabled = backHandlerEnabled,
+            flingBehavior = flingBehavior,
+        )
+
+        fun closeForSelection(action: () -> Unit) {
+            suppressOpenSettle = true
+            currentOnDismiss()
+            action()
+            paneScope.launch {
+                paneDragState.snapTo(ConversationPaneAnchor.Closed)
+            }
+        }
 
         SideEffect {
             paneDragState.updateAnchors(anchors)
         }
 
         LaunchedEffect(visible, paneWidthPx) {
+            if (suppressOpenSettle) {
+                if (!visible) {
+                    paneDragState.snapTo(ConversationPaneAnchor.Closed)
+                    suppressOpenSettle = false
+                }
+                return@LaunchedEffect
+            }
             val target = if (visible) ConversationPaneAnchor.Open else ConversationPaneAnchor.Closed
             if (paneDragState.targetValue != target || paneDragState.settledValue != target) {
                 paneDragState.animateTo(target, settleAnimation)
@@ -242,6 +273,7 @@ fun ConversationSidePaneScaffold(
 
         LaunchedEffect(paneDragState) {
             snapshotFlow { paneDragState.settledValue }.collectLatest { settledValue ->
+                if (suppressOpenSettle) return@collectLatest
                 val settledOpen = settledValue == ConversationPaneAnchor.Open
                 if (settledOpen != currentVisible) {
                     if (settledOpen) currentOnOpen() else currentOnDismiss()
@@ -257,86 +289,87 @@ fun ConversationSidePaneScaffold(
             onBackCompleted = onDismiss,
         )
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .anchoredDraggable(
-                    state = paneDragState,
-                    reverseDirection = false,
-                    orientation = Orientation.Horizontal,
-                    enabled = backHandlerEnabled,
-                    flingBehavior = flingBehavior,
-                )
-                .zIndex(0f),
-        ) {
-            content()
-        }
-
-        val dimmingInteraction = remember { MutableInteractionSource() }
         val shadowElevationPx = with(density) { DrawerMetrics.DrawerShadowElevation.toPx() }
-        if (showScrim) {
-            Box(
+        Box(modifier = Modifier.fillMaxSize()) {
+            content()
+
+            if (showScrim) {
+                val scrimStart = with(density) { paneOffset.toDp() }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = scrimStart)
+                        .graphicsLayer {
+                            alpha = if (paneWidthPx > 0f) {
+                                (paneOffset / paneWidthPx).coerceIn(0f, 1f)
+                            } else {
+                                0f
+                            }
+                        }
+                        .background(MiuixTheme.colorScheme.windowDimming)
+                        .clickable(
+                            interactionSource = scrimInteractionSource,
+                            indication = null,
+                        ) {
+                            currentOnDismiss()
+                        }
+                        .then(paneDragModifier()),
+                )
+            }
+            if (backHandlerEnabled) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxHeight()
+                        .width(DrawerMetrics.EdgeOpenHotspot)
+                        .padding(top = DrawerMetrics.EdgeOpenTopExclusion)
+                        .then(paneDragModifier()),
+                )
+            }
+
+            ConversationPanePanel(
+                state = state,
+                width = paneWidth,
+                onSearchChange = onSearchChange,
+                onConversationSelected = { conversationId ->
+                    closeForSelection { onConversationSelected(conversationId) }
+                },
+                onConversationRename = onConversationRename,
+                onConversationDelete = onConversationDelete,
+                onMoveConversationToFolder = onMoveConversationToFolder,
+                onNewConversation = { closeForSelection(onNewConversation) },
+                onConversationTogglePin = onConversationTogglePin,
+                onOpenManageChats = { closeForSelection(onOpenManageChats) },
+                onSelectFolder = onSelectFolder,
+                onCreateFolder = onCreateFolder,
+                onRenameFolder = onRenameFolder,
+                onDeleteFolder = onDeleteFolder,
+                onSelectAssistant = onSelectAssistant,
+                onEditAssistant = { assistantId -> closeForSelection { onEditAssistant(assistantId) } },
+                onOpenAssistants = { closeForSelection(onOpenAssistants) },
+                onOpenSettings = { closeForSelection(onOpenSettings) },
+                onOpenModelProviders = { closeForSelection(onOpenModelProviders) },
+                onOpenUsageStats = { closeForSelection(onOpenUsageStats) },
+                onOpenSkills = { closeForSelection(onOpenSkills) },
+                onOpenPermissions = { closeForSelection(onOpenPermissions) },
+                paneDragState = paneDragState,
+                flingBehavior = flingBehavior,
                 modifier = Modifier
-                    .fillMaxSize()
                     .graphicsLayer {
-                        val offset = paneDragState.offset.takeUnless(Float::isNaN) ?: 0f
-                        alpha = if (paneWidthPx > 0f) {
+                        val offset = paneDragState.offset.takeUnless(Float::isNaN)
+                            ?: if (visible) paneWidthPx else 0f
+                        val progress = if (paneWidthPx > 0f) {
                             (offset / paneWidthPx).coerceIn(0f, 1f)
                         } else {
                             0f
                         }
-                    }
-                    .background(MiuixTheme.colorScheme.windowDimming)
-                    .clickable(
-                        onClick = onDismiss,
-                        interactionSource = dimmingInteraction,
-                        indication = null,
-                    )
-                    .zIndex(1f),
+                        translationX = offset - paneWidthPx
+                        shadowElevation = shadowElevationPx * progress
+                        shape = drawerShape
+                        clip = true
+                    },
             )
         }
-
-        ConversationPanePanel(
-            state = state,
-            width = paneWidth,
-            onSearchChange = onSearchChange,
-            onConversationSelected = onConversationSelected,
-            onConversationRename = onConversationRename,
-            onConversationDelete = onConversationDelete,
-            onMoveConversationToFolder = onMoveConversationToFolder,
-            onNewConversation = onNewConversation,
-            onConversationTogglePin = onConversationTogglePin,
-            onOpenManageChats = onOpenManageChats,
-            onSelectFolder = onSelectFolder,
-            onCreateFolder = onCreateFolder,
-            onRenameFolder = onRenameFolder,
-            onDeleteFolder = onDeleteFolder,
-            onSelectAssistant = onSelectAssistant,
-            onEditAssistant = onEditAssistant,
-            onOpenAssistants = onOpenAssistants,
-            onOpenSettings = onOpenSettings,
-            onOpenModelProviders = onOpenModelProviders,
-            onOpenUsageStats = onOpenUsageStats,
-            onOpenSkills = onOpenSkills,
-            onOpenPermissions = onOpenPermissions,
-            paneDragState = paneDragState,
-            flingBehavior = flingBehavior,
-            modifier = Modifier
-                .graphicsLayer {
-                    val offset = paneDragState.offset.takeUnless(Float::isNaN)
-                        ?: if (visible) paneWidthPx else 0f
-                    val progress = if (paneWidthPx > 0f) {
-                        (offset / paneWidthPx).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                    translationX = offset - paneWidthPx
-                    shadowElevation = shadowElevationPx * progress
-                    shape = drawerShape
-                    clip = true
-                }
-                .zIndex(2f),
-        )
     }
 }
 
@@ -570,13 +603,17 @@ private fun DrawerActionRow(
     icon: ImageVector,
     onClick: () -> Unit,
 ) {
+    val view = LocalView.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(DrawerMetrics.SearchCornerRadius))
             .background(MiuixTheme.colorScheme.surfaceContainerHigh)
             .pointerInput(onClick) {
-                detectTapGestures(onTap = { onClick() })
+                detectTapGestures(onTap = {
+                    TouchHaptics.click(view)
+                    onClick()
+                })
             }
             .padding(horizontal = 12.dp, vertical = DrawerMetrics.SearchVerticalPadding),
         verticalAlignment = Alignment.CenterVertically,
@@ -801,7 +838,7 @@ private fun DrawerChip(
     } else {
         MiuixTheme.colorScheme.onSurface
     }
-    val hapticFeedback = LocalHapticFeedback.current
+    val view = LocalView.current
     Row(
         modifier = Modifier
             .heightIn(min = 36.dp)
@@ -809,10 +846,13 @@ private fun DrawerChip(
             .background(background)
             .pointerInput(onClick, onLongClick) {
                 detectTapGestures(
-                    onTap = { onClick() },
+                    onTap = {
+                        TouchHaptics.click(view)
+                        onClick()
+                    },
                     onLongPress = {
                         if (onLongClick != null) {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            TouchHaptics.longPress(view)
                             onLongClick()
                         }
                     },
@@ -872,7 +912,7 @@ private fun ConversationTextRow(
     onTogglePin: () -> Unit,
 ) {
     var showActionMenu by remember { mutableStateOf(false) }
-    val hapticFeedback = LocalHapticFeedback.current
+    val view = LocalView.current
 
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -888,9 +928,13 @@ private fun ConversationTextRow(
                     },
                 )
                 .combinedClickable(
-                    onClick = onClick,
+                    hapticFeedbackEnabled = false,
+                    onClick = {
+                        TouchHaptics.click(view)
+                        onClick()
+                    },
                     onLongClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        TouchHaptics.longPress(view)
                         showActionMenu = true
                     },
                 )
@@ -1072,12 +1116,16 @@ private fun PaneAssistantBar(
     onClick: () -> Unit,
     avatar: @Composable () -> Unit,
 ) {
+    val view = LocalView.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = DrawerMetrics.AssistantBarHeight)
             .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
+            .clickable {
+                TouchHaptics.click(view)
+                onClick()
+            }
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1147,11 +1195,15 @@ private fun DrawerCircleButton(
     label: String,
     onClick: () -> Unit,
 ) {
+    val view = LocalView.current
     Box(
         modifier = Modifier
             .clip(CircleShape)
             .background(MiuixTheme.colorScheme.primaryContainer)
-            .clickable(onClick = onClick)
+            .clickable {
+                TouchHaptics.click(view)
+                onClick()
+            }
             .padding(DrawerMetrics.CircleButtonPadding),
         contentAlignment = Alignment.Center,
     ) {

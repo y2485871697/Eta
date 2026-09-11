@@ -5,6 +5,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import io.github.mangi.eta.config.Prefs
 
 /**
  * Agent 前台操作的触感语义。
@@ -41,6 +42,7 @@ internal object AgentHapticFeedback {
     }
 
     fun perform(context: Context, type: Type) {
+        if (!Prefs.isEnabled(Prefs.Keys.HAPTIC_TOUCH_FEEDBACK)) return
         if (!isSystemHapticEnabled(context)) return
         val vibrator = context.getSystemService(VibratorManager::class.java)
             ?.defaultVibrator
