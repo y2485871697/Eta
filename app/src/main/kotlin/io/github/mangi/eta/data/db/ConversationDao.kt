@@ -11,14 +11,14 @@ import androidx.room.Transaction
 internal interface ConversationDao {
     @Query(
         "SELECT id, title, thinking_enabled, reasoning_effort, " +
-            "applied_runtime_run_ids_json, created_at, updated_at " +
+            "applied_runtime_run_ids_json, created_at, updated_at, folder_id, is_pinned " +
             "FROM conversations ORDER BY updated_at DESC"
     )
     suspend fun conversations(): List<ConversationMetadata>
 
     @Query(
         "SELECT id, title, thinking_enabled, reasoning_effort, " +
-            "applied_runtime_run_ids_json, created_at, updated_at " +
+            "applied_runtime_run_ids_json, created_at, updated_at, folder_id, is_pinned " +
             "FROM conversations ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"
     )
     suspend fun conversationsPage(limit: Int, offset: Int): List<ConversationMetadata>
@@ -74,6 +74,23 @@ internal interface ConversationDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertState(state: ConversationStateEntity)
+
+    @Query("SELECT * FROM conversation_folders ORDER BY sort_index ASC, created_at ASC")
+    suspend fun folders(): List<ConversationFolderEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFolders(folders: List<ConversationFolderEntity>)
+
+    @Query("DELETE FROM conversation_folders")
+    suspend fun deleteFolders()
+
+    @Transaction
+    suspend fun replaceFolders(folders: List<ConversationFolderEntity>) {
+        deleteFolders()
+        if (folders.isNotEmpty()) {
+            insertFolders(folders)
+        }
+    }
 
     @Query("DELETE FROM conversations")
     suspend fun deleteConversations()

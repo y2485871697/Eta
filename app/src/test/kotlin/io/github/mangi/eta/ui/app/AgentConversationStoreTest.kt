@@ -16,6 +16,7 @@ import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.TokenUsageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityStatusUi
+import io.github.mangi.eta.ui.model.ConversationFolderUi
 import io.github.mangi.eta.ui.model.UserMessageUi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -401,5 +402,43 @@ class AgentConversationStoreTest {
         val snapshot = AgentConversationStore.load(context)
         assertTrue(snapshot.conversationsById.isEmpty())
         assertEquals(null, snapshot.selectedConversationId)
+    }
+
+    @Test
+    fun saveAndLoadPreservesFoldersPinAndFolderAssignment() {
+        runBlocking {
+            AgentConversationStore.save(
+                context = context,
+                selectedConversationId = "conv-1",
+                conversationsById = mapOf(
+                    "conv-1" to AgentChatHomeUiState(
+                        messages = listOf(UserMessageUi(id = "user-1", content = "hello")),
+                        input = "",
+                        isStreaming = false,
+                        thinkingEnabled = false,
+                    ),
+                    "conv-2" to AgentChatHomeUiState(
+                        messages = listOf(UserMessageUi(id = "user-2", content = "world")),
+                        input = "",
+                        isStreaming = false,
+                        thinkingEnabled = false,
+                    ),
+                ),
+                titles = mapOf("conv-1" to "hello", "conv-2" to "world"),
+                updatedAt = mapOf("conv-1" to 2L, "conv-2" to 1L),
+                folderIds = mapOf("conv-1" to "folder-work"),
+                pinnedIds = setOf("conv-2"),
+                folders = listOf(
+                    ConversationFolderUi(id = "folder-work", name = "工作", sortIndex = 0),
+                ),
+            )
+        }
+
+        val snapshot = AgentConversationStore.load(context)
+        assertEquals("folder-work", snapshot.folderIds["conv-1"])
+        assertEquals(null, snapshot.folderIds["conv-2"])
+        assertEquals(setOf("conv-2"), snapshot.pinnedIds)
+        assertEquals(listOf("folder-work"), snapshot.folders.map { it.id })
+        assertEquals("工作", snapshot.folders.single().name)
     }
 }

@@ -20,6 +20,10 @@ internal data class ConversationEntity(
     @ColumnInfo(name = "applied_runtime_run_ids_json") val appliedRuntimeRunIdsJson: String = "[]",
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
+    @ColumnInfo(name = "folder_id", defaultValue = "''")
+    val folderId: String = "",
+    @ColumnInfo(name = "is_pinned", defaultValue = "0")
+    val isPinned: Boolean = false,
 )
 
 internal data class ConversationMetadata(
@@ -30,6 +34,17 @@ internal data class ConversationMetadata(
     @ColumnInfo(name = "applied_runtime_run_ids_json") val appliedRuntimeRunIdsJson: String,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
+    @ColumnInfo(name = "folder_id") val folderId: String = "",
+    @ColumnInfo(name = "is_pinned") val isPinned: Boolean = false,
+)
+
+@Serializable
+@Entity(tableName = "conversation_folders")
+internal data class ConversationFolderEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    @ColumnInfo(name = "sort_index") val sortIndex: Int,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
 )
 
 @Serializable

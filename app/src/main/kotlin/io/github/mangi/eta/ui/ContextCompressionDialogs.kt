@@ -110,7 +110,7 @@ private fun rememberActivityImeBottomDp(): Dp {
 
 private fun storedCompressTargetTokens(): Int {
     val stored = Prefs.getInt(
-        Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
+        Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS,
         AgentContextCompactor.DEFAULT_TARGET_TOKENS,
     )
     return CompressTargetTokenOptions.firstOrNull { it == stored }
@@ -119,7 +119,7 @@ private fun storedCompressTargetTokens(): Int {
 
 private fun storedCompressKeepRecent(): Int {
     return Prefs.getInt(
-        Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
+        Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
         AgentContextCompactor.DEFAULT_KEEP_RECENT,
     ).coerceIn(0, 100)
 }
@@ -271,8 +271,11 @@ internal fun CompressConversationDialog(
                     }
                     val number = digits.toInt().coerceIn(0, 100)
                     val next = number.toString()
-                    keepRecent = number
                     keepRecentField = TextFieldValue(next, TextRange(next.length))
+                    if (number != keepRecent) {
+                        keepRecent = number
+                        Prefs.putInt(Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT, number)
+                    }
                 },
                 enabled = !compressing,
                 singleLine = true,
@@ -456,6 +459,12 @@ internal suspend fun buildCompressModelPickerState(
 }
 
 internal suspend fun buildManualCompressModelPickerState(): AgentModelPickerUiState {
+    val prefs = Prefs.localAgentPreferences()
+    val manualProviderId = prefs?.getString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID, null)
+    val manualModelId = prefs?.getString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_ID, null)
+    if (!manualProviderId.isNullOrBlank() && !manualModelId.isNullOrBlank()) {
+        return buildCompressModelPickerState(manualProviderId, manualModelId)
+    }
     val settings = SettingsDataStore.settings()
     return buildCompressModelPickerState(settings.selectedProviderId, settings.selectedModelId)
 }

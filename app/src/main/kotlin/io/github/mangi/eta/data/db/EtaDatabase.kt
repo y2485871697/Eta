@@ -13,6 +13,7 @@ import androidx.room.migration.Migration
         ConversationContextCheckpointEntity::class,
         ConversationMessageEntity::class,
         ConversationStateEntity::class,
+        ConversationFolderEntity::class,
         ProviderEntity::class,
         ProviderModelEntity::class,
         RuntimeResultEntity::class,
@@ -23,7 +24,7 @@ import androidx.room.migration.Migration
         SkillRegistryEntity::class,
         McpServerEntity::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = false,
 )
 internal abstract class EtaDatabase : RoomDatabase() {
@@ -58,6 +59,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_16_17,
                         MIGRATION_17_18,
                         MIGRATION_18_19,
+                        MIGRATION_19_20,
                     )
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
@@ -107,6 +109,23 @@ internal abstract class EtaDatabase : RoomDatabase() {
         internal val MIGRATION_18_19 = Migration(18, 19) { database ->
             database.execSQL(
                 "ALTER TABLE provider_models ADD COLUMN preferred_reasoning_effort TEXT"
+            )
+        }
+
+        internal val MIGRATION_19_20 = Migration(19, 20) { database ->
+            database.execSQL(
+                "ALTER TABLE conversations ADD COLUMN folder_id TEXT NOT NULL DEFAULT ''"
+            )
+            database.execSQL(
+                "ALTER TABLE conversations ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0"
+            )
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS conversation_folders (" +
+                    "id TEXT NOT NULL, " +
+                    "name TEXT NOT NULL, " +
+                    "sort_index INTEGER NOT NULL, " +
+                    "created_at INTEGER NOT NULL, " +
+                    "PRIMARY KEY(id))"
             )
         }
 

@@ -9,11 +9,17 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -22,7 +28,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -64,6 +72,7 @@ import io.github.mangi.eta.ui.screens.assistants.AssistantsScreen
 import io.github.mangi.eta.ui.screens.backup.DataBackupScreen
 import io.github.mangi.eta.ui.screens.browser.AgentBrowserScreen
 import io.github.mangi.eta.ui.screens.chat.AgentChatScreen
+import io.github.mangi.eta.ui.screens.chat.ManageChatsScreen
 import io.github.mangi.eta.ui.screens.enhance.SystemEnhanceScreen
 import io.github.mangi.eta.ui.screens.home.AgentHomeScreen
 import io.github.mangi.eta.ui.screens.mcp.McpServerDetailScreen
@@ -80,7 +89,10 @@ import io.github.mangi.eta.ui.screens.terminal.WorkspaceScreen
 import io.github.mangi.eta.ui.screens.tools.AgentToolsScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.NavDisplayEffects
 import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
@@ -134,6 +146,7 @@ fun AgentAppRoot(
     var conversationPaneOpen by remember { mutableStateOf(false) }
     var conversationRenameTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var conversationDeleteTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
+    var conversationMoveTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var messageDeleteTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
     var messageRegenerateTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
 
@@ -238,11 +251,49 @@ fun AgentAppRoot(
             onConversationDelete = { conversation ->
                 conversationDeleteTarget = conversation
             },
-            onOpenUsageStats = { pushRoute(AppRoute.UsageStats) },
-            onOpenSkills = { pushRoute(AppRoute.Skills) },
-            onOpenPermissions = { pushRoute(AppRoute.Permissions) },
-            onOpenSettings = { pushRoute(AppRoute.Settings) },
-            onOpenModelProviders = { pushRoute(AppRoute.ModelProviders) },
+            onMoveConversationToFolder = { conversation ->
+                conversationMoveTarget = conversation
+            },
+            onConversationTogglePin = { conversation ->
+                agentState.toggleConversationPinned(conversation.id)
+            },
+            onOpenManageChats = {
+                conversationPaneOpen = false
+                pushRoute(AppRoute.ManageChats)
+            },
+            onSelectFolder = { folderId -> agentState.selectFolder(folderId) },
+            onCreateFolder = { name -> agentState.createFolder(name) },
+            onRenameFolder = { folderId, name -> agentState.renameFolder(folderId, name) },
+            onDeleteFolder = { folderId -> agentState.deleteFolder(folderId) },
+            onSelectAssistant = { id -> agentState.selectAssistant(id) },
+            onEditAssistant = { id ->
+                conversationPaneOpen = false
+                pushRoute(AppRoute.AssistantEdit(id))
+            },
+            onOpenAssistants = {
+                conversationPaneOpen = false
+                pushRoute(AppRoute.Assistants())
+            },
+            onOpenUsageStats = {
+                conversationPaneOpen = false
+                pushRoute(AppRoute.UsageStats)
+            },
+            onOpenSkills = {
+                conversationPaneOpen = false
+                pushRoute(AppRoute.Skills)
+            },
+            onOpenPermissions = {
+                conversationPaneOpen = false
+                pushRoute(AppRoute.Permissions)
+            },
+            onOpenSettings = {
+                conversationPaneOpen = false
+                pushRoute(AppRoute.Settings)
+            },
+            onOpenModelProviders = {
+                conversationPaneOpen = false
+                pushRoute(AppRoute.ModelProviders)
+            },
         ) { padding ->
             Box(
                 modifier = Modifier
@@ -542,6 +593,28 @@ fun AgentAppRoot(
             entry<AppRoute.UsageStats>(swipeDismiss = swipeDismiss) {
                 UsageStatsScreen(onBack = ::popRoute)
             }
+            entry<AppRoute.ManageChats>(swipeDismiss = swipeDismiss) {
+                ManageChatsScreen(
+                    conversations = agentState.conversationPaneState.historyConversations,
+                    onBack = ::popRoute,
+                    onOpenConversation = { conversationId ->
+                        selectConversation(conversationId)
+                        popRoute()
+                    },
+                    onTogglePin = { conversationId ->
+                        agentState.toggleConversationPinned(conversationId)
+                    },
+                    onDeleteConversation = { conversation ->
+                        agentState.deleteConversation(conversation.id)
+                    },
+                    onDeleteAll = { agentState.deleteAllConversations() },
+                    onSearchHistory = { query -> agentState.searchHistory(query) },
+                    onOpenHistoryHit = { hit ->
+                        agentState.openHistorySearchHit(hit)
+                        popRoute()
+                    },
+                )
+            }
             entry<AppRoute.Settings>(swipeDismiss = swipeDismiss) {
                 SettingsScreen(
                     context = context,
@@ -697,6 +770,36 @@ fun AgentAppRoot(
         }
     }
 
+    conversationMoveTarget?.let { conversation ->
+        WindowDialog(
+            show = true,
+            title = stringResource(R.string.drawer_move_to_folder),
+            onDismissRequest = { conversationMoveTarget = null },
+        ) {
+            Column {
+                val folders = agentState.conversationPaneState.folders
+                MoveFolderOption(
+                    label = stringResource(R.string.drawer_chats_chip),
+                    selected = conversation.folderId.isNullOrBlank(),
+                    onClick = {
+                        agentState.moveConversationToFolder(conversation.id, null)
+                        conversationMoveTarget = null
+                    },
+                )
+                folders.forEach { folder ->
+                    MoveFolderOption(
+                        label = folder.name,
+                        selected = conversation.folderId == folder.id,
+                        onClick = {
+                            agentState.moveConversationToFolder(conversation.id, folder.id)
+                            conversationMoveTarget = null
+                        },
+                    )
+                }
+            }
+        }
+    }
+
     messageDeleteTarget?.let { target ->
         WindowDialog(
             show = true,
@@ -749,6 +852,45 @@ fun AgentAppRoot(
                 },
             )
         }
+    }
+}
+
+
+
+@Composable
+private fun MoveFolderOption(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Folder,
+            contentDescription = null,
+            tint = if (selected) {
+                MiuixTheme.colorScheme.primary
+            } else {
+                MiuixTheme.colorScheme.onSurface
+            },
+        )
+        Text(
+            text = label,
+            color = if (selected) {
+                MiuixTheme.colorScheme.primary
+            } else {
+                MiuixTheme.colorScheme.onSurface
+            },
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

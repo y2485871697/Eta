@@ -4,13 +4,14 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.AnchoredDraggableDefaults
 import androidx.compose.foundation.gestures.AnchoredDraggableState
 import androidx.compose.foundation.gestures.DraggableAnchors
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.anchoredDraggable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.animateTo
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.layout.Arrangement
@@ -25,24 +26,31 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Mood
+import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Extension
-import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Memory
-import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,19 +66,21 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -78,59 +88,61 @@ import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import io.github.mangi.eta.R
+import io.github.mangi.eta.data.repository.AssistantRepository
+import io.github.mangi.eta.ui.model.ConversationFolderUi
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
-import kotlin.math.roundToInt
+import io.github.mangi.eta.ui.screens.assistants.AssistantPickerDialog
 import kotlinx.coroutines.flow.collectLatest
 import top.yukonga.miuix.kmp.basic.DropdownDefaults
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.InputField
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.ListPopupDefaults
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
-import top.yukonga.miuix.kmp.basic.SearchBar
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
-import top.yukonga.miuix.kmp.squircle.absoluteSquircleClip
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.window.WindowListPopup
 
 private object DrawerMetrics {
-    val PaneMaxWidth = 340.dp
-    val PaneWidthFraction = 0.84f
-    val ForegroundCornerRadiusFallback = 24.dp
-    val ForegroundShadowRadius = 12.dp
-    const val ForegroundShadowAlpha = 0.12f
+    val PaneMaxWidth = 320.dp
+    val PaneWidthFraction = 0.78f
+    val DrawerCornerRadius = 28.dp
+    val DrawerShadowElevation = 12.dp
     const val SettleDampingRatio = 1f
     const val SettleStiffness = 146f
     const val SettleVisibilityThresholdPx = 0.5f
     const val SettlePositionThresholdFraction = 0.5f
     val PaneHorizontalPadding = 16.dp
-    val TopInset = 16.dp
-    val AfterActionBar = 18.dp
-    val ListBottomPadding = 20.dp
-    val BottomInset = 12.dp
+    val TopInset = 8.dp
+    val AfterSearch = 12.dp
+    val SearchIconSize = 18.dp
+    val SearchCornerRadius = 14.dp
+    val SearchVerticalPadding = 10.dp
+    val ChipGap = 8.dp
+    val AfterChips = 10.dp
+    val ListBottomPadding = 12.dp
+    val BottomInset = 10.dp
     val ActionIconSize = 20.dp
-    val SectionTopPadding = 8.dp
-    val SectionBottomPadding = 10.dp
-    val SectionIconSize = 14.dp
-    val SectionIconGap = 8.dp
-    val SectionCountGap = 12.dp
-    val RowMinHeight = 48.dp
-    val RowGap = 4.dp
-    val RowCornerRadius = 12.dp
-    val RowHorizontalPadding = 32.dp
-    val RowVerticalPadding = 12.dp
+    val CircleButtonPadding = 10.dp
+    val SectionTopPadding = 10.dp
+    val SectionBottomPadding = 6.dp
+    val RowMinHeight = 44.dp
+    val RowGap = 2.dp
+    val RowCornerRadius = 18.dp
+    val RowHorizontalPadding = 14.dp
+    val RowVerticalPadding = 10.dp
     val ActiveDotSize = 6.dp
-    val ActiveDotGap = 10.dp
+    val ActiveDotGap = 8.dp
     val EmptyVerticalPadding = 28.dp
-    val DockTopGap = 14.dp
+    val DockTopGap = 8.dp
+    val AssistantBarHeight = 48.dp
 }
 
 private enum class ConversationPaneAnchor {
@@ -149,6 +161,17 @@ fun ConversationSidePaneScaffold(
     onConversationSelected: (String) -> Unit,
     onConversationRename: (ConversationSummaryUi) -> Unit,
     onConversationDelete: (ConversationSummaryUi) -> Unit,
+    onMoveConversationToFolder: (ConversationSummaryUi) -> Unit = {},
+    onConversationTogglePin: (ConversationSummaryUi) -> Unit = {},
+    onNewConversation: () -> Unit,
+    onOpenManageChats: () -> Unit = {},
+    onSelectFolder: (String?) -> Unit = {},
+    onCreateFolder: (String) -> Unit = {},
+    onRenameFolder: (String, String) -> Unit = { _, _ -> },
+    onDeleteFolder: (String) -> Unit = {},
+    onSelectAssistant: (String) -> Unit,
+    onEditAssistant: (String) -> Unit,
+    onOpenAssistants: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenModelProviders: () -> Unit,
     onOpenUsageStats: () -> Unit,
@@ -193,15 +216,18 @@ fun ConversationSidePaneScaffold(
         val currentVisible by rememberUpdatedState(visible)
         val currentOnOpen by rememberUpdatedState(onOpen)
         val currentOnDismiss by rememberUpdatedState(onDismiss)
-        val shouldClipForeground by remember(paneDragState) {
+        val showScrim by remember(paneDragState) {
             derivedStateOf {
                 val offset = paneDragState.offset
                 !offset.isNaN() && offset > 0.5f
             }
         }
-        val systemCornerRadius = rememberNavSystemCornerRadius()
-        val foregroundCornerRadius = systemCornerRadius.takeIf { it > 0.dp }
-            ?: DrawerMetrics.ForegroundCornerRadiusFallback
+        val drawerShape = AbsoluteRoundedCornerShape(
+            topLeft = 0.dp,
+            topRight = DrawerMetrics.DrawerCornerRadius,
+            bottomRight = DrawerMetrics.DrawerCornerRadius,
+            bottomLeft = 0.dp,
+        )
 
         SideEffect {
             paneDragState.updateAnchors(anchors)
@@ -223,8 +249,6 @@ fun ConversationSidePaneScaffold(
             }
         }
 
-        // NavDisplay 的退出条目在转场期间仍会保留组合；仅允许已稳定显示的首页
-        // 处理侧栏返回，避免它抢先消费二级页面的第一次返回事件。
         NavigationBackHandler(
             state = navigationEventState,
             isBackEnabled = visible &&
@@ -233,75 +257,9 @@ fun ConversationSidePaneScaffold(
             onBackCompleted = onDismiss,
         )
 
-        ConversationPanePanel(
-            state = state,
-            width = paneWidth,
-            onSearchChange = onSearchChange,
-            onConversationSelected = onConversationSelected,
-            onConversationRename = onConversationRename,
-            onConversationDelete = onConversationDelete,
-            onOpenSettings = onOpenSettings,
-            onOpenModelProviders = onOpenModelProviders,
-            onOpenUsageStats = onOpenUsageStats,
-            onOpenSkills = onOpenSkills,
-            onOpenPermissions = onOpenPermissions,
-            paneDragState = paneDragState,
-            flingBehavior = flingBehavior,
-            modifier = Modifier.zIndex(0f),
-        )
-
-        Box(
-            modifier = Modifier
-                .width(paneWidth)
-                .fillMaxHeight()
-                .graphicsLayer {
-                    val offset = paneDragState.offset.takeUnless(Float::isNaN) ?: 0f
-                    val progress = if (paneWidthPx > 0f) {
-                        (offset / paneWidthPx).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                    alpha = 1f - progress
-                }
-                .background(MiuixTheme.colorScheme.windowDimming)
-                .zIndex(0.5f),
-        )
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .offset {
-                    val offset = paneDragState.offset.takeUnless(Float::isNaN)
-                        ?: if (visible) paneWidthPx else 0f
-                    IntOffset(offset.roundToInt(), 0)
-                }
-                .then(
-                    if (shouldClipForeground) {
-                        Modifier
-                            .dropShadow(
-                                shape = AbsoluteRoundedCornerShape(
-                                    topLeft = foregroundCornerRadius,
-                                    topRight = 0.dp,
-                                    bottomRight = 0.dp,
-                                    bottomLeft = foregroundCornerRadius,
-                                ),
-                                shadow = Shadow(
-                                    radius = DrawerMetrics.ForegroundShadowRadius,
-                                    color = Color.Black,
-                                    alpha = DrawerMetrics.ForegroundShadowAlpha,
-                                ),
-                            )
-                            .absoluteSquircleClip(
-                                topLeft = foregroundCornerRadius,
-                                topRight = 0.dp,
-                                bottomRight = 0.dp,
-                                bottomLeft = foregroundCornerRadius,
-                            )
-                    } else {
-                        Modifier
-                    },
-                )
-                // 保持物理左右方向，不随 RTL 镜像：会话列表始终从屏幕左侧显露。
                 .anchoredDraggable(
                     state = paneDragState,
                     reverseDirection = false,
@@ -309,25 +267,81 @@ fun ConversationSidePaneScaffold(
                     enabled = backHandlerEnabled,
                     flingBehavior = flingBehavior,
                 )
-                .zIndex(1f),
+                .zIndex(0f),
         ) {
             content()
-            if (visible) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            onClick = onDismiss,
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ),
-                )
-            }
         }
+
+        val dimmingInteraction = remember { MutableInteractionSource() }
+        val shadowElevationPx = with(density) { DrawerMetrics.DrawerShadowElevation.toPx() }
+        if (showScrim) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val offset = paneDragState.offset.takeUnless(Float::isNaN) ?: 0f
+                        alpha = if (paneWidthPx > 0f) {
+                            (offset / paneWidthPx).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
+                    }
+                    .background(MiuixTheme.colorScheme.windowDimming)
+                    .clickable(
+                        onClick = onDismiss,
+                        interactionSource = dimmingInteraction,
+                        indication = null,
+                    )
+                    .zIndex(1f),
+            )
+        }
+
+        ConversationPanePanel(
+            state = state,
+            width = paneWidth,
+            onSearchChange = onSearchChange,
+            onConversationSelected = onConversationSelected,
+            onConversationRename = onConversationRename,
+            onConversationDelete = onConversationDelete,
+            onMoveConversationToFolder = onMoveConversationToFolder,
+            onNewConversation = onNewConversation,
+            onConversationTogglePin = onConversationTogglePin,
+            onOpenManageChats = onOpenManageChats,
+            onSelectFolder = onSelectFolder,
+            onCreateFolder = onCreateFolder,
+            onRenameFolder = onRenameFolder,
+            onDeleteFolder = onDeleteFolder,
+            onSelectAssistant = onSelectAssistant,
+            onEditAssistant = onEditAssistant,
+            onOpenAssistants = onOpenAssistants,
+            onOpenSettings = onOpenSettings,
+            onOpenModelProviders = onOpenModelProviders,
+            onOpenUsageStats = onOpenUsageStats,
+            onOpenSkills = onOpenSkills,
+            onOpenPermissions = onOpenPermissions,
+            paneDragState = paneDragState,
+            flingBehavior = flingBehavior,
+            modifier = Modifier
+                .graphicsLayer {
+                    val offset = paneDragState.offset.takeUnless(Float::isNaN)
+                        ?: if (visible) paneWidthPx else 0f
+                    val progress = if (paneWidthPx > 0f) {
+                        (offset / paneWidthPx).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                    translationX = offset - paneWidthPx
+                    shadowElevation = shadowElevationPx * progress
+                    shape = drawerShape
+                    clip = true
+                }
+                .zIndex(2f),
+        )
     }
 }
 
 @Composable
+@Suppress("UNUSED_PARAMETER")
 private fun ConversationPanePanel(
     state: ConversationPaneUiState,
     width: androidx.compose.ui.unit.Dp,
@@ -335,6 +349,17 @@ private fun ConversationPanePanel(
     onConversationSelected: (String) -> Unit,
     onConversationRename: (ConversationSummaryUi) -> Unit,
     onConversationDelete: (ConversationSummaryUi) -> Unit,
+    onMoveConversationToFolder: (ConversationSummaryUi) -> Unit = {},
+    onConversationTogglePin: (ConversationSummaryUi) -> Unit = {},
+    onNewConversation: () -> Unit,
+    onOpenManageChats: () -> Unit = {},
+    onSelectFolder: (String?) -> Unit = {},
+    onCreateFolder: (String) -> Unit = {},
+    onRenameFolder: (String, String) -> Unit = { _, _ -> },
+    onDeleteFolder: (String) -> Unit = {},
+    onSelectAssistant: (String) -> Unit,
+    onEditAssistant: (String) -> Unit,
+    onOpenAssistants: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenModelProviders: () -> Unit,
     onOpenUsageStats: () -> Unit,
@@ -356,6 +381,12 @@ private fun ConversationPanePanel(
         }
     }
     val groups = remember(visibleConversations) { visibleConversations.groupForDrawer() }
+    val profiles by AssistantRepository.profiles.collectAsState()
+    val activeId by AssistantRepository.activeId.collectAsState()
+    val activeAssistant = remember(profiles, activeId) {
+        profiles.firstOrNull { it.id == activeId } ?: profiles.firstOrNull()
+    }
+    var showAssistantPicker by remember { mutableStateOf(false) }
 
     Surface(
         modifier = modifier
@@ -378,11 +409,25 @@ private fun ConversationPanePanel(
                 .padding(horizontal = DrawerMetrics.PaneHorizontalPadding),
         ) {
             Spacer(modifier = Modifier.height(DrawerMetrics.TopInset))
-            PaneActionBar(
+            PaneSearchRow(
                 query = state.searchQuery,
                 onSearchChange = onSearchChange,
             )
-            Spacer(modifier = Modifier.height(DrawerMetrics.AfterActionBar))
+            Spacer(modifier = Modifier.height(DrawerMetrics.AfterSearch))
+            PaneDrawerActions(
+                onNewConversation = onNewConversation,
+                onOpenManageChats = onOpenManageChats,
+            )
+            Spacer(modifier = Modifier.height(DrawerMetrics.AfterSearch))
+            PaneFolderBar(
+                folders = state.folders,
+                selectedFolderId = state.selectedFolderId,
+                onSelectFolder = onSelectFolder,
+                onCreateFolder = onCreateFolder,
+                onRenameFolder = onRenameFolder,
+                onDeleteFolder = onDeleteFolder,
+            )
+            Spacer(modifier = Modifier.height(DrawerMetrics.AfterChips))
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -411,48 +456,387 @@ private fun ConversationPanePanel(
                                 onClick = { onConversationSelected(conversation.id) },
                                 onRename = { onConversationRename(conversation) },
                                 onDelete = { onConversationDelete(conversation) },
+                                onMoveToFolder = { onMoveConversationToFolder(conversation) },
+                                onTogglePin = { onConversationTogglePin(conversation) },
                             )
                         }
                     }
                 }
             }
+            PaneAssistantBar(
+                name = activeAssistant?.name?.ifBlank { stringResource(R.string.app_name) }
+                    ?: stringResource(R.string.app_name),
+                onClick = { showAssistantPicker = true },
+                avatar = {
+                    AssistantAvatar(
+                        assistant = activeAssistant,
+                        size = 32.dp,
+                    )
+                },
+            )
             Spacer(modifier = Modifier.height(DrawerMetrics.DockTopGap))
             PaneDock(
+                onOpenAssistants = onOpenAssistants,
                 onOpenSettings = onOpenSettings,
                 onOpenModelProviders = onOpenModelProviders,
                 onOpenUsageStats = onOpenUsageStats,
                 onOpenSkills = onOpenSkills,
-                onOpenPermissions = onOpenPermissions,
             )
             Spacer(modifier = Modifier.height(DrawerMetrics.BottomInset))
+        }
+    }
+
+    AssistantPickerDialog(
+        show = showAssistantPicker,
+        onDismiss = { showAssistantPicker = false },
+        onSelect = onSelectAssistant,
+        onEdit = onEditAssistant,
+    )
+}
+
+@Composable
+private fun PaneSearchRow(
+    query: String,
+    onSearchChange: (String) -> Unit,
+) {
+    val textStyle = MiuixTheme.textStyles.body2.merge(
+        TextStyle(
+            color = MiuixTheme.colorScheme.onSurface,
+            fontSize = 14.sp,
+        ),
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(DrawerMetrics.SearchCornerRadius))
+            .background(MiuixTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = 12.dp, vertical = DrawerMetrics.SearchVerticalPadding),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Search,
+            contentDescription = null,
+            modifier = Modifier.size(DrawerMetrics.SearchIconSize),
+            tint = MiuixTheme.colorScheme.onSurface,
+        )
+        Box(modifier = Modifier.weight(1f)) {
+            if (query.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.conversation_search_hint),
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.body2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            BasicTextField(
+                value = query,
+                onValueChange = onSearchChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                textStyle = textStyle,
+                cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+            )
         }
     }
 }
 
 @Composable
-private fun PaneActionBar(
-    query: String,
-    onSearchChange: (String) -> Unit,
+private fun PaneDrawerActions(
+    onNewConversation: () -> Unit,
+    onOpenManageChats: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(DrawerMetrics.ChipGap),
+    ) {
+        DrawerActionRow(
+            label = stringResource(R.string.drawer_new_conversation),
+            icon = Icons.AutoMirrored.Rounded.Chat,
+            onClick = onNewConversation,
+        )
+        DrawerActionRow(
+            label = stringResource(R.string.drawer_manage_chats),
+            icon = Icons.Rounded.History,
+            onClick = onOpenManageChats,
+        )
+    }
+}
+
+@Composable
+private fun DrawerActionRow(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
 ) {
     Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(DrawerMetrics.SearchCornerRadius))
+            .background(MiuixTheme.colorScheme.surfaceContainerHigh)
+            .pointerInput(onClick) {
+                detectTapGestures(onTap = { onClick() })
+            }
+            .padding(horizontal = 12.dp, vertical = DrawerMetrics.SearchVerticalPadding),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MiuixTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = label,
+            color = MiuixTheme.colorScheme.onSurface,
+            style = MiuixTheme.textStyles.body2,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun PaneFolderBar(
+    folders: List<ConversationFolderUi>,
+    selectedFolderId: String?,
+    onSelectFolder: (String?) -> Unit,
+    onCreateFolder: (String) -> Unit,
+    onRenameFolder: (String, String) -> Unit,
+    onDeleteFolder: (String) -> Unit,
+) {
+    var createFolder by remember { mutableStateOf(false) }
+    var folderToRename by remember { mutableStateOf<ConversationFolderUi?>(null) }
+    var folderToDelete by remember { mutableStateOf<ConversationFolderUi?>(null) }
+
+    LazyRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(DrawerMetrics.ChipGap),
     ) {
-        SearchBar(
-            modifier = Modifier.weight(1f),
-            expanded = false,
-            onExpandedChange = {},
-            inputField = {
-                InputField(
-                    query = query,
-                    onQueryChange = onSearchChange,
-                    onSearch = onSearchChange,
-                    expanded = false,
-                    onExpandedChange = {},
-                    label = stringResource(R.string.conversation_search_hint),
+        item(key = "unfiled") {
+            DrawerChip(
+                label = stringResource(R.string.drawer_chats_chip),
+                selected = selectedFolderId == null,
+                icon = null,
+                onClick = { onSelectFolder(null) },
+            )
+        }
+        items(folders, key = { it.id }) { folder ->
+            var showMenu by remember(folder.id) { mutableStateOf(false) }
+            Box {
+                DrawerChip(
+                    label = folder.name,
+                    selected = selectedFolderId == folder.id,
+                    icon = Icons.Rounded.Folder,
+                    onClick = { onSelectFolder(folder.id) },
+                    onLongClick = { showMenu = true },
                 )
+                WindowListPopup(
+                    show = showMenu,
+                    popupPositionProvider = ListPopupDefaults.ContextMenuPositionProvider,
+                    alignment = PopupPositionProvider.Align.BottomEnd,
+                    onDismissRequest = { showMenu = false },
+                ) {
+                    val renameText = stringResource(R.string.action_rename)
+                    val deleteText = stringResource(R.string.action_delete)
+                    val renameItem = remember(renameText) {
+                        DropdownItem(
+                            text = renameText,
+                            icon = { modifier ->
+                                Icon(
+                                    imageVector = Icons.Rounded.Edit,
+                                    contentDescription = null,
+                                    modifier = modifier.size(DrawerMetrics.ActionIconSize),
+                                )
+                            },
+                        )
+                    }
+                    val deleteItem = remember(deleteText) {
+                        DropdownItem(
+                            text = deleteText,
+                            icon = { modifier ->
+                                Icon(
+                                    imageVector = Icons.Rounded.Delete,
+                                    contentDescription = null,
+                                    modifier = modifier.size(DrawerMetrics.ActionIconSize),
+                                    tint = MiuixTheme.colorScheme.error,
+                                )
+                            },
+                        )
+                    }
+                    val deleteColors = DropdownDefaults.dropdownColors(
+                        contentColor = MiuixTheme.colorScheme.error,
+                        selectedContentColor = MiuixTheme.colorScheme.error,
+                        selectedIndicatorColor = MiuixTheme.colorScheme.error,
+                    )
+                    ListPopupColumn {
+                        DropdownImpl(
+                            item = renameItem,
+                            optionSize = 2,
+                            isSelected = false,
+                            index = 0,
+                            onSelectedIndexChange = {
+                                showMenu = false
+                                folderToRename = folder
+                            },
+                        )
+                        DropdownImpl(
+                            item = deleteItem,
+                            optionSize = 2,
+                            isSelected = false,
+                            index = 1,
+                            dropdownColors = deleteColors,
+                            onSelectedIndexChange = {
+                                showMenu = false
+                                folderToDelete = folder
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        item(key = "new-folder") {
+            DrawerChip(
+                label = stringResource(R.string.drawer_new_folder),
+                selected = false,
+                icon = Icons.Rounded.CreateNewFolder,
+                onClick = { createFolder = true },
+            )
+        }
+    }
+
+    if (createFolder) {
+        FolderNameDialog(
+            title = stringResource(R.string.drawer_create_folder_title),
+            initialName = "",
+            onDismiss = { createFolder = false },
+            onConfirm = { name ->
+                onCreateFolder(name)
+                createFolder = false
             },
-            content = {},
+        )
+    }
+    folderToRename?.let { folder ->
+        FolderNameDialog(
+            title = stringResource(R.string.drawer_rename_folder_title),
+            initialName = folder.name,
+            onDismiss = { folderToRename = null },
+            onConfirm = { name ->
+                onRenameFolder(folder.id, name)
+                folderToRename = null
+            },
+        )
+    }
+    folderToDelete?.let { folder ->
+        WindowDialog(
+            show = true,
+            title = stringResource(R.string.drawer_delete_folder_title),
+            summary = stringResource(R.string.drawer_delete_folder_message),
+            onDismissRequest = { folderToDelete = null },
+        ) {
+            MiuixDialogActions(
+                confirmText = stringResource(R.string.action_delete),
+                destructive = true,
+                onCancel = { folderToDelete = null },
+                onConfirm = {
+                    onDeleteFolder(folder.id)
+                    folderToDelete = null
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun FolderNameDialog(
+    title: String,
+    initialName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by remember(initialName) { mutableStateOf(initialName) }
+    WindowDialog(
+        show = true,
+        title = title,
+        onDismissRequest = onDismiss,
+    ) {
+        Column {
+            TextField(
+                value = name,
+                onValueChange = { name = it },
+                label = stringResource(R.string.drawer_folder_name),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            MiuixDialogActions(
+                confirmText = stringResource(R.string.action_save),
+                confirmEnabled = name.isNotBlank(),
+                onCancel = onDismiss,
+                onConfirm = { onConfirm(name) },
+                modifier = Modifier.padding(top = 16.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DrawerChip(
+    label: String,
+    selected: Boolean,
+    icon: ImageVector?,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
+    val background = if (selected) {
+        MiuixTheme.colorScheme.secondaryContainer
+    } else {
+        MiuixTheme.colorScheme.surfaceContainerHigh
+    }
+    val contentColor = if (selected) {
+        MiuixTheme.colorScheme.onSecondaryContainer
+    } else {
+        MiuixTheme.colorScheme.onSurface
+    }
+    val hapticFeedback = LocalHapticFeedback.current
+    Row(
+        modifier = Modifier
+            .heightIn(min = 36.dp)
+            .clip(CircleShape)
+            .background(background)
+            .pointerInput(onClick, onLongClick) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onLongPress = {
+                        if (onLongClick != null) {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongClick()
+                        }
+                    },
+                )
+            }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = contentColor,
+            )
+        }
+        Text(
+            text = label,
+            color = contentColor,
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -461,36 +845,19 @@ private fun PaneActionBar(
 private fun ConversationSectionHeader(
     group: ConversationDrawerGroup,
 ) {
-    Row(
+    Text(
+        text = group.localizedLabel(),
+        color = MiuixTheme.colorScheme.primary,
+        style = MiuixTheme.textStyles.footnote1,
+        fontWeight = FontWeight.SemiBold,
         modifier = Modifier
             .fillMaxWidth()
             .padding(
+                start = DrawerMetrics.RowHorizontalPadding,
                 top = DrawerMetrics.SectionTopPadding,
                 bottom = DrawerMetrics.SectionBottomPadding,
             ),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.Schedule,
-            contentDescription = null,
-            modifier = Modifier.size(DrawerMetrics.SectionIconSize),
-            tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
-        )
-        Spacer(modifier = Modifier.width(DrawerMetrics.SectionIconGap))
-        Text(
-            text = group.localizedLabel(),
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            style = MiuixTheme.textStyles.footnote1,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(modifier = Modifier.width(DrawerMetrics.SectionCountGap))
-        Text(
-            text = group.items.size.toString(),
-            color = MiuixTheme.colorScheme.onSurfaceVariantActions,
-            style = MiuixTheme.textStyles.footnote1,
-            fontWeight = FontWeight.Medium,
-        )
-    }
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -501,6 +868,8 @@ private fun ConversationTextRow(
     onClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onMoveToFolder: () -> Unit,
+    onTogglePin: () -> Unit,
 ) {
     var showActionMenu by remember { mutableStateOf(false) }
     val hapticFeedback = LocalHapticFeedback.current
@@ -533,17 +902,21 @@ private fun ConversationTextRow(
         ) {
             Text(
                 text = conversation.title.ifBlank { conversation.preview },
-                color = if (selected) {
-                    MiuixTheme.colorScheme.primary
-                } else {
-                    MiuixTheme.colorScheme.onSurface
-                },
+                color = MiuixTheme.colorScheme.onSurface,
                 style = MiuixTheme.textStyles.body1,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            if (conversation.isPinned) {
+                Icon(
+                    imageVector = Icons.Rounded.PushPin,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MiuixTheme.colorScheme.primary,
+                )
+            }
             if (conversation.isActiveRun) {
                 Box(
                     modifier = Modifier
@@ -562,13 +935,50 @@ private fun ConversationTextRow(
             onDismissRequest = { showActionMenu = false },
         ) {
             val renameText = stringResource(R.string.action_rename)
+            val pinText = stringResource(
+                if (conversation.isPinned) {
+                    R.string.conversation_unpin
+                } else {
+                    R.string.conversation_pin
+                },
+            )
+            val moveText = stringResource(R.string.drawer_move_to_folder)
             val deleteText = stringResource(R.string.action_delete)
+            val isPinned = conversation.isPinned
             val renameItem = remember(renameText) {
                 DropdownItem(
                     text = renameText,
                     icon = { modifier ->
                         Icon(
                             imageVector = Icons.Rounded.Edit,
+                            contentDescription = null,
+                            modifier = modifier.size(DrawerMetrics.ActionIconSize),
+                        )
+                    },
+                )
+            }
+            val pinItem = remember(pinText, isPinned) {
+                DropdownItem(
+                    text = pinText,
+                    icon = { modifier ->
+                        Icon(
+                            imageVector = if (isPinned) {
+                                Icons.Outlined.PushPin
+                            } else {
+                                Icons.Rounded.PushPin
+                            },
+                            contentDescription = null,
+                            modifier = modifier.size(DrawerMetrics.ActionIconSize),
+                        )
+                    },
+                )
+            }
+            val moveItem = remember(moveText) {
+                DropdownItem(
+                    text = moveText,
+                    icon = { modifier ->
+                        Icon(
+                            imageVector = Icons.Rounded.Folder,
                             contentDescription = null,
                             modifier = modifier.size(DrawerMetrics.ActionIconSize),
                         )
@@ -596,7 +1006,7 @@ private fun ConversationTextRow(
             ListPopupColumn {
                 DropdownImpl(
                     item = renameItem,
-                    optionSize = 2,
+                    optionSize = 4,
                     isSelected = false,
                     index = 0,
                     onSelectedIndexChange = {
@@ -605,10 +1015,30 @@ private fun ConversationTextRow(
                     },
                 )
                 DropdownImpl(
-                    item = deleteItem,
-                    optionSize = 2,
+                    item = pinItem,
+                    optionSize = 4,
                     isSelected = false,
                     index = 1,
+                    onSelectedIndexChange = {
+                        showActionMenu = false
+                        onTogglePin()
+                    },
+                )
+                DropdownImpl(
+                    item = moveItem,
+                    optionSize = 4,
+                    isSelected = false,
+                    index = 2,
+                    onSelectedIndexChange = {
+                        showActionMenu = false
+                        onMoveToFolder()
+                    },
+                )
+                DropdownImpl(
+                    item = deleteItem,
+                    optionSize = 4,
+                    isSelected = false,
+                    index = 3,
                     dropdownColors = deleteColors,
                     onSelectedIndexChange = {
                         showActionMenu = false
@@ -637,55 +1067,93 @@ private fun EmptyConversations(isSearching: Boolean) {
 }
 
 @Composable
+private fun PaneAssistantBar(
+    name: String,
+    onClick: () -> Unit,
+    avatar: @Composable () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = DrawerMetrics.AssistantBarHeight)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = name,
+            color = MiuixTheme.colorScheme.onSurface,
+            style = MiuixTheme.textStyles.body1,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 10.dp),
+        )
+        avatar()
+    }
+}
+
+@Composable
 private fun PaneDock(
+    onOpenAssistants: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenModelProviders: () -> Unit,
     onOpenUsageStats: () -> Unit,
     onOpenSkills: () -> Unit,
-    onOpenPermissions: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        DockButton(
-            icon = Icons.Rounded.Settings,
-            label = stringResource(R.string.route_settings),
-            onClick = onOpenSettings,
+        DrawerCircleButton(
+            icon = Icons.Outlined.Mood,
+            label = stringResource(R.string.assistant_list_title),
+            onClick = onOpenAssistants,
         )
-        DockButton(
+        Spacer(modifier = Modifier.width(10.dp))
+        DrawerCircleButton(
             icon = Icons.Rounded.Memory,
             label = stringResource(R.string.conversation_dock_models),
             onClick = onOpenModelProviders,
         )
-        DockButton(
-            icon = Icons.Rounded.BarChart,
-            label = stringResource(R.string.stats_page_title),
-            onClick = onOpenUsageStats,
-        )
-        DockButton(
+        Spacer(modifier = Modifier.width(10.dp))
+        DrawerCircleButton(
             icon = Icons.Rounded.Extension,
             label = stringResource(R.string.route_skills),
             onClick = onOpenSkills,
         )
-        DockButton(
-            icon = Icons.Rounded.Lock,
-            label = stringResource(R.string.route_permissions),
-            onClick = onOpenPermissions,
+        Spacer(modifier = Modifier.width(10.dp))
+        DrawerCircleButton(
+            icon = Icons.Rounded.BarChart,
+            label = stringResource(R.string.stats_page_title),
+            onClick = onOpenUsageStats,
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        DrawerCircleButton(
+            icon = Icons.Rounded.Settings,
+            label = stringResource(R.string.route_settings),
+            onClick = onOpenSettings,
         )
     }
 }
 
 @Composable
-private fun DockButton(
+private fun DrawerCircleButton(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
 ) {
-    IconButton(
-        onClick = onClick,
-        backgroundColor = MiuixTheme.colorScheme.surfaceContainer,
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(MiuixTheme.colorScheme.primaryContainer)
+            .clickable(onClick = onClick)
+            .padding(DrawerMetrics.CircleButtonPadding),
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,

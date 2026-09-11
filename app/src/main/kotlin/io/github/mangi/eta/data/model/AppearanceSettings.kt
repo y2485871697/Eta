@@ -9,7 +9,7 @@ const val DEFAULT_INTERFACE_SCALE = 1f
 @Serializable
 data class AppearanceSettings(
     val themeMode: AppearanceThemeMode = AppearanceThemeMode.SYSTEM,
-    val monetEnabled: Boolean = false,
+    val monetEnabled: Boolean = true,
     val paletteStyle: AppearancePaletteStyle = AppearancePaletteStyle.TONAL_SPOT,
     val accentColor: AppearanceAccentColor = AppearanceAccentColor.SYSTEM,
     val pureBlackEnabled: Boolean = false,
@@ -20,6 +20,7 @@ data class AppearanceSettings(
     val interfaceScale: Float = DEFAULT_INTERFACE_SCALE,
 ) {
     fun normalized(): AppearanceSettings = copy(
+        monetEnabled = true,
         interfaceScale = normalizeInterfaceScale(interfaceScale),
     )
 }

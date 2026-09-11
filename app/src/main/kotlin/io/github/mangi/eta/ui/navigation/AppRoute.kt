@@ -79,6 +79,9 @@ sealed interface AppRoute : NavKey {
 
     @Serializable
     data object UsageStats : AppRoute
+
+    @Serializable
+    data object ManageChats : AppRoute
 }
 
 @Serializable

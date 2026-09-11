@@ -49,6 +49,10 @@ internal object Prefs {
         const val AGENT_COMPRESS_KEEP_RECENT = "agent_compress_keep_recent"
         const val AGENT_COMPRESS_MODEL_PROVIDER_ID = "agent_compress_model_provider_id"
         const val AGENT_COMPRESS_MODEL_ID = "agent_compress_model_id"
+        const val AGENT_MANUAL_COMPRESS_TARGET_TOKENS = "agent_manual_compress_target_tokens"
+        const val AGENT_MANUAL_COMPRESS_KEEP_RECENT = "agent_manual_compress_keep_recent"
+        const val AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID = "agent_manual_compress_model_provider_id"
+        const val AGENT_MANUAL_COMPRESS_MODEL_ID = "agent_manual_compress_model_id"
 
         /** 全部布尔开关及其默认值。 */
         val BOOLEAN_DEFAULTS: Map<String, Boolean> = mapOf(

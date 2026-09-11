@@ -132,52 +132,36 @@ internal fun AppearanceSettingsScreen(onBack: () -> Unit) {
                         }
                     },
                 )
-                SwitchPreference(
-                    title = stringResource(R.string.appearance_monet),
-                    summary = stringResource(R.string.appearance_monet_summary),
-                    checked = appearance.monetEnabled,
-                    onCheckedChange = { enabled ->
-                        update { current -> current.copy(monetEnabled = enabled) }
+                OverlayDropdownPreference(
+                    title = stringResource(R.string.appearance_palette_style),
+                    summary = paletteLabels[appearance.paletteStyle.ordinal],
+                    items = paletteLabels,
+                    selectedIndex = appearance.paletteStyle.ordinal,
+                    onSelectedIndexChange = { index ->
+                        paletteStyles.getOrNull(index)?.let { style ->
+                            update { current -> current.copy(paletteStyle = style) }
+                        }
                     },
                 )
-                AnimatedVisibility(
-                    visible = appearance.monetEnabled,
-                    enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
-                    exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
-                ) {
-                    Column {
-                        OverlayDropdownPreference(
-                            title = stringResource(R.string.appearance_palette_style),
-                            summary = paletteLabels[appearance.paletteStyle.ordinal],
-                            items = paletteLabels,
-                            selectedIndex = appearance.paletteStyle.ordinal,
-                            onSelectedIndexChange = { index ->
-                                paletteStyles.getOrNull(index)?.let { style ->
-                                    update { current -> current.copy(paletteStyle = style) }
-                                }
-                            },
-                        )
-                        OverlayDropdownPreference(
-                            title = stringResource(R.string.appearance_accent_color),
-                            summary = accentLabels[appearance.accentColor.ordinal],
-                            items = accentLabels,
-                            selectedIndex = appearance.accentColor.ordinal,
-                            onSelectedIndexChange = { index ->
-                                accentColors.getOrNull(index)?.let { accent ->
-                                    update { current -> current.copy(accentColor = accent) }
-                                }
-                            },
-                        )
-                        SwitchPreference(
-                            title = stringResource(R.string.appearance_pure_black),
-                            summary = stringResource(R.string.appearance_pure_black_summary),
-                            checked = appearance.pureBlackEnabled,
-                            onCheckedChange = { enabled ->
-                                update { current -> current.copy(pureBlackEnabled = enabled) }
-                            },
-                        )
-                    }
-                }
+                OverlayDropdownPreference(
+                    title = stringResource(R.string.appearance_accent_color),
+                    summary = accentLabels[appearance.accentColor.ordinal],
+                    items = accentLabels,
+                    selectedIndex = appearance.accentColor.ordinal,
+                    onSelectedIndexChange = { index ->
+                        accentColors.getOrNull(index)?.let { accent ->
+                            update { current -> current.copy(accentColor = accent) }
+                        }
+                    },
+                )
+                SwitchPreference(
+                    title = stringResource(R.string.appearance_pure_black),
+                    summary = stringResource(R.string.appearance_pure_black_summary),
+                    checked = appearance.pureBlackEnabled,
+                    onCheckedChange = { enabled ->
+                        update { current -> current.copy(pureBlackEnabled = enabled) }
+                    },
+                )
             }
         }
 

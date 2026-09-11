@@ -224,7 +224,7 @@ internal object SettingsDataStore {
         memoryEnabled = this[MEMORY_ENABLED] ?: true,
         appearance = AppearanceSettings(
             themeMode = AppearanceThemeMode.fromPersistedValue(this[APPEARANCE_THEME_MODE]),
-            monetEnabled = this[APPEARANCE_MONET_ENABLED] ?: false,
+            monetEnabled = true,
             paletteStyle = AppearancePaletteStyle.fromPersistedValue(this[APPEARANCE_PALETTE_STYLE]),
             accentColor = AppearanceAccentColor.fromPersistedValue(this[APPEARANCE_ACCENT_COLOR]),
             pureBlackEnabled = this[APPEARANCE_PURE_BLACK_ENABLED] ?: false,

@@ -1,7 +1,6 @@
 package io.github.mangi.eta.data.model
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -11,7 +10,7 @@ class AppearanceSettingsTest {
         val settings = AppearanceSettings()
 
         assertEquals(AppearanceThemeMode.SYSTEM, settings.themeMode)
-        assertFalse(settings.monetEnabled)
+        assertTrue(settings.monetEnabled)
         assertTrue(settings.blurEnabled)
         assertTrue(settings.swipeDismissEnabled)
         assertTrue(settings.predictiveBackEnabled)

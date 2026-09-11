@@ -4,6 +4,7 @@ import android.content.Context
 import io.github.mangi.eta.agent.model.AgentConversationCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.db.ConversationContextCheckpointEntity
+import io.github.mangi.eta.data.db.ConversationFolderEntity
 import io.github.mangi.eta.data.db.ConversationEntity
 import io.github.mangi.eta.data.db.ConversationMetadata
 import io.github.mangi.eta.data.db.ConversationMessageEntity
@@ -11,6 +12,7 @@ import io.github.mangi.eta.data.db.ConversationStateEntity
 import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
+import io.github.mangi.eta.ui.model.ConversationFolderUi
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
@@ -41,6 +43,9 @@ internal object AgentConversationStore {
         val conversationsById: Map<String, AgentChatHomeUiState>,
         val titles: Map<String, String>,
         val updatedAt: Map<String, Long>,
+        val folderIds: Map<String, String> = emptyMap(),
+        val pinnedIds: Set<String> = emptySet(),
+        val folders: List<ConversationFolderUi> = emptyList(),
     )
 
     private val saveMutex = Mutex()
@@ -56,6 +61,9 @@ internal object AgentConversationStore {
         conversationsById: Map<String, AgentChatHomeUiState>,
         titles: Map<String, String>,
         updatedAt: Map<String, Long>,
+        folderIds: Map<String, String> = emptyMap(),
+        pinnedIds: Set<String> = emptySet(),
+        folders: List<ConversationFolderUi> = emptyList(),
     ) {
         val appContext = context.applicationContext
         saveMutex.withLock {
@@ -77,6 +85,8 @@ internal object AgentConversationStore {
                         appliedRuntimeRunIdsJson = json.encodeToString(state.appliedRuntimeRunIds),
                         createdAt = updatedAt[id] ?: now,
                         updatedAt = updatedAt[id] ?: now,
+                        folderId = folderIds[id].orEmpty(),
+                        isPinned = id in pinnedIds,
                     )
                 }
                 val messages = sorted.flatMap { (conversationId, state) ->
@@ -91,14 +101,23 @@ internal object AgentConversationStore {
                         historyJson = AgentConversationCodec.encodeConversationCheckpoint(state.history),
                     )
                 }
-                EtaDatabase.get(appContext)
-                    .conversationDao()
-                    .replaceAll(
-                        conversations = conversations,
-                        messages = messages,
-                        contextCheckpoints = contextCheckpoints,
-                        state = selected?.let { ConversationStateEntity(selectedConversationId = it) },
-                    )
+                val dao = EtaDatabase.get(appContext).conversationDao()
+                dao.replaceAll(
+                    conversations = conversations,
+                    messages = messages,
+                    contextCheckpoints = contextCheckpoints,
+                    state = selected?.let { ConversationStateEntity(selectedConversationId = it) },
+                )
+                dao.replaceFolders(
+                    folders.mapIndexed { index, folder ->
+                        ConversationFolderEntity(
+                            id = folder.id,
+                            name = folder.name,
+                            sortIndex = folder.sortIndex.takeIf { it > 0 } ?: index,
+                            createdAt = now,
+                        )
+                    },
+                )
             }
         }
     }
@@ -112,6 +131,7 @@ internal object AgentConversationStore {
                 conversationsById = emptyMap(),
                 titles = emptyMap(),
                 updatedAt = emptyMap(),
+                folders = dao.folders().toUiFolders(),
             )
         }
 
@@ -168,8 +188,25 @@ internal object AgentConversationStore {
             conversationsById = states,
             titles = titles,
             updatedAt = updatedAt,
+            folderIds = conversations
+                .mapNotNull { conversation ->
+                    conversation.folderId.takeIf { it.isNotBlank() }?.let { conversation.id to it }
+                }
+                .toMap(),
+            pinnedIds = conversations.filter { it.isPinned }.map { it.id }.toSet(),
+            folders = dao.folders().toUiFolders(),
         )
     }
+
+
+    private fun List<ConversationFolderEntity>.toUiFolders(): List<ConversationFolderUi> =
+        map { folder ->
+            ConversationFolderUi(
+                id = folder.id,
+                name = folder.name,
+                sortIndex = folder.sortIndex,
+            )
+        }
 
     private val ConversationMetadata.reasoningEffortValue: ReasoningEffort
         get() = ReasoningEffort.fromWireValue(reasoningEffort) ?: ReasoningEffort.OFF

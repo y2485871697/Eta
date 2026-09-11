@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.withTransaction
 import io.github.mangi.eta.data.db.ConversationContextCheckpointEntity
 import io.github.mangi.eta.data.db.ConversationEntity
+import io.github.mangi.eta.data.db.ConversationFolderEntity
 import io.github.mangi.eta.data.db.ConversationMessageEntity
 import io.github.mangi.eta.data.db.ConversationStateEntity
 import io.github.mangi.eta.data.db.EtaDatabase
@@ -33,6 +34,7 @@ internal data class EtaBackupDocument(
     val messages: List<ConversationMessageEntity> = emptyList(),
     val contextCheckpoints: List<ConversationContextCheckpointEntity> = emptyList(),
     val conversationState: ConversationStateEntity? = null,
+    val folders: List<ConversationFolderEntity> = emptyList(),
     val memoryMd: String = "",
     val assistantMemories: Map<String, String> = emptyMap(),
 ) {
@@ -102,6 +104,7 @@ internal object EtaBackupRepository {
                     contextCheckpoints = document.contextCheckpoints,
                     state = document.conversationState,
                 )
+                database.conversationDao().replaceFolders(document.folders)
             }
 
             // MEMORY.md 使用 AtomicFile，数据库提交后再替换，失败时不会留下半截文件。
@@ -141,6 +144,7 @@ internal object EtaBackupRepository {
             messages = conversations.messages(),
             contextCheckpoints = conversations.contextCheckpoints(),
             conversationState = conversations.state(),
+            folders = conversations.folders(),
             memoryMd = AgentMemoryRepository.snapshot(AssistantPrompt.DEFAULT_ID).content,
             assistantMemories = AgentMemoryRepository.exportAll(),
         )
@@ -226,6 +230,21 @@ internal object EtaBackupRepository {
         ) {
             throw EtaBackupException("备份中的当前会话不存在")
         }
+        val folderIds = document.folders.map { it.id }
+        if (folderIds.size != folderIds.toSet().size || folderIds.any(String::isBlank)) {
+            throw EtaBackupException("备份中的文件夹存在重复或无效 ID")
+        }
+        if (document.folders.any { it.name.isBlank() }) {
+            throw EtaBackupException("备份中的文件夹名称无效")
+        }
+        val knownFolderIds = folderIds.toSet()
+        if (document.conversations.any { conversation ->
+                conversation.folderId.isNotBlank() && conversation.folderId !in knownFolderIds
+            }
+        ) {
+            throw EtaBackupException("备份中的会话文件夹不存在")
+        }
+
         if (document.memoryMd.toByteArray(Charsets.UTF_8).size > 1024 * 1024) {
             throw EtaBackupException("MEMORY.md 超过 1 MiB 限制")
         }

@@ -70,8 +70,10 @@ import io.github.mangi.eta.ui.model.shouldBlockSendForContextWindow
 import io.github.mangi.eta.ui.model.AgentSkillsUiState
 import io.github.mangi.eta.ui.model.AgentToolsUiState
 import io.github.mangi.eta.ui.model.ConversationModeUi
+import io.github.mangi.eta.ui.model.ConversationFolderUi
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
+import io.github.mangi.eta.ui.model.filterForFolder
 import io.github.mangi.eta.ui.model.MessageEditUiState
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
 import io.github.mangi.eta.ui.model.PendingImageUi
@@ -141,6 +143,11 @@ internal class AgentAppState(
     private var conversationsById: Map<String, AgentChatHomeUiState> = initialConversations.conversationsById
     private var conversationTitles: Map<String, String> = initialConversations.titles
     private var conversationUpdatedAt: Map<String, Long> = initialConversations.updatedAt
+    private var conversationFolderIds: Map<String, String> = initialConversations.folderIds
+    private var conversationPinned: Set<String> = initialConversations.pinnedIds
+    private var conversationFolders: List<ConversationFolderUi> = initialConversations.folders
+    private var selectedFolderId: String? = null
+    private var pendingNewConversationFolderId: String? = null
 
     var homeState by mutableStateOf(
         selectedConversationId?.let(conversationsById::get) ?: emptyChatState(false)
@@ -497,6 +504,11 @@ internal class AgentAppState(
             conversationsById = snapshot.conversationsById
             conversationTitles = snapshot.titles
             conversationUpdatedAt = snapshot.updatedAt
+            conversationFolderIds = snapshot.folderIds
+            conversationPinned = snapshot.pinnedIds
+            conversationFolders = snapshot.folders
+            selectedFolderId = null
+            pendingNewConversationFolderId = null
             fileAttachmentOwnerVersion += 1
             homeState = selectedConversationId
                 ?.let(conversationsById::get)
@@ -910,6 +922,7 @@ internal class AgentAppState(
         if (homeState.messageEdit != null) cancelMessageEdit()
         fileAttachmentOwnerVersion += 1
         selectedConversationId = null
+        pendingNewConversationFolderId = selectedFolderId
         homeState = emptyChatState(false).withPreferredReasoningEffort()
         conversationPaneState = conversationPaneState.copy(
             selectedConversationId = null,
@@ -918,11 +931,93 @@ internal class AgentAppState(
         refreshConversationSummaries()
     }
 
+    fun selectFolder(folderId: String?) {
+        selectedFolderId = folderId
+        refreshConversationSummaries()
+    }
+
+    fun createFolder(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        val folder = ConversationFolderUi(
+            id = "folder-${UUID.randomUUID()}",
+            name = trimmed,
+            sortIndex = (conversationFolders.maxOfOrNull { it.sortIndex } ?: -1) + 1,
+        )
+        conversationFolders = conversationFolders + folder
+        selectedFolderId = folder.id
+        refreshConversationSummaries()
+        persistConversations()
+    }
+
+    fun renameFolder(folderId: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        conversationFolders = conversationFolders.map { folder ->
+            if (folder.id == folderId) folder.copy(name = trimmed) else folder
+        }
+        refreshConversationSummaries()
+        persistConversations()
+    }
+
+    fun deleteFolder(folderId: String) {
+        conversationFolders = conversationFolders.filterNot { it.id == folderId }
+        conversationFolderIds = conversationFolderIds.filterValues { it != folderId }
+        if (selectedFolderId == folderId) selectedFolderId = null
+        if (pendingNewConversationFolderId == folderId) pendingNewConversationFolderId = null
+        refreshConversationSummaries()
+        persistConversations()
+    }
+
+    fun moveConversationToFolder(conversationId: String, folderId: String?) {
+        if (conversationId !in conversationsById) return
+        conversationFolderIds = if (folderId.isNullOrBlank()) {
+            conversationFolderIds - conversationId
+        } else {
+            conversationFolderIds + (conversationId to folderId)
+        }
+        refreshConversationSummaries()
+        persistConversations()
+    }
+
+    fun toggleConversationPinned(conversationId: String) {
+        if (conversationId !in conversationsById) return
+        conversationPinned = if (conversationId in conversationPinned) {
+            conversationPinned - conversationId
+        } else {
+            conversationPinned + conversationId
+        }
+        refreshConversationSummaries()
+        persistConversations()
+    }
+
+    fun deleteAllConversations() {
+        val ids = conversationsById.keys.toList()
+        if (ids.isEmpty()) return
+        conversationsById = emptyMap()
+        conversationTitles = emptyMap()
+        conversationUpdatedAt = emptyMap()
+        conversationFolderIds = emptyMap()
+        conversationPinned = emptySet()
+        scope.launch(Dispatchers.IO) {
+            ids.forEach { chatImageCache.deleteConversation(it) }
+        }
+        fileAttachmentOwnerVersion += 1
+        selectedConversationId = null
+        pendingNewConversationFolderId = selectedFolderId
+        homeState = emptyChatState(false).withPreferredReasoningEffort()
+        conversationPaneState = conversationPaneState.copy(selectedConversationId = null)
+        refreshConversationSummaries()
+        persistConversations()
+    }
+
     fun deleteConversation(conversationId: String) {
         val wasSelected = selectedConversationId == conversationId
         conversationsById = conversationsById - conversationId
         conversationTitles = conversationTitles - conversationId
         conversationUpdatedAt = conversationUpdatedAt - conversationId
+        conversationFolderIds = conversationFolderIds - conversationId
+        conversationPinned = conversationPinned - conversationId
         scope.launch(Dispatchers.IO) { chatImageCache.deleteConversation(conversationId) }
         if (wasSelected) {
             fileAttachmentOwnerVersion += 1
@@ -1006,8 +1101,9 @@ internal class AgentAppState(
         if (rejectSendIfContextWindowExceeded(history, prompt, pendingImages, pendingFileReferences)) {
             return
         }
-        val conversationId = selectedConversationId ?: newConversationId().also {
-            selectedConversationId = it
+        val conversationId = selectedConversationId ?: newConversationId().also { id ->
+            selectedConversationId = id
+            assignPendingFolder(id)
         }
         val supportsVision = modelPickerState.selectedModel?.supportsVision ?: true
         if (pendingImages.isNotEmpty()) {
@@ -1184,6 +1280,8 @@ internal class AgentAppState(
             conversationsById = conversationsById - conversationId
             conversationTitles = conversationTitles - conversationId
             conversationUpdatedAt = conversationUpdatedAt - conversationId
+            conversationFolderIds = conversationFolderIds - conversationId
+            conversationPinned = conversationPinned - conversationId
             scope.launch(Dispatchers.IO) { chatImageCache.deleteConversation(conversationId) }
             fileAttachmentOwnerVersion += 1
             selectedConversationId = null
@@ -2700,9 +2798,13 @@ internal class AgentAppState(
 
     private fun refreshConversationSummaries() {
         val summaries = conversationsById.entries
-            .sortedByDescending { (id, _) ->
-                conversationUpdatedAt[id] ?: 0L
-            }
+            .sortedWith(
+                compareByDescending<Map.Entry<String, AgentChatHomeUiState>> { (id, _) ->
+                    id in conversationPinned
+                }.thenByDescending { (id, _) ->
+                    conversationUpdatedAt[id] ?: 0L
+                },
+            )
             .map { (id, state) ->
                 val lastMessage = state.messages.lastOrNull()
                 ConversationSummaryUi(
@@ -2753,20 +2855,26 @@ internal class AgentAppState(
                     },
                     updatedAtMillis = conversationUpdatedAt[id] ?: 0L,
                     mode = ConversationModeUi.Chat,
+                    isPinned = id in conversationPinned,
                     isActiveRun = state.isStreaming,
+                    folderId = conversationFolderIds[id],
                 )
             }
         val query = conversationPaneState.searchQuery.trim()
+        val folderVisible = summaries.filterForFolder(selectedFolderId)
         conversationPaneState = conversationPaneState.copy(
             selectedConversationId = selectedConversationId,
             conversations = if (query.isBlank()) {
-                summaries
+                folderVisible
             } else {
-                summaries.filter {
+                folderVisible.filter {
                     it.title.contains(query, ignoreCase = true) ||
                         it.preview.contains(query, ignoreCase = true)
                 }
             },
+            folders = conversationFolders,
+            selectedFolderId = selectedFolderId,
+            historyConversations = summaries,
         )
     }
 
@@ -2775,6 +2883,9 @@ internal class AgentAppState(
         val conversations = conversationsById
         val titles = conversationTitles
         val timestamps = conversationUpdatedAt
+        val folderIds = conversationFolderIds
+        val pinnedIds = conversationPinned
+        val folders = conversationFolders
         return synchronized(persistenceLock) {
             val previous = persistenceJob
             scope.async(Dispatchers.IO) {
@@ -2786,6 +2897,9 @@ internal class AgentAppState(
                         conversationsById = conversations,
                         titles = titles,
                         updatedAt = timestamps,
+                        folderIds = folderIds,
+                        pinnedIds = pinnedIds,
+                        folders = folders,
                     )
                     onSaved?.invoke()
                     true
@@ -2820,6 +2934,13 @@ internal class AgentAppState(
             )
 
         fun newConversationId(): String = "conv-${UUID.randomUUID()}"
+    }
+
+    private fun assignPendingFolder(conversationId: String) {
+        val folderId = pendingNewConversationFolderId
+            ?.takeIf { id -> conversationFolders.any { it.id == id } }
+            ?: return
+        conversationFolderIds = conversationFolderIds + (conversationId to folderId)
     }
 
     fun updateAutoCompressEnabled(enabled: Boolean) {
@@ -2929,13 +3050,13 @@ internal class AgentAppState(
         keepRecent: Int,
     ) {
         Prefs.putInt(
-            Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
+            Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS,
             targetTokens.coerceIn(500, 4000),
         )
-        Prefs.putInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, keepRecent.coerceIn(0, 100))
+        Prefs.putInt(Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT, keepRecent.coerceIn(0, 100))
         if (!providerId.isNullOrBlank() && !modelId.isNullOrBlank()) {
-            Prefs.putString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, providerId)
-            Prefs.putString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, modelId)
+            Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID, providerId)
+            Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_ID, modelId)
         }
     }
 
