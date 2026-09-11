@@ -68,7 +68,9 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -163,6 +165,8 @@ internal fun AgentChatBody(
 ) {
     val scrollState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val view = LocalView.current
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     val isKeyboardVisible = imeBottomPx > 0
@@ -206,7 +210,7 @@ internal fun AgentChatBody(
 
     LaunchedEffect(isDrawerOpen) {
         if (isDrawerOpen) {
-            keyboard?.hide()
+            hideChatInputIme(focusManager, keyboard, view)
         }
     }
 

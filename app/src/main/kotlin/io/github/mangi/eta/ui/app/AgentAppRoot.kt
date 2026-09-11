@@ -175,9 +175,9 @@ fun AgentAppRoot(
     }
 
     fun selectConversation(conversationId: String) {
-        focusManager.clearFocus()
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
         agentState.selectConversation(conversationId)
-        conversationPaneOpen = false
     }
 
     fun createConversation() {

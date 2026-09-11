@@ -192,13 +192,14 @@ internal fun AgentChatInputBar(
 
     val keyboard = LocalSoftwareKeyboardController.current
     val view = LocalView.current
+    val drawerBlocksIme = LocalConversationDrawerBlocksIme.current
     LaunchedEffect(isEditingMessage) {
         // 编辑态由外部业务状态驱动；普通输入只保留在本地，避免每个字符把聊天舞台
         // 的消息流、滚动和 Markdown 一起带入重组。
         if (isEditingMessage || wasEditingMessage) {
             textFieldState.setTextAndPlaceCursorAtEnd(input)
         }
-        if (isEditingMessage && !wasEditingMessage) {
+        if (isEditingMessage && !wasEditingMessage && !drawerBlocksIme) {
             showChatInputIme(focusRequester, keyboard, view)
         }
         wasEditingMessage = isEditingMessage
@@ -317,7 +318,8 @@ internal fun AgentChatInputBar(
                         state = textFieldState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(focusRequester),
+                            .focusRequester(focusRequester)
+                            .focusProperties { canFocus = !drawerBlocksIme },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                         textStyle = TextStyle(
                             color = MiuixTheme.colorScheme.onSurface,

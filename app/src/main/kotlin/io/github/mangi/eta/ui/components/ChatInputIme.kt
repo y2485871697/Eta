@@ -16,6 +16,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.pointer.pointerInput
@@ -34,6 +35,20 @@ import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.delay
 
 internal val LocalChatInputFocusRequester = staticCompositionLocalOf<FocusRequester?> { null }
+
+internal val LocalConversationDrawerBlocksIme = staticCompositionLocalOf { false }
+
+internal fun hideChatInputIme(
+    focusManager: FocusManager,
+    keyboard: SoftwareKeyboardController?,
+    view: View,
+) {
+    focusManager.clearFocus(force = true)
+    keyboard?.hide()
+    (view.context as? Activity)?.window?.let { window ->
+        WindowCompat.getInsetsController(window, view).hide(WindowInsetsCompat.Type.ime())
+    }
+}
 
 internal suspend fun showChatInputIme(
     requester: FocusRequester?,
