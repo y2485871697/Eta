@@ -118,7 +118,6 @@ private object DrawerMetrics {
     val DrawerCornerRadius = 28.dp
     const val OpenDurationMs = 220
     const val CloseDurationMs = 200
-    const val SettleDurationMs = 160
     val PaneHorizontalPadding = 16.dp
     val TopInset = 8.dp
     val AfterSearch = 12.dp
@@ -234,19 +233,17 @@ fun ConversationSidePaneScaffold(
             }
     }
 
-    LaunchedEffect(drawerState, focusManager, keyboard, view) {
-        snapshotFlow { drawerState.targetValue == DrawerValue.Open }
-            .collect { blocking ->
-                if (blocking != drawerBlocksIme) {
-                    hideChatInputIme(focusManager, keyboard, view)
-                    drawerBlocksIme = blocking
-                }
-            }
+    LaunchedEffect(visible) {
+        drawerBlocksIme = visible
     }
 
-    LaunchedEffect(drawerBlocksIme, focusManager, keyboard, view) {
-        if (drawerBlocksIme) {
-            hideChatInputIme(focusManager, keyboard, view)
+    LaunchedEffect(drawerState, visible, focusManager, keyboard, view) {
+        snapshotFlow {
+            visible ||
+                drawerState.targetValue == DrawerValue.Open ||
+                drawerState.currentValue == DrawerValue.Open
+        }.collect { shouldHide ->
+            if (shouldHide) hideChatInputIme(focusManager, keyboard, view)
         }
     }
 
@@ -1187,25 +1184,20 @@ private val DrawerCloseMotion: FiniteAnimationSpec<Float> = tween(
     easing = DrawerMotionEasing,
 )
 
-private val DrawerSettleMotion: FiniteAnimationSpec<Float> = tween(
-    durationMillis = DrawerMetrics.SettleDurationMs,
-    easing = DrawerMotionEasing,
-)
-
 private object DrawerMotionSetters {
     private val drawerStateClass = DrawerState::class.java
     private val openSetter = method("setOpenDrawerMotionSpec\$material3")
     private val closeSetter = method("setCloseDrawerMotionSpec\$material3")
-    private val settleSetter = method("setAnchoredDraggableMotionSpec\$material3")
 
     private fun method(name: String) = runCatching {
         drawerStateClass.getMethod(name, FiniteAnimationSpec::class.java)
     }.getOrNull()
 
     fun apply(state: DrawerState) {
+        // 只改菜单按钮触发的开合。手势松手后的 settle 沿用 Material3 默认弹簧，
+        // 才能吃进快滑速度；短 tween 会把惯性掐成匀速，看起来就是顿一下。
         openSetter?.invoke(state, DrawerOpenMotion)
         closeSetter?.invoke(state, DrawerCloseMotion)
-        settleSetter?.invoke(state, DrawerSettleMotion)
     }
 }
 
