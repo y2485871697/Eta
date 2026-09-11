@@ -63,6 +63,8 @@ import io.github.mangi.eta.ui.model.AgentMemoryUiState
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
+import io.github.mangi.eta.ui.model.clearBilledTokenUsage
+import io.github.mangi.eta.ui.model.latestBilledContextTokens
 import io.github.mangi.eta.ui.model.liveContextUsage
 import io.github.mangi.eta.ui.model.cacheDisplayName
 import io.github.mangi.eta.ui.model.toLiveModelImage
@@ -1405,12 +1407,18 @@ internal class AgentAppState(
         images: List<PendingImageUi>,
         fileReferences: List<PendingFileReferenceUi> = emptyList(),
     ): Boolean {
+        val billed = if (homeState.messageEdit != null) {
+            null
+        } else {
+            latestBilledContextTokens(homeState.messages)
+        }
         val usage = liveContextUsage(
             history = history,
             currentInput = prompt,
             pendingImages = images,
             selectedModel = modelPickerState.selectedModel,
             pendingFileReferences = fileReferences,
+            billedContextTokens = billed,
         )
         if (!shouldBlockSendForContextWindow(autoCompressEnabled, usage)) {
             return false
@@ -1426,7 +1434,11 @@ internal class AgentAppState(
     /**
      * 判断是否应自动压缩对话历史。
      */
-    private fun shouldAutoCompress(history: List<AgentModelClient.ConversationMessage>, contextWindow: Int): Boolean {
+    private fun shouldAutoCompress(
+        history: List<AgentModelClient.ConversationMessage>,
+        contextWindow: Int,
+        estimatedTokens: Int?,
+    ): Boolean {
         if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return false
         val keepRecent = Prefs.getInt(
             Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
@@ -1436,6 +1448,7 @@ internal class AgentAppState(
             history = history,
             contextWindow = contextWindow,
             keepRecentMessages = keepRecent,
+            estimatedTokens = estimatedTokens,
         )
     }
 
@@ -1572,7 +1585,19 @@ internal class AgentAppState(
                 )
             }
             val compressModelConfig = resolveCompressModelConfig(config)
-            val historyToSend = if (shouldAutoCompress(history, config.contextWindow ?: 128_000)) {
+            val estimatedTokens = latestBilledContextTokens(state.messages)
+                ?: liveContextUsage(
+                    history = history,
+                    currentInput = prompt,
+                    pendingImages = images,
+                    selectedModel = modelPickerState.selectedModel,
+                ).contextTokens
+            val historyToSend = if (shouldAutoCompress(
+                    history,
+                    config.contextWindow ?: 128_000,
+                    estimatedTokens,
+                )
+            ) {
                 val compressed = tryCompressHistory(history, compressModelConfig)
                 withContext(Dispatchers.Main) {
                     applyCompressedHistoryToConversation(
@@ -1678,7 +1703,10 @@ internal class AgentAppState(
         val current = conversationsById[conversationId] ?: return
         updateConversation(
             conversationId,
-            current.copy(history = compressedHistory + userHistoryMessage),
+            current.copy(
+                history = compressedHistory + userHistoryMessage,
+                messages = clearBilledTokenUsage(current.messages),
+            ),
         )
         showCompactedRevisionNotice()
         persistConversations()
@@ -3087,9 +3115,18 @@ internal class AgentAppState(
         if (conversationId != null) {
             val current = conversationsById[conversationId] ?: return
             if (current.history != originalHistory) return
-            updateConversation(conversationId, current.copy(history = compressedHistory))
+            updateConversation(
+                conversationId,
+                current.copy(
+                    history = compressedHistory,
+                    messages = clearBilledTokenUsage(current.messages),
+                ),
+            )
         } else if (selectedConversationId == null && homeState.history == originalHistory) {
-            homeState = homeState.copy(history = compressedHistory)
+            homeState = homeState.copy(
+                history = compressedHistory,
+                messages = clearBilledTokenUsage(homeState.messages),
+            )
         }
         persistConversations()
     }

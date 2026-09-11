@@ -44,10 +44,10 @@ internal object AgentContextBudget {
 
     fun countMessage(message: AgentModelClient.ConversationMessage): Int {
         var tokens = TOKENS_PER_MESSAGE
-        tokens += countTokens(message.content)
-        if (message.contentJson.isNotBlank()) {
-            tokens += countTokens(message.contentJson)
-        }
+        // contentJson 才是发出去的 content；有它时不要再加一份纯文本。
+        tokens += countTokens(
+            if (message.contentJson.isNotBlank()) message.contentJson else message.content,
+        )
         if (message.reasoningContent.isNotBlank()) {
             tokens += countTokens(message.reasoningContent)
         }

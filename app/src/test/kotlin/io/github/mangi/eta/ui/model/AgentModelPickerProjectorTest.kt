@@ -422,4 +422,104 @@ class AgentModelPickerProjectorTest {
         isEnabled = enabled,
         contextWindow = contextWindow,
     )
+
+
+    @Test
+    fun liveContextUsage_usesBilledContextTokensInsteadOfLocalHistoryEstimate() {
+        val selected = AgentModelOptionUi(
+            id = "model",
+            providerId = "provider",
+            providerName = "Provider",
+            providerSourceType = ProviderSourceTypes.CUSTOM,
+            modelId = "model",
+            displayName = "Model",
+            contextWindow = 500_000,
+        )
+        val history = listOf(
+            AgentModelClient.ConversationMessage(role = "user", content = "a".repeat(30_000)),
+            AgentModelClient.ConversationMessage(role = "assistant", content = "b".repeat(30_000)),
+        )
+        val idle = liveContextUsage(
+            history = history,
+            currentInput = "",
+            pendingImages = emptyList(),
+            selectedModel = selected,
+            billedContextTokens = 262_556,
+        )
+        assertEquals(262_556, idle.contextTokens)
+
+        val typing = liveContextUsage(
+            history = history,
+            currentInput = "next question",
+            pendingImages = emptyList(),
+            selectedModel = selected,
+            billedContextTokens = 262_556,
+        )
+        assertEquals(
+            262_556 + AgentContextBudget.countCurrentTurn("next question", emptyList()),
+            typing.contextTokens,
+        )
+        assertTrue((idle.contextTokens ?: 0) < history.sumOf { AgentContextBudget.countMessage(it) })
+    }
+
+
+    @Test
+    fun latestBilledContextTokensUsesTotalThenAddsUnbilledUserTail() {
+        val completed = listOf(
+            UserMessageUi(id = "u1", content = "hi"),
+            AgentMessageUi(
+                id = "a1",
+                content = "ok",
+                usage = TokenUsageUi(inputTokens = 100, outputTokens = 10),
+            ),
+            UserMessageUi(id = "u2", content = "again"),
+            AgentMessageUi(
+                id = "a2",
+                content = "sure",
+                usage = TokenUsageUi(
+                    contextTokens = 262_556,
+                    inputTokens = 262_295,
+                    outputTokens = 261,
+                ),
+            ),
+        )
+        assertEquals(262_556, latestBilledContextTokens(completed))
+
+        val afterSend = completed + UserMessageUi(id = "u3", content = "next question")
+        assertEquals(
+            262_556 + AgentContextBudget.countCurrentTurn("next question", emptyList()),
+            latestBilledContextTokens(afterSend),
+        )
+    }
+
+    @Test
+    fun windowTokensFromUsageFallsBackToInputPlusOutput() {
+        assertEquals(
+            262_556,
+            windowTokensFromUsage(TokenUsageUi(inputTokens = 262_295, outputTokens = 261)),
+        )
+        assertEquals(
+            262_556,
+            windowTokensFromUsage(
+                TokenUsageUi(contextTokens = 262_556, inputTokens = 1, outputTokens = 1),
+            ),
+        )
+    }
+
+
+    @Test
+    fun clearBilledTokenUsageDropsAssistantUsage() {
+        val messages = listOf(
+            UserMessageUi(id = "u1", content = "hi"),
+            AgentMessageUi(
+                id = "a1",
+                content = "ok",
+                usage = TokenUsageUi(inputTokens = 262_295, outputTokens = 261),
+            ),
+        )
+        val cleared = clearBilledTokenUsage(messages)
+        assertNull((cleared[1] as AgentMessageUi).usage)
+        assertEquals("hi", (cleared[0] as UserMessageUi).content)
+    }
+
 }

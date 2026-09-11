@@ -107,6 +107,15 @@ data class ConversationTokenUsageUi(
         }
 }
 
+fun clearBilledTokenUsage(messages: List<AgentChatMessageUi>): List<AgentChatMessageUi> =
+    messages.map { message ->
+        if (message is AgentMessageUi && message.usage != null) {
+            message.copy(usage = null)
+        } else {
+            message
+        }
+    }
+
 fun conversationTokenUsage(messages: List<AgentChatMessageUi>): ConversationTokenUsageUi {
     var input = 0L
     var output = 0L

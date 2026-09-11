@@ -130,10 +130,44 @@ internal fun latestContextUsage(
 )
 
 /**
- * Counts the real outbound context: history + the current turn that would be sent.
- * Current-turn images use the same payload size as [PendingImageUi.dataUrl], matching
- * the history image conversion used when a message is actually submitted.
+ * 下一轮即将发出的上下文：上一轮账单占用的窗口 + 账单之后新发出的用户消息 + 当前草稿。
+ *
+ * 优先用接口的 total_tokens（prompt+completion，下一轮历史里会带上那条回复）。
+ * 没有 total 时退回 input+output。都没有时由调用方走本地历史估算。
  */
+internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int? {
+    val billedIndex = messages.indexOfLast { message ->
+        message is AgentMessageUi && windowTokensFromUsage(message.usage) != null
+    }
+    if (billedIndex < 0) return null
+    val billed = windowTokensFromUsage((messages[billedIndex] as AgentMessageUi).usage) ?: return null
+    var tail = 0
+    for (index in billedIndex + 1 until messages.size) {
+        when (val message = messages[index]) {
+            is UserMessageUi -> {
+                if (message.content.isNotBlank() || message.images.isNotEmpty()) {
+                    tail += AgentContextBudget.countCurrentTurn(message.content, emptyList()) +
+                        AgentContextBudget.countStoredImages(message.images.size)
+                }
+            }
+            is AgentMessageUi -> {
+                if (message.content.isNotBlank() && windowTokensFromUsage(message.usage) == null) {
+                    tail += AgentContextBudget.countCurrentTurn(message.content, emptyList())
+                }
+            }
+            else -> Unit
+        }
+    }
+    return billed + tail
+}
+
+internal fun windowTokensFromUsage(usage: TokenUsageUi?): Int? {
+    if (usage == null || usage.isEmpty) return null
+    usage.contextTokens?.takeIf { it > 0 }?.let { return it }
+    val combined = (usage.inputTokens ?: 0) + (usage.outputTokens ?: 0)
+    return combined.takeIf { it > 0 }
+}
+
 internal fun liveContextUsage(
     history: List<AgentModelClient.ConversationMessage>,
     currentInput: String,
@@ -141,6 +175,7 @@ internal fun liveContextUsage(
     selectedModel: AgentModelOptionUi?,
     pendingFileReferences: List<PendingFileReferenceUi> = emptyList(),
     historyTokenCount: Int? = null,
+    billedContextTokens: Int? = null,
 ): AgentContextUsageUi {
     val supportsVision = selectedModel?.supportsVision ?: true
     val imageFileReferences = if (supportsVision) {
@@ -159,11 +194,14 @@ internal fun liveContextUsage(
         pendingFileReferences.map { it.reference } + imageFileReferences,
     )
     val images = if (supportsVision) pendingImages.map { it.toLiveModelImage() } else emptyList()
-    val historyTokens = historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }
     val currentTurnTokens = if (prompt.isEmpty() && images.isEmpty()) {
         0
     } else {
         AgentContextBudget.countCurrentTurn(prompt, images)
+    }
+    val historyTokens = when {
+        billedContextTokens != null && billedContextTokens > 0 -> billedContextTokens
+        else -> historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }
     }
     return AgentContextUsageUi(
         contextTokens = historyTokens + currentTurnTokens,

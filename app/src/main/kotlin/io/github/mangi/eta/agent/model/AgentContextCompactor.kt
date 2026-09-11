@@ -20,9 +20,10 @@ internal object AgentContextCompactor {
         contextWindow: Int,
         keepRecentMessages: Int = DEFAULT_KEEP_RECENT,
         thresholdPercent: Int = 80,
+        estimatedTokens: Int? = null,
     ): Boolean {
         if (recentKeepStartIndex(history, keepRecentMessages) <= 0) return false
-        val estimated = history.sumOf { AgentContextBudget.countMessage(it) }
+        val estimated = estimatedTokens ?: history.sumOf { AgentContextBudget.countMessage(it) }
         return estimated >= contextWindow * thresholdPercent / 100
     }
 

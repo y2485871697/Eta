@@ -97,4 +97,28 @@ class AgentContextCompactorTest {
         content = content,
         toolCallsJson = toolCallsJson,
     )
+
+    @Test
+    fun shouldCompressPrefersEstimatedTokensOverLocalHistorySum() {
+        val history = (1..6).flatMap { turn(it) }
+        assertFalse(
+            AgentContextCompactor.shouldCompress(
+                history = history,
+                contextWindow = 500_000,
+                keepRecentMessages = 2,
+                thresholdPercent = 80,
+                estimatedTokens = 262_556,
+            ),
+        )
+        assertTrue(
+            AgentContextCompactor.shouldCompress(
+                history = history,
+                contextWindow = 500_000,
+                keepRecentMessages = 2,
+                thresholdPercent = 80,
+                estimatedTokens = 442_000,
+            ),
+        )
+    }
+
 }

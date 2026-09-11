@@ -125,6 +125,7 @@ internal fun AgentChatInputBar(
     input: String,
     modelPickerState: AgentModelPickerUiState,
     history: List<AgentModelClient.ConversationMessage>,
+    billedContextTokens: Int? = null,
     autoCompressEnabled: Boolean,
     showContextUsage: Boolean,
     isStreaming: Boolean,
@@ -161,6 +162,7 @@ internal fun AgentChatInputBar(
     }
     val liveUsage = remember(
         historyTokenCount,
+        billedContextTokens,
         draftText,
         pendingImages,
         pendingFileReferences,
@@ -174,6 +176,7 @@ internal fun AgentChatInputBar(
             selectedModel = modelPickerState.selectedModel,
             pendingFileReferences = pendingFileReferences,
             historyTokenCount = historyTokenCount,
+            billedContextTokens = billedContextTokens,
         )
     }
     val contextSendBlocked = shouldBlockSendForContextWindow(autoCompressEnabled, liveUsage)

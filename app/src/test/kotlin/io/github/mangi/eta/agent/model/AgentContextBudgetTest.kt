@@ -74,4 +74,30 @@ class AgentContextBudgetTest {
         )
         assertTrue(budget in 110_000..120_000)
     }
+
+    @Test
+    fun countMessageDoesNotDoubleCountContentJson() {
+        val text = "hello world"
+        val json = """[{"type":"text","text":"$text"}]"""
+        val withJson = AgentModelClient.ConversationMessage(
+            role = "user",
+            content = text,
+            contentJson = json,
+        )
+        val jsonOnly = AgentModelClient.ConversationMessage(
+            role = "user",
+            content = "",
+            contentJson = json,
+        )
+        assertEquals(
+            AgentContextBudget.countMessage(jsonOnly),
+            AgentContextBudget.countMessage(withJson),
+        )
+        assertTrue(
+            AgentContextBudget.countMessage(withJson) <
+                AgentContextBudget.countMessage(
+                    AgentModelClient.ConversationMessage(role = "user", content = text),
+                ) + AgentContextBudget.countTokens(json),
+        )
+    }
 }

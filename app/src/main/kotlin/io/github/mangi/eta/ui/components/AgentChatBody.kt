@@ -81,6 +81,7 @@ import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
 import io.github.mangi.eta.ui.app.LocalBlurEnabled
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
+import io.github.mangi.eta.ui.model.latestBilledContextTokens
 import io.github.mangi.eta.ui.model.isRetryableFailure
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
@@ -214,6 +215,9 @@ internal fun AgentChatBody(
         }
     }
 
+    val billedContextTokens = remember(visibleMessages, messageEdit) {
+        if (messageEdit != null) null else latestBilledContextTokens(visibleMessages)
+    }
     AgentChatScaffold(
         visibleMessages = visibleMessages,
         hasMessages = visibleMessages.isNotEmpty(),
@@ -221,6 +225,7 @@ internal fun AgentChatBody(
         input = input,
         modelPickerState = modelPickerState,
         history = history,
+        billedContextTokens = billedContextTokens,
         autoCompressEnabled = autoCompressEnabled,
         isStreaming = isStreaming,
         isPaused = isPaused,
@@ -275,6 +280,7 @@ private fun AgentChatScaffold(
     input: String,
     modelPickerState: AgentModelPickerUiState,
     history: List<AgentModelClient.ConversationMessage>,
+    billedContextTokens: Int? = null,
     autoCompressEnabled: Boolean,
     isStreaming: Boolean,
     isPaused: Boolean = false,
@@ -335,6 +341,7 @@ private fun AgentChatScaffold(
                 input = input,
                 modelPickerState = modelPickerState,
                 history = history,
+                billedContextTokens = billedContextTokens,
                 autoCompressEnabled = autoCompressEnabled,
                 showContextUsage = hasMessages,
                 isStreaming = isStreaming,
@@ -867,6 +874,7 @@ private fun AgentChatBottomBar(
     input: String,
     modelPickerState: AgentModelPickerUiState,
     history: List<AgentModelClient.ConversationMessage>,
+    billedContextTokens: Int? = null,
     autoCompressEnabled: Boolean,
     showContextUsage: Boolean,
     isStreaming: Boolean,
@@ -954,6 +962,7 @@ private fun AgentChatBottomBar(
                 input = input,
                 modelPickerState = modelPickerState,
                 history = history,
+                billedContextTokens = billedContextTokens,
                 autoCompressEnabled = autoCompressEnabled,
                 showContextUsage = showContextUsage,
                 isStreaming = isStreaming,
