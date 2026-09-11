@@ -258,43 +258,19 @@ fun AgentAppRoot(
             onConversationTogglePin = { conversation ->
                 agentState.toggleConversationPinned(conversation.id)
             },
-            onOpenManageChats = {
-                conversationPaneOpen = false
-                pushRoute(AppRoute.ManageChats)
-            },
+            onOpenManageChats = { pushRoute(AppRoute.ManageChats) },
             onSelectFolder = { folderId -> agentState.selectFolder(folderId) },
             onCreateFolder = { name -> agentState.createFolder(name) },
             onRenameFolder = { folderId, name -> agentState.renameFolder(folderId, name) },
             onDeleteFolder = { folderId -> agentState.deleteFolder(folderId) },
             onSelectAssistant = { id -> agentState.selectAssistant(id) },
-            onEditAssistant = { id ->
-                conversationPaneOpen = false
-                pushRoute(AppRoute.AssistantEdit(id))
-            },
-            onOpenAssistants = {
-                conversationPaneOpen = false
-                pushRoute(AppRoute.Assistants())
-            },
-            onOpenUsageStats = {
-                conversationPaneOpen = false
-                pushRoute(AppRoute.UsageStats)
-            },
-            onOpenSkills = {
-                conversationPaneOpen = false
-                pushRoute(AppRoute.Skills)
-            },
-            onOpenPermissions = {
-                conversationPaneOpen = false
-                pushRoute(AppRoute.Permissions)
-            },
-            onOpenSettings = {
-                conversationPaneOpen = false
-                pushRoute(AppRoute.Settings)
-            },
-            onOpenModelProviders = {
-                conversationPaneOpen = false
-                pushRoute(AppRoute.ModelProviders)
-            },
+            onEditAssistant = { id -> pushRoute(AppRoute.AssistantEdit(id)) },
+            onOpenAssistants = { pushRoute(AppRoute.Assistants()) },
+            onOpenUsageStats = { pushRoute(AppRoute.UsageStats) },
+            onOpenSkills = { pushRoute(AppRoute.Skills) },
+            onOpenPermissions = { pushRoute(AppRoute.Permissions) },
+            onOpenSettings = { pushRoute(AppRoute.Settings) },
+            onOpenModelProviders = { pushRoute(AppRoute.ModelProviders) },
         ) { padding ->
             Box(
                 modifier = Modifier
