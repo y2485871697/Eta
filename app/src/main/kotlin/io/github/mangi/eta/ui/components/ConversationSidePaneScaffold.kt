@@ -12,9 +12,9 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.anchoredDraggable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.animateTo
-import androidx.compose.foundation.gestures.snapTo
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -61,13 +61,13 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -82,6 +82,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigationevent.NavigationEventInfo
@@ -95,7 +96,6 @@ import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.screens.assistants.AssistantPickerDialog
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.DropdownDefaults
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -145,8 +145,6 @@ private object DrawerMetrics {
     val EmptyVerticalPadding = 28.dp
     val DockTopGap = 8.dp
     val AssistantBarHeight = 48.dp
-    val EdgeOpenHotspot = 24.dp
-    val EdgeOpenTopExclusion = 88.dp
 }
 
 private enum class ConversationPaneAnchor {
@@ -221,50 +219,40 @@ fun ConversationSidePaneScaffold(
         val currentVisible by rememberUpdatedState(visible)
         val currentOnOpen by rememberUpdatedState(onOpen)
         val currentOnDismiss by rememberUpdatedState(onDismiss)
-        val paneScope = rememberCoroutineScope()
-        var suppressOpenSettle by remember { mutableStateOf(false) }
+        val paneDragInteraction = remember { MutableInteractionSource() }
+        val isPaneDragging by paneDragInteraction.collectIsDraggedAsState()
         val paneOffset by remember(paneDragState) {
             derivedStateOf {
                 paneDragState.offset.takeUnless(Float::isNaN) ?: 0f
             }
         }
-        val showScrim = paneOffset > 0f
-        val scrimInteractionSource = remember { MutableInteractionSource() }
+        val showDim = paneOffset > 0.5f
+        val interceptContent = if (isPaneDragging) {
+            paneDragState.settledValue == ConversationPaneAnchor.Open
+        } else {
+            paneDragState.targetValue == ConversationPaneAnchor.Open && showDim
+        }
+        val dimmingInteraction = remember { MutableInteractionSource() }
         val drawerShape = AbsoluteRoundedCornerShape(
             topLeft = 0.dp,
             topRight = DrawerMetrics.DrawerCornerRadius,
             bottomRight = DrawerMetrics.DrawerCornerRadius,
             bottomLeft = 0.dp,
         )
-        fun paneDragModifier(): Modifier = Modifier.anchoredDraggable(
+        fun paneDragModifier(enabled: Boolean = backHandlerEnabled): Modifier = Modifier.anchoredDraggable(
             state = paneDragState,
             reverseDirection = false,
             orientation = Orientation.Horizontal,
-            enabled = backHandlerEnabled,
+            enabled = enabled,
+            interactionSource = paneDragInteraction,
             flingBehavior = flingBehavior,
         )
-
-        fun closeForSelection(action: () -> Unit) {
-            suppressOpenSettle = true
-            currentOnDismiss()
-            action()
-            paneScope.launch {
-                paneDragState.snapTo(ConversationPaneAnchor.Closed)
-            }
-        }
 
         SideEffect {
             paneDragState.updateAnchors(anchors)
         }
 
         LaunchedEffect(visible, paneWidthPx) {
-            if (suppressOpenSettle) {
-                if (!visible) {
-                    paneDragState.snapTo(ConversationPaneAnchor.Closed)
-                    suppressOpenSettle = false
-                }
-                return@LaunchedEffect
-            }
             val target = if (visible) ConversationPaneAnchor.Open else ConversationPaneAnchor.Closed
             if (paneDragState.targetValue != target || paneDragState.settledValue != target) {
                 paneDragState.animateTo(target, settleAnimation)
@@ -273,7 +261,6 @@ fun ConversationSidePaneScaffold(
 
         LaunchedEffect(paneDragState) {
             snapshotFlow { paneDragState.settledValue }.collectLatest { settledValue ->
-                if (suppressOpenSettle) return@collectLatest
                 val settledOpen = settledValue == ConversationPaneAnchor.Open
                 if (settledOpen != currentVisible) {
                     if (settledOpen) currentOnOpen() else currentOnDismiss()
@@ -290,86 +277,86 @@ fun ConversationSidePaneScaffold(
         )
 
         val shadowElevationPx = with(density) { DrawerMetrics.DrawerShadowElevation.toPx() }
-        Box(modifier = Modifier.fillMaxSize()) {
+        val dimColor = MiuixTheme.colorScheme.windowDimming
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(paneDragModifier())
+                .drawWithContent {
+                    drawContent()
+                    val offset = paneDragState.offset.takeUnless(Float::isNaN) ?: 0f
+                    val progress = if (paneWidthPx > 0f) {
+                        (offset / paneWidthPx).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                    if (progress > 0f) {
+                        drawRect(color = dimColor, alpha = progress)
+                    }
+                }
+                .zIndex(0f),
+        ) {
             content()
+        }
 
-            if (showScrim) {
-                val scrimStart = with(density) { paneOffset.toDp() }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(start = scrimStart)
-                        .graphicsLayer {
-                            alpha = if (paneWidthPx > 0f) {
-                                (paneOffset / paneWidthPx).coerceIn(0f, 1f)
-                            } else {
-                                0f
-                            }
-                        }
-                        .background(MiuixTheme.colorScheme.windowDimming)
-                        .clickable(
-                            interactionSource = scrimInteractionSource,
-                            indication = null,
-                        ) {
-                            currentOnDismiss()
-                        }
-                        .then(paneDragModifier()),
-                )
-            }
-            if (backHandlerEnabled) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .fillMaxHeight()
-                        .width(DrawerMetrics.EdgeOpenHotspot)
-                        .padding(top = DrawerMetrics.EdgeOpenTopExclusion)
-                        .then(paneDragModifier()),
-                )
-            }
-
-            ConversationPanePanel(
-                state = state,
-                width = paneWidth,
-                onSearchChange = onSearchChange,
-                onConversationSelected = { conversationId ->
-                    closeForSelection { onConversationSelected(conversationId) }
-                },
-                onConversationRename = onConversationRename,
-                onConversationDelete = onConversationDelete,
-                onMoveConversationToFolder = onMoveConversationToFolder,
-                onNewConversation = { closeForSelection(onNewConversation) },
-                onConversationTogglePin = onConversationTogglePin,
-                onOpenManageChats = { closeForSelection(onOpenManageChats) },
-                onSelectFolder = onSelectFolder,
-                onCreateFolder = onCreateFolder,
-                onRenameFolder = onRenameFolder,
-                onDeleteFolder = onDeleteFolder,
-                onSelectAssistant = onSelectAssistant,
-                onEditAssistant = { assistantId -> closeForSelection { onEditAssistant(assistantId) } },
-                onOpenAssistants = { closeForSelection(onOpenAssistants) },
-                onOpenSettings = { closeForSelection(onOpenSettings) },
-                onOpenModelProviders = { closeForSelection(onOpenModelProviders) },
-                onOpenUsageStats = { closeForSelection(onOpenUsageStats) },
-                onOpenSkills = { closeForSelection(onOpenSkills) },
-                onOpenPermissions = { closeForSelection(onOpenPermissions) },
-                paneDragState = paneDragState,
-                flingBehavior = flingBehavior,
+        if (interceptContent) {
+            Box(
                 modifier = Modifier
-                    .graphicsLayer {
-                        val offset = paneDragState.offset.takeUnless(Float::isNaN)
-                            ?: if (visible) paneWidthPx else 0f
-                        val progress = if (paneWidthPx > 0f) {
-                            (offset / paneWidthPx).coerceIn(0f, 1f)
-                        } else {
-                            0f
-                        }
-                        translationX = offset - paneWidthPx
-                        shadowElevation = shadowElevationPx * progress
-                        shape = drawerShape
-                        clip = true
-                    },
+                    .fillMaxSize()
+                    .clickable(
+                        onClick = { currentOnDismiss() },
+                        interactionSource = dimmingInteraction,
+                        indication = null,
+                    )
+                    .then(paneDragModifier())
+                    .zIndex(1f),
             )
         }
+
+        ConversationPanePanel(
+            state = state,
+            width = paneWidth,
+            drawerShape = drawerShape,
+            onSearchChange = onSearchChange,
+            onConversationSelected = onConversationSelected,
+            onConversationRename = onConversationRename,
+            onConversationDelete = onConversationDelete,
+            onMoveConversationToFolder = onMoveConversationToFolder,
+            onNewConversation = onNewConversation,
+            onConversationTogglePin = onConversationTogglePin,
+            onOpenManageChats = onOpenManageChats,
+            onSelectFolder = onSelectFolder,
+            onCreateFolder = onCreateFolder,
+            onRenameFolder = onRenameFolder,
+            onDeleteFolder = onDeleteFolder,
+            onSelectAssistant = onSelectAssistant,
+            onEditAssistant = onEditAssistant,
+            onOpenAssistants = onOpenAssistants,
+            onOpenSettings = onOpenSettings,
+            onOpenModelProviders = onOpenModelProviders,
+            onOpenUsageStats = onOpenUsageStats,
+            onOpenSkills = onOpenSkills,
+            onOpenPermissions = onOpenPermissions,
+            paneDragState = paneDragState,
+            paneDragInteraction = paneDragInteraction,
+            flingBehavior = flingBehavior,
+            modifier = Modifier
+                .graphicsLayer {
+                    val offset = paneDragState.offset.takeUnless(Float::isNaN)
+                        ?: if (visible) paneWidthPx else 0f
+                    val progress = if (paneWidthPx > 0f) {
+                        (offset / paneWidthPx).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                    translationX = offset - paneWidthPx
+                    shadowElevation = shadowElevationPx * progress
+                    shape = drawerShape
+                    clip = false
+                }
+                .clip(drawerShape)
+                .zIndex(2f),
+        )
     }
 }
 
@@ -378,6 +365,7 @@ fun ConversationSidePaneScaffold(
 private fun ConversationPanePanel(
     state: ConversationPaneUiState,
     width: androidx.compose.ui.unit.Dp,
+    drawerShape: AbsoluteRoundedCornerShape,
     onSearchChange: (String) -> Unit,
     onConversationSelected: (String) -> Unit,
     onConversationRename: (ConversationSummaryUi) -> Unit,
@@ -399,6 +387,7 @@ private fun ConversationPanePanel(
     onOpenSkills: () -> Unit,
     onOpenPermissions: () -> Unit,
     paneDragState: AnchoredDraggableState<ConversationPaneAnchor>,
+    paneDragInteraction: MutableInteractionSource,
     flingBehavior: FlingBehavior,
     modifier: Modifier = Modifier,
 ) {
@@ -430,10 +419,13 @@ private fun ConversationPanePanel(
                 reverseDirection = false,
                 orientation = Orientation.Horizontal,
                 enabled = true,
+                interactionSource = paneDragInteraction,
                 flingBehavior = flingBehavior,
             ),
+        shape = drawerShape,
         color = MiuixTheme.colorScheme.surface,
         contentColor = MiuixTheme.colorScheme.onSurface,
+        shadowElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier
