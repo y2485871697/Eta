@@ -67,23 +67,31 @@ internal class AgentRuntimeSession(
         true
     }
 
-    fun steer(text: String): Boolean =
+    fun steer(text: String): Boolean {
         lock.withLock {
             if (state != State.RUNNING) return false
-            controller.steer(text)
         }
+        // 打断 SSE 不能握着 session 锁：读线程在 emit 时要同一把锁，
+        // EventSource.cancel() 又会等读线程，等于把当前回复排完才返回。
+        return controller.steer(text)
+    }
 
     fun <T : AgentEvent> steer(
         text: String,
         eventFactory: () -> T,
-    ): T? =
+    ): T? {
         lock.withLock {
-            if (state != State.RUNNING || !controller.steer(text)) return null
+            if (state != State.RUNNING) return null
+        }
+        if (!controller.steer(text)) return null
+        return lock.withLock {
+            if (state != State.RUNNING) return null
             eventFactory().also { event ->
                 recordForReplay(event)
                 subscribers.forEach { it.eventSink(event) }
             }
         }
+    }
 
     private fun recordForReplay(event: AgentEvent) {
         val projected = event.recoveryProjection() ?: return

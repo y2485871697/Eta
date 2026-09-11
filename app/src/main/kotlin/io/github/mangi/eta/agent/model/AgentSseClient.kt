@@ -68,9 +68,16 @@ internal object AgentSseClient {
                 type: String?,
                 data: String,
             ) {
-                if (completed.get()) return
+                if (completed.get() || runController.hasPendingSteering) {
+                    stream.finish()
+                    return
+                }
                 try {
                     runController.throwIfCancelled()
+                    if (runController.hasPendingSteering) {
+                        stream.finish()
+                        return
+                    }
                     emitEvent(stream, id, type, data)
                 } catch (error: Throwable) {
                     failure.compareAndSet(null, error)
@@ -129,13 +136,11 @@ internal object AgentSseClient {
             .createFactory(AgentHttpClient.modelClient)
             .newEventSource(sseRequest, listener)
         eventSourceRef.set(eventSource)
-        val binding = runController.register(
-            cancel = {
-                eventSource.cancel()
-                stream.finish()
-            },
-            interruptible = true,
-        )
+        // finish() 先标记 completed 并唤醒 collect，再 cancel EventSource。
+        // 若先 cancel，OkHttp 可能排完当前 body 才返回，追加指令就会等到整段输出结束。
+        val binding = runController.register(interruptible = true) {
+            stream.finish()
+        }
         try {
             runController.throwIfCancelled()
             done.await()
