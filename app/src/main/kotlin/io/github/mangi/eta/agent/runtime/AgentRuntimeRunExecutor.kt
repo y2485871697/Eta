@@ -195,7 +195,7 @@ internal class AgentRuntimeRunExecutor(
                 mcp = McpToolExecutor(mcpSnapshot),
             )
             toolExecutor = routingExecutor
-            toolsBinding = runController.register(routingExecutor::close)
+            toolsBinding = runController.register { routingExecutor.close() }
             timing.preparationFinished(skillContext.installedSkills.size)
             val completedResponse = AgentModelClient.complete(
                 config = request.config,
