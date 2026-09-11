@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.state.ToggleableState
@@ -68,6 +69,7 @@ import io.github.mangi.eta.data.repository.ModelRepository
 import io.github.mangi.eta.data.repository.RemoteModelFetcher
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.components.MiuixDialogActions
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.components.PreferenceIcon
 import io.github.mangi.eta.ui.components.StatusError
 import io.github.mangi.eta.ui.components.StatusSuccess
@@ -759,6 +761,7 @@ private fun ModelEditDialog(
     onDelete: (() -> Unit)?,
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     var displayName by remember(model.id, isNew) { mutableStateOf(model.displayName) }
     var modelId by remember(model.id, isNew) { mutableStateOf(model.modelId) }
     var contextWindowOverrideText by remember(model.id, isNew) {
@@ -882,16 +885,14 @@ private fun ModelEditDialog(
                         modifier = Modifier.weight(1f),
                     )
                     if (contextWindowOverrideText.isNotBlank()) {
-                        Text(
+                        TextButton(
                             text = stringResource(R.string.ui_restore_automatic_8d4e1e),
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable(
-                                    enabled = !isSaving,
-                                    onClick = { contextWindowOverrideText = "" },
-                                )
-                                .padding(vertical = 4.dp),
+                            onClick = {
+                                TouchHaptics.click(view)
+                                contextWindowOverrideText = ""
+                            },
+                            enabled = !isSaving,
+                            colors = ButtonDefaults.textButtonColorsPrimary(),
                         )
                     }
                 }
@@ -940,31 +941,36 @@ private fun ModelEditDialog(
                 }
                 if (reasoningOverrideActive || onDelete != null) {
                     Row(
-                        modifier = Modifier.padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         if (reasoningOverrideActive) {
-                            Text(
+                            TextButton(
                                 text = stringResource(R.string.ui_restore_automatic_8d4e1e),
-                                style = MiuixTheme.textStyles.body2,
-                                color = MiuixTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .clickable(
-                                        enabled = !isSaving,
-                                        onClick = ::resetAutomaticReasoning,
-                                    )
-                                    .padding(vertical = 4.dp),
+                                onClick = {
+                                    TouchHaptics.click(view)
+                                    resetAutomaticReasoning()
+                                },
+                                enabled = !isSaving,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.textButtonColorsPrimary(),
                             )
                         }
                         onDelete?.let { delete ->
-                            Text(
+                            TextButton(
                                 text = stringResource(R.string.ui_delete_model_cf24da),
-                                style = MiuixTheme.textStyles.body2,
-                                color = MiuixTheme.colorScheme.error,
-                                modifier = Modifier
-                                    .clickable(enabled = !isSaving, onClick = delete)
-                                    .padding(vertical = 4.dp),
+                                onClick = {
+                                    TouchHaptics.click(view)
+                                    delete()
+                                },
+                                enabled = !isSaving,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.textButtonColorsPrimary(
+                                    color = MiuixTheme.colorScheme.error,
+                                    textColor = MiuixTheme.colorScheme.onError,
+                                ),
                             )
                         }
                     }

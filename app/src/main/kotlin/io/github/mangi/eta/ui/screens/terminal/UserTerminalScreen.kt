@@ -71,6 +71,7 @@ import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -454,6 +455,10 @@ private fun StatusBar(
             TextButton(
                 text = stringResource(R.string.terminal_stop),
                 onClick = onStop,
+                colors = ButtonDefaults.textButtonColorsPrimary(
+                    color = MiuixTheme.colorScheme.error,
+                    textColor = MiuixTheme.colorScheme.onError,
+                ),
             )
         }
     }
@@ -539,6 +544,7 @@ private fun LinuxGuide(onOpenEnvironment: () -> Unit) {
             text = stringResource(R.string.terminal_open_environment),
             onClick = onOpenEnvironment,
             modifier = Modifier.padding(top = 12.dp),
+            colors = ButtonDefaults.textButtonColorsPrimary(),
         )
     }
 }

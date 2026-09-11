@@ -50,6 +50,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -139,6 +140,10 @@ internal fun SharedFoldersScreen(
                             TextButton(
                                 text = stringResource(R.string.action_delete),
                                 onClick = { removeTarget = mount },
+                                colors = ButtonDefaults.textButtonColorsPrimary(
+                                    color = MiuixTheme.colorScheme.error,
+                                    textColor = MiuixTheme.colorScheme.onError,
+                                ),
                             )
                         },
                     )

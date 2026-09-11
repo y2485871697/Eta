@@ -64,15 +64,6 @@ fun AgentToolsScreen(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             )
         }
-        item(key = "capability-discovery") {
-            Card(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 8.dp)) {
-                ArrowPreference(
-                    title = stringResource(R.string.capability_enhancements),
-                    summary = stringResource(R.string.capability_enhancements_summary),
-                    onClick = { onAction(AgentToolsAction.OpenEnhancements) },
-                )
-            }
-        }
         groups.forEach { group ->
             item(key = "${group.id}-title") {
                 SmallTitle(group.title)
@@ -86,6 +77,15 @@ fun AgentToolsScreen(
                     rootGranted = capabilities.root.isGranted,
                     capabilities = capabilities.tools,
                     onAction = onAction,
+                )
+            }
+        }
+        item(key = "capability-discovery") {
+            Card(modifier = Modifier.padding(horizontal = 20.dp).padding(top = 4.dp, bottom = 12.dp)) {
+                ArrowPreference(
+                    title = stringResource(R.string.capability_enhancements),
+                    summary = stringResource(R.string.capability_enhancements_summary),
+                    onClick = { onAction(AgentToolsAction.OpenEnhancements) },
                 )
             }
         }

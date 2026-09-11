@@ -69,6 +69,7 @@ import io.github.mangi.eta.ui.components.toSpanStyle
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -250,6 +251,7 @@ private fun ConsoleStatusBar(
             TextButton(
                 text = stringResource(R.string.terminal_block_mode),
                 onClick = onExitConsole,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
             )
         }
     }
@@ -378,12 +380,14 @@ private fun ColumnScope.ConsoleGrid(
                     text = stringResource(R.string.terminal_reconnect),
                     onClick = store::reconnect,
                     modifier = Modifier.padding(top = 12.dp),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
                 if (state.failMessage != null) {
                     TextButton(
                         text = stringResource(R.string.terminal_open_environment),
                         onClick = onOpenEnvironment,
                         modifier = Modifier.padding(top = 4.dp),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
                     )
                 }
             }

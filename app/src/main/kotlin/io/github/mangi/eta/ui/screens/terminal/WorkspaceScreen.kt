@@ -250,10 +250,7 @@ internal fun WorkspaceScreen(onBack: () -> Unit) {
                     ),
                     title = entry.name,
                     summary = if (entry.directory) stringResource(R.string.capability_workspace_directory)
-                        else stringResource(
-                            R.string.capability_workspace_file_export,
-                            Formatter.formatShortFileSize(context, entry.size),
-                        ),
+                        else Formatter.formatShortFileSize(context, entry.size),
                     enabled = !busy,
                     startAction = {
                         PreferenceIcon(

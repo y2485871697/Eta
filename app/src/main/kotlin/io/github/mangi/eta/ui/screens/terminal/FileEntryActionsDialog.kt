@@ -43,6 +43,7 @@ internal fun FileEntryActionsDialog(
                     onClick = onExport,
                     enabled = enabled,
                     modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
             }
             if (target.canDelete) {

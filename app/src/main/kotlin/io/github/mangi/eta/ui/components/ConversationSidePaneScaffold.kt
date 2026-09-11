@@ -96,13 +96,9 @@ import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.screens.assistants.AssistantPickerDialog
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.DropdownDefaults
-import top.yukonga.miuix.kmp.basic.DropdownImpl
-import top.yukonga.miuix.kmp.basic.DropdownItem
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.unit.DpOffset
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.ListPopupColumn
-import top.yukonga.miuix.kmp.basic.ListPopupDefaults
-import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -110,7 +106,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowDialog
-import top.yukonga.miuix.kmp.window.WindowListPopup
+
+private val DrawerMenuItemModifier = Modifier.height(40.dp)
+private val DrawerMenuItemPadding = PaddingValues(horizontal = 12.dp)
 
 private object DrawerMetrics {
     val PaneMaxWidth = 320.dp
@@ -628,67 +626,49 @@ private fun PaneFolderBar(
                     onClick = { onSelectFolder(folder.id) },
                     onLongClick = { showMenu = true },
                 )
-                WindowListPopup(
-                    show = showMenu,
-                    popupPositionProvider = ListPopupDefaults.ContextMenuPositionProvider,
-                    alignment = PopupPositionProvider.Align.BottomEnd,
+                EtaDropdownMenu(
+                    expanded = showMenu,
                     onDismissRequest = { showMenu = false },
+                    offset = DpOffset(x = 0.dp, y = 8.dp),
                 ) {
-                    val renameText = stringResource(R.string.action_rename)
-                    val deleteText = stringResource(R.string.action_delete)
-                    val renameItem = remember(renameText) {
-                        DropdownItem(
-                            text = renameText,
-                            icon = { modifier ->
-                                Icon(
-                                    imageVector = Icons.Rounded.Edit,
-                                    contentDescription = null,
-                                    modifier = modifier.size(DrawerMetrics.ActionIconSize),
-                                )
-                            },
-                        )
-                    }
-                    val deleteItem = remember(deleteText) {
-                        DropdownItem(
-                            text = deleteText,
-                            icon = { modifier ->
-                                Icon(
-                                    imageVector = Icons.Rounded.Delete,
-                                    contentDescription = null,
-                                    modifier = modifier.size(DrawerMetrics.ActionIconSize),
-                                    tint = MiuixTheme.colorScheme.error,
-                                )
-                            },
-                        )
-                    }
-                    val deleteColors = DropdownDefaults.dropdownColors(
-                        contentColor = MiuixTheme.colorScheme.error,
-                        selectedContentColor = MiuixTheme.colorScheme.error,
-                        selectedIndicatorColor = MiuixTheme.colorScheme.error,
+                    DropdownMenuItem(
+                        modifier = DrawerMenuItemModifier,
+                        contentPadding = DrawerMenuItemPadding,
+                        text = { Text(stringResource(R.string.action_rename)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(DrawerMetrics.ActionIconSize),
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            folderToRename = folder
+                        },
                     )
-                    ListPopupColumn {
-                        DropdownImpl(
-                            item = renameItem,
-                            optionSize = 2,
-                            isSelected = false,
-                            index = 0,
-                            onSelectedIndexChange = {
-                                showMenu = false
-                                folderToRename = folder
-                            },
-                        )
-                        DropdownImpl(
-                            item = deleteItem,
-                            optionSize = 2,
-                            isSelected = false,
-                            index = 1,
-                            dropdownColors = deleteColors,
-                            onSelectedIndexChange = {
-                                showMenu = false
-                                folderToDelete = folder
-                            },
-                        )
-                    }
+                    DropdownMenuItem(
+                        modifier = DrawerMenuItemModifier,
+                        contentPadding = DrawerMenuItemPadding,
+                        text = {
+                            Text(
+                                text = stringResource(R.string.action_delete),
+                                color = MiuixTheme.colorScheme.error,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Delete,
+                                contentDescription = null,
+                                modifier = Modifier.size(DrawerMetrics.ActionIconSize),
+                                tint = MiuixTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            folderToDelete = folder
+                        },
+                    )
                 }
             }
         }
@@ -928,124 +908,84 @@ private fun ConversationTextRow(
             }
         }
 
-        WindowListPopup(
-            show = showActionMenu,
-            popupPositionProvider = ListPopupDefaults.ContextMenuPositionProvider,
-            alignment = PopupPositionProvider.Align.BottomEnd,
+        EtaDropdownMenu(
+            expanded = showActionMenu,
             onDismissRequest = { showActionMenu = false },
+            offset = DpOffset(x = 8.dp, y = 8.dp),
+            alignEnd = true,
         ) {
-            val renameText = stringResource(R.string.action_rename)
-            val pinText = stringResource(
-                if (conversation.isPinned) {
-                    R.string.conversation_unpin
-                } else {
-                    R.string.conversation_pin
+            DropdownMenuItem(
+                modifier = DrawerMenuItemModifier,
+                contentPadding = DrawerMenuItemPadding,
+                text = { Text(stringResource(R.string.action_rename)) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(DrawerMetrics.ActionIconSize),
+                    )
+                },
+                onClick = {
+                    showActionMenu = false
+                    onRename()
                 },
             )
-            val moveText = stringResource(R.string.drawer_move_to_folder)
-            val deleteText = stringResource(R.string.action_delete)
-            val isPinned = conversation.isPinned
-            val renameItem = remember(renameText) {
-                DropdownItem(
-                    text = renameText,
-                    icon = { modifier ->
-                        Icon(
-                            imageVector = Icons.Rounded.Edit,
-                            contentDescription = null,
-                            modifier = modifier.size(DrawerMetrics.ActionIconSize),
+            DropdownMenuItem(
+                modifier = DrawerMenuItemModifier,
+                contentPadding = DrawerMenuItemPadding,
+                text = {
+                    Text(
+                        stringResource(
+                            if (conversation.isPinned) R.string.conversation_unpin
+                            else R.string.conversation_pin,
                         )
-                    },
-                )
-            }
-            val pinItem = remember(pinText, isPinned) {
-                DropdownItem(
-                    text = pinText,
-                    icon = { modifier ->
-                        Icon(
-                            imageVector = if (isPinned) {
-                                Icons.Outlined.PushPin
-                            } else {
-                                Icons.Rounded.PushPin
-                            },
-                            contentDescription = null,
-                            modifier = modifier.size(DrawerMetrics.ActionIconSize),
-                        )
-                    },
-                )
-            }
-            val moveItem = remember(moveText) {
-                DropdownItem(
-                    text = moveText,
-                    icon = { modifier ->
-                        Icon(
-                            imageVector = Icons.Rounded.Folder,
-                            contentDescription = null,
-                            modifier = modifier.size(DrawerMetrics.ActionIconSize),
-                        )
-                    },
-                )
-            }
-            val deleteItem = remember(deleteText) {
-                DropdownItem(
-                    text = deleteText,
-                    icon = { modifier ->
-                        Icon(
-                            imageVector = Icons.Rounded.Delete,
-                            contentDescription = null,
-                            modifier = modifier.size(DrawerMetrics.ActionIconSize),
-                            tint = MiuixTheme.colorScheme.error,
-                        )
-                    },
-                )
-            }
-            val deleteColors = DropdownDefaults.dropdownColors(
-                contentColor = MiuixTheme.colorScheme.error,
-                selectedContentColor = MiuixTheme.colorScheme.error,
-                selectedIndicatorColor = MiuixTheme.colorScheme.error,
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = if (conversation.isPinned) Icons.Outlined.PushPin else Icons.Rounded.PushPin,
+                        contentDescription = null,
+                        modifier = Modifier.size(DrawerMetrics.ActionIconSize),
+                    )
+                },
+                onClick = {
+                    showActionMenu = false
+                    onTogglePin()
+                },
             )
-            ListPopupColumn {
-                DropdownImpl(
-                    item = renameItem,
-                    optionSize = 4,
-                    isSelected = false,
-                    index = 0,
-                    onSelectedIndexChange = {
-                        showActionMenu = false
-                        onRename()
-                    },
-                )
-                DropdownImpl(
-                    item = pinItem,
-                    optionSize = 4,
-                    isSelected = false,
-                    index = 1,
-                    onSelectedIndexChange = {
-                        showActionMenu = false
-                        onTogglePin()
-                    },
-                )
-                DropdownImpl(
-                    item = moveItem,
-                    optionSize = 4,
-                    isSelected = false,
-                    index = 2,
-                    onSelectedIndexChange = {
-                        showActionMenu = false
-                        onMoveToFolder()
-                    },
-                )
-                DropdownImpl(
-                    item = deleteItem,
-                    optionSize = 4,
-                    isSelected = false,
-                    index = 3,
-                    dropdownColors = deleteColors,
-                    onSelectedIndexChange = {
-                        showActionMenu = false
-                        onDelete()
-                    },
-                )
-            }
+            DropdownMenuItem(
+                modifier = DrawerMenuItemModifier,
+                contentPadding = DrawerMenuItemPadding,
+                text = { Text(stringResource(R.string.drawer_move_to_folder)) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(DrawerMetrics.ActionIconSize),
+                    )
+                },
+                onClick = {
+                    showActionMenu = false
+                    onMoveToFolder()
+                },
+            )
+            DropdownMenuItem(
+                modifier = DrawerMenuItemModifier,
+                contentPadding = DrawerMenuItemPadding,
+                text = { Text(text = stringResource(R.string.action_delete), color = MiuixTheme.colorScheme.error) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(DrawerMetrics.ActionIconSize),
+                        tint = MiuixTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    showActionMenu = false
+                    onDelete()
+                },
+            )
         }
     }
 }

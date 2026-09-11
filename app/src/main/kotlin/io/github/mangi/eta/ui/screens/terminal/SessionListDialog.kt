@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.agent.terminal.TerminalEnvironment
 import io.github.mangi.eta.ui.app.displayName
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -80,6 +81,7 @@ internal fun SessionListDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp),
+            colors = ButtonDefaults.textButtonColorsPrimary(),
         )
     }
 }
@@ -143,10 +145,15 @@ private fun SessionRow(
             TextButton(
                 text = stringResource(R.string.terminal_restart_session),
                 onClick = onRestart,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
             )
             TextButton(
                 text = stringResource(R.string.terminal_close_session),
                 onClick = onClose,
+                colors = ButtonDefaults.textButtonColorsPrimary(
+                    color = MiuixTheme.colorScheme.error,
+                    textColor = MiuixTheme.colorScheme.onError,
+                ),
             )
         }
     }

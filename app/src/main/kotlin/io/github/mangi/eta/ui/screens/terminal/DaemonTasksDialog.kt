@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.agent.terminal.TerminalEnvironment
 import io.github.mangi.eta.ui.app.DaemonTaskUi
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -111,10 +112,15 @@ private fun DaemonTaskRow(
                         scope.launch { logs = onLoadLogs(task.id) }
                     }
                 },
+                colors = ButtonDefaults.textButtonColorsPrimary(),
             )
             TextButton(
                 text = stringResource(R.string.terminal_stop),
                 onClick = { onStop(task.id) },
+                colors = ButtonDefaults.textButtonColorsPrimary(
+                    color = MiuixTheme.colorScheme.error,
+                    textColor = MiuixTheme.colorScheme.onError,
+                ),
             )
         }
         if (logsExpanded) {

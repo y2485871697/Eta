@@ -67,7 +67,9 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 
 private enum class InstallTarget {
@@ -435,6 +437,10 @@ internal fun LinuxEnvironmentScreen(
                                         TextButton(
                                             text = stringResource(R.string.action_stop),
                                             enabled = !kimiWebLaunching && !requiresRoot,
+                                            colors = ButtonDefaults.textButtonColorsPrimary(
+                                                color = MiuixTheme.colorScheme.error,
+                                                textColor = MiuixTheme.colorScheme.onError,
+                                            ),
                                             onClick = {
                                                 coroutineScope.launch {
                                                     val stopped = kimiWebLauncher.stop(selectedDistribution.terminalEnvironment)
@@ -463,6 +469,7 @@ internal fun LinuxEnvironmentScreen(
                                         } else {
                                             busyTarget == null && !ready
                                         },
+                                        colors = ButtonDefaults.textButtonColorsPrimary(),
                                         onClick = {
                                             if (isKimi && ready) {
                                                 launchKimiWeb()
@@ -511,6 +518,7 @@ internal fun LinuxEnvironmentScreen(
                                         else -> context.getString(R.string.linux_install)
                                     },
                                     enabled = busyTarget == null && !requiresRoot && !apkAnalysisReady,
+                                    colors = ButtonDefaults.textButtonColorsPrimary(),
                                     onClick = {
                                         if (busyTarget != null || apkAnalysisReady) return@TextButton
                                         busyTarget = InstallTarget.APK_ANALYSIS
