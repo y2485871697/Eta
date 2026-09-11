@@ -3,6 +3,7 @@ import io.github.mangi.eta.R
 import androidx.compose.ui.res.stringResource
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -82,9 +83,6 @@ internal fun SessionListDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp),
-            minHeight = 28.dp,
-            insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-            textStyle = MiuixTheme.textStyles.body2,
             colors = ButtonDefaults.textButtonColorsPrimary(),
         )
     }
@@ -134,6 +132,7 @@ private fun SessionRow(
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(

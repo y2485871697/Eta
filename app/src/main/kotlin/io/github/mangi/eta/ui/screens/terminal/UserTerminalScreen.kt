@@ -455,6 +455,9 @@ private fun StatusBar(
             TextButton(
                 text = stringResource(R.string.terminal_stop),
                 onClick = onStop,
+                minHeight = 28.dp,
+                insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                textStyle = MiuixTheme.textStyles.body2,
                 colors = ButtonDefaults.textButtonColorsPrimary(
                     color = MiuixTheme.colorScheme.error,
                     textColor = MiuixTheme.colorScheme.onError,
