@@ -132,7 +132,7 @@ private fun SessionRow(
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(1.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
