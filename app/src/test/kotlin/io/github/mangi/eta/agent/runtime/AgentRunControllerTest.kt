@@ -61,7 +61,7 @@ class AgentRunControllerTest {
         val durable = AtomicInteger(0)
         val stream = AtomicInteger(0)
         controller.register { durable.incrementAndGet() }
-        controller.register({ stream.incrementAndGet() }, interruptible = true)
+        controller.register(interruptible = true) { stream.incrementAndGet() }
 
         assertTrue(controller.steer("改短一点"))
 
@@ -74,7 +74,7 @@ class AgentRunControllerTest {
     fun pausedSteeringDoesNotCancelInterruptibleResources() {
         val controller = AgentRunController()
         val stream = AtomicInteger(0)
-        controller.register({ stream.incrementAndGet() }, interruptible = true)
+        controller.register(interruptible = true) { stream.incrementAndGet() }
         controller.pause()
 
         assertTrue(controller.steer("等我看完再说"))

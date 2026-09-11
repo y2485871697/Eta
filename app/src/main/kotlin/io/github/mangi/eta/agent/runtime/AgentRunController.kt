@@ -139,7 +139,7 @@ internal class AgentRunController {
      * @param interruptible true 表示可被 steering 打断（当前模型 SSE）。
      * 工具执行器等长驻资源必须保持 false，避免补充指令把整批工具一起关掉。
      */
-    fun register(cancel: () -> Unit, interruptible: Boolean = false): ResourceBinding {
+    fun register(interruptible: Boolean = false, cancel: () -> Unit): ResourceBinding {
         val resource = CancellableResource(cancel, interruptible)
         resources.add(resource)
         if (cancelled) resource.cancel()

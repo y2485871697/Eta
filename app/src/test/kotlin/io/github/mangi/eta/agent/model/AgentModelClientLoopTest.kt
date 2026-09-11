@@ -178,7 +178,7 @@ class AgentModelClientLoopTest {
             responses = listOf(
                 { _, runController ->
                     val interrupted = CountDownLatch(1)
-                    runController.register({ interrupted.countDown() }, interruptible = true)
+                    runController.register(interruptible = true) { interrupted.countDown() }
                     val worker = thread(name = "loop-steer-interrupt-test", isDaemon = true) {
                         runController.steer("改成短篇，两百字就够")
                     }
