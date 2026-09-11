@@ -1,5 +1,12 @@
 package io.github.mangi.eta.ui.screens.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +45,7 @@ import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.model.MessageSearchHit
+import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
@@ -95,6 +103,14 @@ internal fun ManageChatsScreen(
                         onClick = { onOpenConversation(conversation.id) },
                         onTogglePin = { onTogglePin(conversation.id) },
                         onDelete = { onDeleteConversation(conversation) },
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = null,
+                            fadeOutSpec = tween(180),
+                            placementSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow,
+                            ),
+                        ),
                     )
                 }
             }
@@ -137,46 +153,63 @@ private fun SwipeableManageChatRow(
     onClick: () -> Unit,
     onTogglePin: () -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
+    var collapsing by remember { mutableStateOf(false) }
     var deleted by remember { mutableStateOf(false) }
 
     LaunchedEffect(dismissState.currentValue) {
-        if (!deleted && dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-            deleted = true
-            onDelete()
+        if (!collapsing && dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
+            collapsing = true
         }
     }
 
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = false,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(18.dp)),
-        backgroundContent = {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MiuixTheme.colorScheme.errorContainer)
-                    .padding(horizontal = 20.dp),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Delete,
-                    contentDescription = stringResource(R.string.action_delete),
-                    tint = MiuixTheme.colorScheme.onErrorContainer,
+    LaunchedEffect(collapsing) {
+        if (!collapsing || deleted) return@LaunchedEffect
+        delay(300)
+        deleted = true
+        onDelete()
+    }
+
+    AnimatedVisibility(
+        visible = !collapsing,
+        modifier = modifier,
+        exit = fadeOut(animationSpec = tween(160)) + shrinkVertically(
+            animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
+            shrinkTowards = Alignment.Top,
+        ),
+    ) {
+        SwipeToDismissBox(
+            state = dismissState,
+            enableDismissFromStartToEnd = false,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(18.dp)),
+            backgroundContent = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MiuixTheme.colorScheme.errorContainer)
+                        .padding(horizontal = 20.dp),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = stringResource(R.string.action_delete),
+                        tint = MiuixTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            },
+        ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                ManageChatRow(
+                    conversation = conversation,
+                    onClick = onClick,
+                    onTogglePin = onTogglePin,
                 )
             }
-        },
-    ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            ManageChatRow(
-                conversation = conversation,
-                onClick = onClick,
-                onTogglePin = onTogglePin,
-            )
         }
     }
 }

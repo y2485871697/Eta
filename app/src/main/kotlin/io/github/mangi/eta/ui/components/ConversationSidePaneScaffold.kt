@@ -792,12 +792,12 @@ private fun DrawerChip(
     onLongClick: (() -> Unit)? = null,
 ) {
     val background = if (selected) {
-        MiuixTheme.colorScheme.secondaryContainer
+        MiuixTheme.colorScheme.primary
     } else {
         MiuixTheme.colorScheme.surfaceContainerHigh
     }
     val contentColor = if (selected) {
-        MiuixTheme.colorScheme.onSecondaryContainer
+        MiuixTheme.colorScheme.onPrimary
     } else {
         MiuixTheme.colorScheme.onSurface
     }
@@ -834,7 +834,7 @@ private fun DrawerChip(
             text = label,
             color = contentColor,
             style = MiuixTheme.textStyles.footnote1,
-            fontWeight = FontWeight.Medium,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
