@@ -5,6 +5,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -106,6 +107,9 @@ private fun DaemonTaskRow(
                 text = stringResource(
                     if (logsExpanded) R.string.terminal_daemon_hide_logs else R.string.terminal_daemon_view_logs
                 ),
+                minHeight = 28.dp,
+                insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                textStyle = MiuixTheme.textStyles.body2,
                 onClick = {
                     logsExpanded = !logsExpanded
                     if (logsExpanded && logs == null) {
@@ -117,6 +121,9 @@ private fun DaemonTaskRow(
             TextButton(
                 text = stringResource(R.string.terminal_stop),
                 onClick = { onStop(task.id) },
+                minHeight = 28.dp,
+                insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                textStyle = MiuixTheme.textStyles.body2,
                 colors = ButtonDefaults.textButtonColorsPrimary(
                     color = MiuixTheme.colorScheme.error,
                     textColor = MiuixTheme.colorScheme.onError,

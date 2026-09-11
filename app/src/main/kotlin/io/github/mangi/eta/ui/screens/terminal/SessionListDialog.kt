@@ -4,6 +4,7 @@ import androidx.compose.ui.res.stringResource
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -81,6 +82,9 @@ internal fun SessionListDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp),
+            minHeight = 28.dp,
+            insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            textStyle = MiuixTheme.textStyles.body2,
             colors = ButtonDefaults.textButtonColorsPrimary(),
         )
     }
@@ -145,11 +149,17 @@ private fun SessionRow(
             TextButton(
                 text = stringResource(R.string.terminal_restart_session),
                 onClick = onRestart,
+                minHeight = 28.dp,
+                insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                textStyle = MiuixTheme.textStyles.body2,
                 colors = ButtonDefaults.textButtonColorsPrimary(),
             )
             TextButton(
                 text = stringResource(R.string.terminal_close_session),
                 onClick = onClose,
+                minHeight = 28.dp,
+                insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                textStyle = MiuixTheme.textStyles.body2,
                 colors = ButtonDefaults.textButtonColorsPrimary(
                     color = MiuixTheme.colorScheme.error,
                     textColor = MiuixTheme.colorScheme.onError,

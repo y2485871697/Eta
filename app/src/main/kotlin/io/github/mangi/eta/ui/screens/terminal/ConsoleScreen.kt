@@ -251,6 +251,9 @@ private fun ConsoleStatusBar(
             TextButton(
                 text = stringResource(R.string.terminal_block_mode),
                 onClick = onExitConsole,
+                minHeight = 28.dp,
+                insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                textStyle = MiuixTheme.textStyles.body2,
                 colors = ButtonDefaults.textButtonColorsPrimary(),
             )
         }
@@ -380,6 +383,9 @@ private fun ColumnScope.ConsoleGrid(
                     text = stringResource(R.string.terminal_reconnect),
                     onClick = store::reconnect,
                     modifier = Modifier.padding(top = 12.dp),
+                    minHeight = 28.dp,
+                    insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    textStyle = MiuixTheme.textStyles.body2,
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
                 if (state.failMessage != null) {
@@ -387,6 +393,9 @@ private fun ColumnScope.ConsoleGrid(
                         text = stringResource(R.string.terminal_open_environment),
                         onClick = onOpenEnvironment,
                         modifier = Modifier.padding(top = 4.dp),
+                        minHeight = 28.dp,
+                        insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        textStyle = MiuixTheme.textStyles.body2,
                         colors = ButtonDefaults.textButtonColorsPrimary(),
                     )
                 }
