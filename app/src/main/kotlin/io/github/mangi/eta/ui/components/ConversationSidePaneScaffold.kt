@@ -67,7 +67,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -194,6 +193,12 @@ fun ConversationSidePaneScaffold(
     LaunchedEffect(visible) {
         val target = if (visible) DrawerValue.Open else DrawerValue.Closed
         if (drawerState.targetValue == target) return@LaunchedEffect
+        if (!visible && drawerState.currentValue == DrawerValue.Open) {
+            // 从底部按钮切页：抽屉是完全打开的，瞬时合上再让新页入场。
+            // 手势收回时 currentValue 会先变成 Closed，这里不会走到。
+            drawerState.snapTo(target)
+            return@LaunchedEffect
+        }
         @Suppress("DEPRECATION")
         drawerState.animateTo(
             targetValue = target,
@@ -213,18 +218,13 @@ fun ConversationSidePaneScaffold(
     }
 
     LaunchedEffect(drawerState, focusManager, keyboard, view) {
-        var wasBlocking = drawerBlocksIme
-        snapshotFlow {
-            drawerState.currentValue == DrawerValue.Open ||
-                drawerState.targetValue == DrawerValue.Open ||
-                drawerState.isAnimationRunning
-        }.collect { blocking ->
-            if (blocking != wasBlocking) {
-                hideChatInputIme(focusManager, keyboard, view)
+        snapshotFlow { drawerState.targetValue == DrawerValue.Open }
+            .collect { blocking ->
+                if (blocking != drawerBlocksIme) {
+                    hideChatInputIme(focusManager, keyboard, view)
+                    drawerBlocksIme = blocking
+                }
             }
-            wasBlocking = blocking
-            drawerBlocksIme = blocking
-        }
     }
 
     LaunchedEffect(drawerBlocksIme, focusManager, keyboard, view) {
@@ -260,7 +260,6 @@ fun ConversationSidePaneScaffold(
                     state = state,
                     width = paneWidth,
                     drawerShape = drawerShape,
-                    drawerState = drawerState,
                     enableSearchFocus = visible,
                     onSearchChange = onSearchChange,
                     onConversationSelected = onConversationSelected,
@@ -293,12 +292,10 @@ fun ConversationSidePaneScaffold(
 }
 
 @Composable
-@Suppress("UNUSED_PARAMETER")
 private fun ConversationPanePanel(
     state: ConversationPaneUiState,
     width: androidx.compose.ui.unit.Dp,
     drawerShape: AbsoluteRoundedCornerShape,
-    drawerState: DrawerState,
     enableSearchFocus: Boolean,
     onSearchChange: (String) -> Unit,
     onConversationSelected: (String) -> Unit,
@@ -345,7 +342,6 @@ private fun ConversationPanePanel(
         modifier = modifier
             .width(width)
             .fillMaxHeight()
-            .pinDrawerStartEdge(drawerState)
             .graphicsLayer {
                 clip = true
                 shape = drawerShape
@@ -1198,19 +1194,6 @@ private object DrawerMotionSetters {
 
 private fun DrawerState.applyEtaDrawerMotion() {
     DrawerMotionSetters.apply(this)
-}
-
-private fun Modifier.pinDrawerStartEdge(drawerState: DrawerState): Modifier = graphicsLayer {
-    val offset = runCatching { drawerState.currentOffset }.getOrDefault(Float.NaN)
-    if (offset.isNaN() || offset <= 0f || size.width <= 0f) {
-        translationX = 0f
-        scaleX = 1f
-        transformOrigin = TransformOrigin(1f, 0.5f)
-        return@graphicsLayer
-    }
-    translationX = -offset
-    transformOrigin = TransformOrigin(1f, 0.5f)
-    scaleX = (size.width + offset) / size.width
 }
 
 private data class ConversationDrawerGroup(

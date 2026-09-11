@@ -168,6 +168,12 @@ fun AgentAppRoot(
         navigator.push(route)
     }
 
+    fun pushFromDrawer(route: AppRoute) {
+        // 先收起抽屉再入栈：NavDisplay 若带着打开的侧栏+聊天页一起转场，底部按钮会顿一下。
+        conversationPaneOpen = false
+        pushRoute(route)
+    }
+
     fun popRoute() {
         if (!navigator.pop()) {
             (context as? Activity)?.finish()
@@ -258,19 +264,19 @@ fun AgentAppRoot(
             onConversationTogglePin = { conversation ->
                 agentState.toggleConversationPinned(conversation.id)
             },
-            onOpenManageChats = { pushRoute(AppRoute.ManageChats) },
+            onOpenManageChats = { pushFromDrawer(AppRoute.ManageChats) },
             onSelectFolder = { folderId -> agentState.selectFolder(folderId) },
             onCreateFolder = { name -> agentState.createFolder(name) },
             onRenameFolder = { folderId, name -> agentState.renameFolder(folderId, name) },
             onDeleteFolder = { folderId -> agentState.deleteFolder(folderId) },
             onSelectAssistant = { id -> agentState.selectAssistant(id) },
-            onEditAssistant = { id -> pushRoute(AppRoute.AssistantEdit(id)) },
-            onOpenAssistants = { pushRoute(AppRoute.Assistants()) },
-            onOpenUsageStats = { pushRoute(AppRoute.UsageStats) },
-            onOpenSkills = { pushRoute(AppRoute.Skills) },
-            onOpenPermissions = { pushRoute(AppRoute.Permissions) },
-            onOpenSettings = { pushRoute(AppRoute.Settings) },
-            onOpenModelProviders = { pushRoute(AppRoute.ModelProviders) },
+            onEditAssistant = { id -> pushFromDrawer(AppRoute.AssistantEdit(id)) },
+            onOpenAssistants = { pushFromDrawer(AppRoute.Assistants()) },
+            onOpenUsageStats = { pushFromDrawer(AppRoute.UsageStats) },
+            onOpenSkills = { pushFromDrawer(AppRoute.Skills) },
+            onOpenPermissions = { pushFromDrawer(AppRoute.Permissions) },
+            onOpenSettings = { pushFromDrawer(AppRoute.Settings) },
+            onOpenModelProviders = { pushFromDrawer(AppRoute.ModelProviders) },
         ) { padding ->
             Box(
                 modifier = Modifier
