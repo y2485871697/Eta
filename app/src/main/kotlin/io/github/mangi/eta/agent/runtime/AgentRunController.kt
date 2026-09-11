@@ -38,16 +38,32 @@ internal class AgentRunController {
     }
 
     /**
-     * 将补充指令排入下一个 turn。steering 不取消当前模型请求或工具批次。
+     * 将补充指令排入下一个 turn。
+     *
+     * 流式模型请求会被打断（取消已注册的 EventSource），已写出的正文由 AgentLoop
+     * 保留后立刻注入 steering。工具批次仍跑完，不在这里取消。
      */
     fun steer(text: String): Boolean {
         val prompt = text.trim()
         if (prompt.isBlank()) return false
+        val shouldInterrupt: Boolean
         lock.withLock {
             if (cancelled || !acceptingSteering) return false
             steeringMessages.addLast(prompt)
+            shouldInterrupt = !paused
         }
+        if (shouldInterrupt) interruptCurrentRequest()
         return true
+    }
+
+    /**
+     * 只取消当前请求占用的资源（SSE），不把整个 run 标成 cancelled。
+     * 暂停中不打断：用户明确停住了生成，恢复后再处理排队的 steering。
+     */
+    private fun interruptCurrentRequest() {
+        resources.filter { it.interruptible }.forEach { resource ->
+            runCatching { resource.cancel() }
+        }
     }
 
     /** 默认逐条消费，避免后来的补充指令越过前一条的模型回合。 */
@@ -119,8 +135,12 @@ internal class AgentRunController {
         throwIfCancelled()
     }
 
-    fun register(cancel: () -> Unit): ResourceBinding {
-        val resource = CancellableResource(cancel)
+    /**
+     * @param interruptible true 表示可被 steering 打断（当前模型 SSE）。
+     * 工具执行器等长驻资源必须保持 false，避免补充指令把整批工具一起关掉。
+     */
+    fun register(cancel: () -> Unit, interruptible: Boolean = false): ResourceBinding {
+        val resource = CancellableResource(cancel, interruptible)
         resources.add(resource)
         if (cancelled) resource.cancel()
         return ResourceBinding { resources.remove(resource) }
@@ -132,7 +152,10 @@ internal class AgentRunController {
         }
     }
 
-    private class CancellableResource(private val cancelBlock: () -> Unit) {
+    private class CancellableResource(
+        private val cancelBlock: () -> Unit,
+        val interruptible: Boolean,
+    ) {
         private val cancelled = AtomicBoolean(false)
 
         fun cancel() {

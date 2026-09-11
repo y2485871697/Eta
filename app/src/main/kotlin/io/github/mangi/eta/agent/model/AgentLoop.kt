@@ -8,9 +8,9 @@ import org.json.JSONObject
 /**
  * 单次 Agent run 的纯编排循环。
  *
- * 一次 assistant 响应及其完整工具批次构成一个 turn；
- * steering 只在 turn 结束后注入，不能用取消网络或关闭工具资源来模拟。循环不设置本地轮次上限，
- * 由模型自然结束、取消或错误终止。
+ * 一次 assistant 响应及其完整工具批次构成一个 turn。
+ * 流式正文中途的 steering 会打断当前模型请求、保留已写出的内容，再注入补充指令开下一轮；
+ * 工具批次仍跑完，不取消正在执行的工具。循环不设置本地轮次上限，由模型自然结束、取消或错误终止。
  */
 internal class AgentLoop(
     private val config: AgentModelClient.ModelConfig,
@@ -82,6 +82,10 @@ internal class AgentLoop(
             val assistantMessage = providerResponse.assistantMessage
             val toolCalls = AgentConversationCodec.parseToolCalls(assistantMessage)
             val assistantReasoning = assistantMessage.optString("reasoning_content")
+            val content = assistantMessage.optString("content").trim()
+            val hasAssistantPayload = (content.isNotBlank() && content != "null") ||
+                assistantReasoning.isNotBlank() ||
+                toolCalls.isNotEmpty()
             if (
                 assistantReasoning.isNotBlank() &&
                 accumulatedReasoning.length == reasoningLengthBeforeRound
@@ -89,20 +93,26 @@ internal class AgentLoop(
                 accumulatedReasoning.append(assistantReasoning)
             }
 
-            messages.put(
-                AgentConversationCodec.assistantHistoryMessage(
-                    source = assistantMessage,
-                    toolCalls = toolCalls,
+            if (hasAssistantPayload) {
+                messages.put(
+                    AgentConversationCodec.assistantHistoryMessage(
+                        source = assistantMessage,
+                        toolCalls = toolCalls,
+                    )
                 )
-            )
-            onEvent(
-                AgentEvent.AssistantReceived(
-                    round = round,
-                    contentChars = assistantMessage.optString("content").length,
-                    reasoningContent = assistantReasoning,
-                    toolNames = toolCalls.map { it.name },
+                onEvent(
+                    AgentEvent.AssistantReceived(
+                        round = round,
+                        contentChars = assistantMessage.optString("content").length,
+                        reasoningContent = assistantReasoning,
+                        toolNames = toolCalls.map { it.name },
+                    )
                 )
-            )
+            } else if (runController.hasPendingSteering) {
+                appendPendingSteeringMessage()
+                round += 1
+                continue
+            }
 
             if (toolCalls.isNotEmpty()) {
                 val finishedContent = assistantMessage.optString("content").trim()
@@ -146,13 +156,12 @@ internal class AgentLoop(
                 continue
             }
 
-            // assistant 已自然结束时再检查 steering。这样补充消息不会丢掉刚完成的回答。
+            // 正文回合结束后再注入 steering：已写出的内容留在历史里，下一轮带上补充指令。
             if (appendPendingSteeringOrSeal()) {
                 round += 1
                 continue
             }
 
-            val content = assistantMessage.optString("content").trim()
             if (content.isBlank() || content == "null") {
                 val finishReason = assistantMessage.optString("finish_reason")
                 error("模型接口第 $round 轮返回为空${finishReason.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()}")

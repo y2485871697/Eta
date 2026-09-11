@@ -56,6 +56,33 @@ class AgentRunControllerTest {
     }
 
     @Test
+    fun steeringCancelsOnlyInterruptibleResources() {
+        val controller = AgentRunController()
+        val durable = AtomicInteger(0)
+        val stream = AtomicInteger(0)
+        controller.register { durable.incrementAndGet() }
+        controller.register({ stream.incrementAndGet() }, interruptible = true)
+
+        assertTrue(controller.steer("改短一点"))
+
+        assertEquals(0, durable.get())
+        assertEquals(1, stream.get())
+        assertEquals("改短一点", controller.pollSteeringMessage())
+    }
+
+    @Test
+    fun pausedSteeringDoesNotCancelInterruptibleResources() {
+        val controller = AgentRunController()
+        val stream = AtomicInteger(0)
+        controller.register({ stream.incrementAndGet() }, interruptible = true)
+        controller.pause()
+
+        assertTrue(controller.steer("等我看完再说"))
+        assertEquals(0, stream.get())
+        assertEquals("等我看完再说", controller.pollSteeringMessage())
+    }
+
+    @Test
     fun finalPollAtomicallySealsSteering() {
         val controller = AgentRunController()
 

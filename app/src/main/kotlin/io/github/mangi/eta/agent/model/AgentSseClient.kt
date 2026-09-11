@@ -96,6 +96,7 @@ internal object AgentSseClient {
                     when {
                         runController.isCancelled ->
                             failure.compareAndSet(null, AgentRunCancelledException())
+                        runController.hasPendingSteering -> Unit
                         response != null && !response.isSuccessful -> {
                             if (!opened.get()) {
                                 runCatching { emitOpen(response.code) }
@@ -128,12 +129,20 @@ internal object AgentSseClient {
             .createFactory(AgentHttpClient.modelClient)
             .newEventSource(sseRequest, listener)
         eventSourceRef.set(eventSource)
-        val binding = runController.register(eventSource::cancel)
+        val binding = runController.register(
+            cancel = {
+                eventSource.cancel()
+                stream.finish()
+            },
+            interruptible = true,
+        )
         try {
             runController.throwIfCancelled()
             done.await()
             runController.throwIfCancelled()
-            failure.get()?.let { throw it }
+            if (!runController.hasPendingSteering) {
+                failure.get()?.let { throw it }
+            }
         } finally {
             completed.set(true)
             binding.close()

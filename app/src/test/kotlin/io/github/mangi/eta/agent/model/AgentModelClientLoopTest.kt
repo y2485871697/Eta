@@ -3,7 +3,10 @@ package io.github.mangi.eta.agent.model
 import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.tool.AgentToolCapabilities
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -166,6 +169,49 @@ class AgentModelClientLoopTest {
                 .getString("content")
                 .contains("改用第二种方案")
         )
+    }
+
+    @Test
+    fun streamingSteerInterruptsCurrentRequestAndKeepsPartialText() {
+        val controller = AgentRunController()
+        val provider = ScriptedProvider(
+            responses = listOf(
+                { _, runController ->
+                    val interrupted = CountDownLatch(1)
+                    runController.register({ interrupted.countDown() }, interruptible = true)
+                    val worker = thread(name = "loop-steer-interrupt-test", isDaemon = true) {
+                        runController.steer("改成短篇，两百字就够")
+                    }
+                    try {
+                        assertTrue(interrupted.await(1, TimeUnit.SECONDS))
+                    } finally {
+                        worker.join(1_000)
+                    }
+                    assistant(content = "从前有座山，山里有座庙。", finishReason = "stop")
+                },
+                { request, _ ->
+                    assertTrue(
+                        request.messages.getJSONObject(request.messages.length() - 1)
+                            .getString("content")
+                            .contains("改成短篇")
+                    )
+                    assistant(content = "好，改成两百字。", finishReason = "stop")
+                },
+            )
+        )
+
+        val result = AgentModelClient.complete(
+            config = modelConfig(),
+            prompt = "写5000字小说",
+            toolExecutor = AgentModelClient.ToolExecutor { error("不应调用工具") },
+            provider = provider,
+            runController = controller,
+        )
+
+        assertEquals("好，改成两百字。", result.content)
+        assertEquals(listOf("assistant", "user", "assistant"), result.transcript.map { it.role })
+        assertEquals("从前有座山，山里有座庙。", result.transcript.first().content)
+        assertFalse(controller.hasPendingSteering)
     }
 
     @Test
