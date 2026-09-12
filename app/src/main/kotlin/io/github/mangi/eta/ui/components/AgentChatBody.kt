@@ -222,60 +222,62 @@ internal fun AgentChatBody(
     val billedContextTokens = remember(visibleMessages, messageEdit) {
         if (messageEdit != null) null else latestBilledContextTokens(visibleMessages)
     }
-    AgentChatScaffold(
-        visibleMessages = visibleMessages,
-        hasMessages = visibleMessages.isNotEmpty(),
-        scrollState = scrollState,
-        input = input,
-        modelPickerState = modelPickerState,
-        history = history,
-        billedContextTokens = billedContextTokens,
-        requestOverheadTokens = requestOverheadTokens,
-        billedOverheadTokens = billedOverheadTokens,
-        autoCompressEnabled = autoCompressEnabled,
-        isStreaming = isStreaming,
-        isPaused = isPaused,
-        isCompressingContext = isCompressingContext,
-        reasoningEffort = reasoningEffort,
-        availableReasoningEfforts = availableReasoningEfforts,
-        pendingImages = pendingImages,
-        pendingFileReferences = pendingFileReferences,
-        messageEdit = messageEdit,
-        showEmptySuggestions = !isKeyboardVisible,
-        keepBottomAnchored = keepBottomAnchored,
-        onBottomAnchorChanged = { keepBottomAnchored = it },
-        onSubmit = { text ->
-            sentFromKeyboard = true
-            // 发送即重新锚定底部：用户从历史上方直接发送时，同帧内 isStreaming 与
-            // 新消息一起到位，立即回到底部并恢复后续的流式平滑跟底。
-            keepBottomAnchored = true
-            onSubmit(text)
-        },
-        onReasoningEffortChange = onReasoningEffortChange,
-        onModelSelected = onModelSelected,
-        onStop = onStop,
-        onContinue = onContinue,
-        onAbortPausedRun = onAbortPausedRun,
-        onAttachImage = onAttachImage,
-        onRemoveImage = onRemoveImage,
-        onAttachFiles = onAttachFiles,
-        onAttachFolder = onAttachFolder,
-        onAttachFilePath = onAttachFilePath,
-        onRemoveFileReference = onRemoveFileReference,
-        onEditMessage = onEditMessage,
-        onCancelMessageEdit = onCancelMessageEdit,
-        onDeleteMessage = onDeleteMessage,
-        onRegenerateMessage = onRegenerateMessage,
-        onSuggestionClick = onSuggestionClick,
-        onRunTraceClick = onRunTraceClick,
-        onOpenBrowser = onOpenBrowser,
-        onEditAssistant = onEditAssistant,
-        onAssistantSelected = onAssistantSelected,
-        currentBrowserMessageId = currentBrowserMessageId,
-        scrollToMessageId = scrollToMessageId,
-        onScrollToMessageConsumed = onScrollToMessageConsumed,
-        modifier = modifier,
-    )
+    ChatImagePreviewHost {
+        AgentChatScaffold(
+            visibleMessages = visibleMessages,
+            hasMessages = visibleMessages.isNotEmpty(),
+            scrollState = scrollState,
+            input = input,
+            modelPickerState = modelPickerState,
+            history = history,
+            billedContextTokens = billedContextTokens,
+            requestOverheadTokens = requestOverheadTokens,
+            billedOverheadTokens = billedOverheadTokens,
+            autoCompressEnabled = autoCompressEnabled,
+            isStreaming = isStreaming,
+            isPaused = isPaused,
+            isCompressingContext = isCompressingContext,
+            reasoningEffort = reasoningEffort,
+            availableReasoningEfforts = availableReasoningEfforts,
+            pendingImages = pendingImages,
+            pendingFileReferences = pendingFileReferences,
+            messageEdit = messageEdit,
+            showEmptySuggestions = !isKeyboardVisible,
+            keepBottomAnchored = keepBottomAnchored,
+            onBottomAnchorChanged = { keepBottomAnchored = it },
+            onSubmit = { text ->
+                sentFromKeyboard = true
+                // 发送即重新锚定底部：用户从历史上方直接发送时，同帧内 isStreaming 与
+                // 新消息一起到位，立即回到底部并恢复后续的流式平滑跟底。
+                keepBottomAnchored = true
+                onSubmit(text)
+            },
+            onReasoningEffortChange = onReasoningEffortChange,
+            onModelSelected = onModelSelected,
+            onStop = onStop,
+            onContinue = onContinue,
+            onAbortPausedRun = onAbortPausedRun,
+            onAttachImage = onAttachImage,
+            onRemoveImage = onRemoveImage,
+            onAttachFiles = onAttachFiles,
+            onAttachFolder = onAttachFolder,
+            onAttachFilePath = onAttachFilePath,
+            onRemoveFileReference = onRemoveFileReference,
+            onEditMessage = onEditMessage,
+            onCancelMessageEdit = onCancelMessageEdit,
+            onDeleteMessage = onDeleteMessage,
+            onRegenerateMessage = onRegenerateMessage,
+            onSuggestionClick = onSuggestionClick,
+            onRunTraceClick = onRunTraceClick,
+            onOpenBrowser = onOpenBrowser,
+            onEditAssistant = onEditAssistant,
+            onAssistantSelected = onAssistantSelected,
+            currentBrowserMessageId = currentBrowserMessageId,
+            scrollToMessageId = scrollToMessageId,
+            onScrollToMessageConsumed = onScrollToMessageConsumed,
+            modifier = modifier,
+        )
+    }
 }
 
 @Composable

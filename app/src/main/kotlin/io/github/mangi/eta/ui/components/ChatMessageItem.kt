@@ -570,9 +570,10 @@ private fun UserMessageBubble(
                     message.images.forEach { dataUrl ->
                         val bitmap = rememberDataUrlBitmap(dataUrl)
                         if (bitmap != null) {
-                            Image(
+                            ChatClickableImage(
+                                source = dataUrl,
                                 bitmap = bitmap,
-                                contentDescription = null,
+                                contentDescription = stringResource(R.string.chat_image_preview),
                                 modifier = Modifier
                                     .size(100.dp)
                                     .clip(RoundedCornerShape(12.dp)),
@@ -1351,6 +1352,20 @@ private fun chatMarkdownComponents(
                 revealCoordinator = revealCoordinator,
             )
         }
+    },
+    image = { model ->
+        ChatMarkdownImage(
+            content = model.content,
+            node = model.node,
+        )
+    },
+    inlineImage = { model ->
+        ChatMarkdownImage(
+            content = model.content,
+            node = model.node,
+            sourceOverride = model.content,
+            fillPlaceholder = true,
+        )
     },
     orderedList = { model ->
         ChatMarkdownList(

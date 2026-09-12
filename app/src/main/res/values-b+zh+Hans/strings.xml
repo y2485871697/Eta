@@ -1150,6 +1150,10 @@
   <string name="chat_input_hint">交给 代鱼 去完成</string>
   <string name="chat_stop">停止</string>
   <string name="chat_send">发送</string>
+  <string name="chat_image_preview">图片预览</string>
+  <string name="chat_image_saved">已保存到相册</string>
+  <string name="chat_image_save_failed">图片保存失败</string>
+  <string name="chat_image_load_failed">图片加载失败</string>
   <string name="chat_continue">继续</string>
   <string name="chat_paused_run_abandoned">已结束暂停的回复</string>
   <string name="chat_continue_abort">长按结束暂停的回复</string>

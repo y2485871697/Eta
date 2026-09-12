@@ -1152,6 +1152,10 @@
   <string name="chat_input_hint">Ask Eta to do something</string>
   <string name="chat_stop">Stop</string>
   <string name="chat_send">Send</string>
+  <string name="chat_image_preview">Image preview</string>
+  <string name="chat_image_saved">Saved to gallery</string>
+  <string name="chat_image_save_failed">Couldn\'t save image</string>
+  <string name="chat_image_load_failed">Couldn\'t load image</string>
   <string name="chat_continue">Continue</string>
   <string name="chat_paused_run_abandoned">Paused reply ended</string>
   <string name="chat_continue_abort">Long press to end the paused reply</string>

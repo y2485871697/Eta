@@ -12,7 +12,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -693,9 +692,10 @@ private fun PendingImageStrip(
                     .background(MiuixTheme.colorScheme.surfaceContainer),
             ) {
                 rememberDataUrlBitmap(image.dataUrl)?.let { bitmap ->
-                    Image(
+                    ChatClickableImage(
+                        source = image.dataUrl,
                         bitmap = bitmap,
-                        contentDescription = null,
+                        contentDescription = stringResource(R.string.chat_image_preview),
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
