@@ -52,6 +52,7 @@ internal fun SessionListDialog(
     onClose: (String) -> Unit,
     onNew: () -> Unit,
 ) {
+    val view = LocalView.current
     WindowDialog(
         show = true,
         title = stringResource(R.string.terminal_sessions),
@@ -82,7 +83,7 @@ internal fun SessionListDialog(
         TextButton(
             text = stringResource(R.string.terminal_new_session),
             onClick = {
-                TouchHaptics.click(LocalView.current)
+                TouchHaptics.click(view)
                 onNew()
                 onDismiss()
             },

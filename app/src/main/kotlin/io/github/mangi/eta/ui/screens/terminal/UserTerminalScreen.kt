@@ -344,6 +344,7 @@ private fun BlockMenu(
     onDismiss: () -> Unit,
     onReinput: (String) -> Unit,
 ) {
+    val view = LocalView.current
     WindowListPopup(
         show = show,
         alignment = PopupPositionProvider.Align.Start,
@@ -356,7 +357,7 @@ private fun BlockMenu(
                 isSelected = false,
                 index = 0,
                 onSelectedIndexChange = {
-                    TouchHaptics.click(LocalView.current)
+                    TouchHaptics.click(view)
                     onDismiss()
                     clipboard.setText(AnnotatedString(block.command))
                 },
@@ -368,7 +369,7 @@ private fun BlockMenu(
                 index = 1,
                 enabled = block.output.isNotEmpty(),
                 onSelectedIndexChange = {
-                    TouchHaptics.click(LocalView.current)
+                    TouchHaptics.click(view)
                     onDismiss()
                     clipboard.setText(AnnotatedString(ansiPlainText(block.output)))
                 },
@@ -379,7 +380,7 @@ private fun BlockMenu(
                 isSelected = false,
                 index = 2,
                 onSelectedIndexChange = {
-                    TouchHaptics.click(LocalView.current)
+                    TouchHaptics.click(view)
                     onDismiss()
                     onReinput(block.command)
                 },
@@ -563,6 +564,7 @@ private fun InputRow(
 
 @Composable
 private fun LinuxGuide(onOpenEnvironment: () -> Unit) {
+    val view = LocalView.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -579,7 +581,7 @@ private fun LinuxGuide(onOpenEnvironment: () -> Unit) {
         TextButton(
             text = stringResource(R.string.terminal_open_environment),
             onClick = {
-                TouchHaptics.click(LocalView.current)
+                TouchHaptics.click(view)
                 onOpenEnvironment()
             },
             modifier = Modifier.padding(top = 12.dp),

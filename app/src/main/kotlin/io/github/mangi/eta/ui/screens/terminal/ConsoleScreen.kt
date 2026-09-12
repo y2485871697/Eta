@@ -378,6 +378,7 @@ private fun ColumnScope.ConsoleGrid(
         }
 
         if (state.exited || state.failMessage != null) {
+            val view = LocalView.current
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -394,7 +395,7 @@ private fun ColumnScope.ConsoleGrid(
                 TextButton(
                     text = stringResource(R.string.terminal_reconnect),
                     onClick = {
-                        TouchHaptics.click(LocalView.current)
+                        TouchHaptics.click(view)
                         store.reconnect()
                     },
                     modifier = Modifier.padding(top = 12.dp),
@@ -407,7 +408,7 @@ private fun ColumnScope.ConsoleGrid(
                     TextButton(
                         text = stringResource(R.string.terminal_open_environment),
                         onClick = {
-                            TouchHaptics.click(LocalView.current)
+                            TouchHaptics.click(view)
                             onOpenEnvironment()
                         },
                         modifier = Modifier.padding(top = 4.dp),
