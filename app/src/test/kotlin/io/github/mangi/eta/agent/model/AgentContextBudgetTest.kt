@@ -100,4 +100,40 @@ class AgentContextBudgetTest {
                 ) + AgentContextBudget.countTokens(json),
         )
     }
+
+    @Test
+    fun countMessageDoesNotTreatImageDataUrlAsText() {
+        val payload = "A".repeat(80_000)
+        val json = """[{"type":"text","text":"Latest observation image(s) returned by tool(s): read_image."},{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,$payload"}}]"""
+        val message = AgentModelClient.ConversationMessage(
+            role = "user",
+            contentJson = json,
+        )
+        val counted = AgentContextBudget.countMessage(message)
+        val naive = 3 + AgentContextBudget.countTokens(json)
+        assertTrue("image message counted as text: $counted vs naive $naive", counted < 400)
+        assertTrue(counted > 80)
+        assertTrue(naive > 10_000)
+    }
+
+    @Test
+    fun countMessageUsesMinimumTokensForPersistedImageFile() {
+        val json = """[{"type":"text","text":"see photo"},{"type":"image_file","path":"/data/user/0/io.github.mangi.eta/cache/eta-chat-images/c1/a.jpg","mime":"image/jpeg","name":"a.jpg"}]"""
+        val counted = AgentContextBudget.countMessage(
+            AgentModelClient.ConversationMessage(role = "user", contentJson = json),
+        )
+        val textOnly = AgentContextBudget.countMessage(
+            AgentModelClient.ConversationMessage(role = "user", content = "see photo"),
+        )
+        assertEquals(textOnly + 85, counted)
+    }
+
+    @Test
+    fun countMessageStripsInlineDataUrlFromPlainContent() {
+        val content = """ok=true, image=data:image/png;base64,${"B".repeat(40_000)}"""
+        val counted = AgentContextBudget.countMessage(
+            AgentModelClient.ConversationMessage(role = "tool", content = content),
+        )
+        assertTrue("plain data URL counted as text: $counted", counted < 40)
+    }
 }

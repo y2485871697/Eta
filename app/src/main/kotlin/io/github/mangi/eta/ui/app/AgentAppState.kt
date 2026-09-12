@@ -2717,11 +2717,11 @@ internal class AgentAppState(
             }
 
             is AgentEvent.UsageReceived -> {
-                val occupancy = event.usage.occupancyTokens()
                 if (!event.projected) {
+                    val occupancy = event.usage.occupancyTokens()
                     updateAssistantUsage(runId, event.round, event.usage.toUi())
+                    updateLivePromptTokens(runId, occupancy)
                 }
-                updateLivePromptTokens(runId, occupancy)
             }
 
             is AgentEvent.UserSupplementReceived -> {

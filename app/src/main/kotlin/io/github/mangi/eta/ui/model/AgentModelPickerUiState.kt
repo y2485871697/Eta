@@ -130,14 +130,8 @@ internal fun latestContextUsage(
 )
 
 /**
- * 下一轮即将发出的上下文：最近一次接口账单占用的窗口 + 那次请求之后的增量。
- *
- * 对齐 DeepSeek Harness 的 token-meter：provider usage 是锚点，只对账单之后
- * 新出现的表层做启发式加总。prompt 已经包含系统提示、工具 schema 和此前的
- * 思考/工具结果，不能再从历史头重扫一遍，否则会从本地估算直接跳到「账单+历史」。
- *
- * 优先用 total_tokens（prompt+completion）。没有 total 时退回 input+output。
- * 流式中途只有 prompt 时，只把当前这条助手回复的未入账输出加上去。
+ * 圆环只显示最近一次接口账单的 prompt 占用，不再叠本地估算。
+ * 账单之后的工具结果、思考和草稿会等下一轮 usage 回来再更新，避免和 ST「输入」对不齐。
  */
 internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int? {
     val compactIndex = messages.indexOfLast { it is ContextCompactedMessageUi }
@@ -151,20 +145,10 @@ internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int?
             (resumeRound <= 0 || (messageRoundFromId(message.id) ?: 0) >= resumeRound)
     } ?: -1
     if (billedIndex >= 0) {
-        val billedMessage = messages[billedIndex] as AgentMessageUi
-        val billed = windowTokensFromUsage(billedMessage.usage) ?: return null
-        val tailStart = if (billedMessage.isStreaming) billedIndex else billedIndex + 1
-        return billed + countUnbilledTail(
-            messages = messages,
-            startIndex = tailStart,
-            resumeRound = resumeRound,
-            billedIndex = billedIndex,
-        )
+        return windowTokensFromUsage((messages[billedIndex] as AgentMessageUi).usage)
     }
     val baseline = marker?.baselineTokens ?: 0
-    if (compactIndex >= 0 && baseline > 0 && resumeRound > 0) {
-        return baseline + countUnbilledTail(messages, compactIndex + 1, resumeRound)
-    }
+    if (compactIndex >= 0 && baseline > 0) return baseline
     return null
 }
 
@@ -259,6 +243,7 @@ internal fun windowTokensFromUsage(usage: TokenUsageUi?): Int? {
     return usage.contextTokens?.takeIf { it > 0 }
 }
 
+@Suppress("UNUSED_PARAMETER")
 internal fun liveContextUsage(
     history: List<AgentModelClient.ConversationMessage>,
     currentInput: String,
@@ -295,16 +280,17 @@ internal fun liveContextUsage(
     }
     val overhead = requestOverheadTokens.coerceAtLeast(0)
     val historyTokens = when {
-        billedContextTokens != null && billedContextTokens > 0 -> {
-            val billedOverhead = billedOverheadTokens ?: overhead
-            (billedContextTokens + (overhead - billedOverhead)).coerceAtLeast(0)
-        }
+        billedContextTokens != null && billedContextTokens > 0 -> billedContextTokens
         else -> (historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }) +
             overhead +
             uncommittedLiveTokens.coerceAtLeast(0)
     }
     return AgentContextUsageUi(
-        contextTokens = historyTokens + currentTurnTokens,
+        contextTokens = if (billedContextTokens != null && billedContextTokens > 0) {
+            historyTokens
+        } else {
+            historyTokens + currentTurnTokens
+        },
         contextWindow = selectedModel?.contextWindow,
     )
 }

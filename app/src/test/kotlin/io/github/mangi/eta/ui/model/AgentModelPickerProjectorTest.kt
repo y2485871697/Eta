@@ -455,10 +455,7 @@ class AgentModelPickerProjectorTest {
             selectedModel = selected,
             billedContextTokens = 262_556,
         )
-        assertEquals(
-            262_556 + AgentContextBudget.countCurrentTurn("next question", emptyList()),
-            typing.contextTokens,
-        )
+        assertEquals(262_556, typing.contextTokens)
         assertTrue((idle.contextTokens ?: 0) < history.sumOf { AgentContextBudget.countMessage(it) })
     }
 
@@ -517,7 +514,7 @@ class AgentModelPickerProjectorTest {
             requestOverheadTokens = 14_500,
             billedOverheadTokens = 12_000,
         )
-        assertEquals(265_056, increased.contextTokens)
+        assertEquals(262_556, increased.contextTokens)
         val decreased = liveContextUsage(
             history = emptyList(),
             currentInput = "",
@@ -527,7 +524,7 @@ class AgentModelPickerProjectorTest {
             requestOverheadTokens = 10_000,
             billedOverheadTokens = 12_000,
         )
-        assertEquals(260_556, decreased.contextTokens)
+        assertEquals(262_556, decreased.contextTokens)
     }
 
 
@@ -554,10 +551,7 @@ class AgentModelPickerProjectorTest {
         assertEquals(262_295, latestBilledContextTokens(completed))
 
         val afterSend = completed + UserMessageUi(id = "u3", content = "next question")
-        assertEquals(
-            262_295 + AgentContextBudget.countCurrentTurn("next question", emptyList()),
-            latestBilledContextTokens(afterSend),
-        )
+        assertEquals(262_295, latestBilledContextTokens(afterSend))
     }
 
     @Test
@@ -580,11 +574,7 @@ class AgentModelPickerProjectorTest {
         )
         val streaming = AgentMessageUi(id = "a2", content = "partial reply", isStreaming = true)
         val live = billed + thinking + tool + streaming
-        val expected = 1000 +
-            AgentContextBudget.countCurrentTurn(thinking.content, emptyList()) +
-            AgentContextBudget.countCurrentTurn("ls -la\ntotal 12", emptyList()) +
-            AgentContextBudget.countCurrentTurn(streaming.content, emptyList())
-        assertEquals(expected, latestBilledContextTokens(live))
+        assertEquals(1000, latestBilledContextTokens(live))
     }
 
     @Test
@@ -620,10 +610,7 @@ class AgentModelPickerProjectorTest {
                 isStreaming = true,
             ),
         )
-        val expected = 2_000 +
-            AgentContextBudget.countCurrentTurn("new reasoning", emptyList()) +
-            AgentContextBudget.countCurrentTurn("new answer", emptyList())
-        assertEquals(expected, latestBilledContextTokens(compacted))
+        assertEquals(2_000, latestBilledContextTokens(compacted))
     }
 
     @Test
@@ -673,8 +660,7 @@ class AgentModelPickerProjectorTest {
             ThinkingMessageUi(id = "t1", content = "still reasoning", isStreaming = true),
             billed,
         )
-        val expected = 119_910 + AgentContextBudget.countCurrentTurn(billed.content, emptyList())
-        assertEquals(expected, latestBilledContextTokens(live))
+        assertEquals(119_910, latestBilledContextTokens(live))
     }
 
     @Test
@@ -717,10 +703,7 @@ class AgentModelPickerProjectorTest {
             ),
             billed,
         )
-        assertEquals(
-            85_166 + AgentContextBudget.countCurrentTurn(billed.content, emptyList()),
-            latestBilledContextTokens(live),
-        )
+        assertEquals(85_166, latestBilledContextTokens(live))
     }
 
     @Test

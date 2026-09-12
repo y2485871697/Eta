@@ -3,6 +3,9 @@ package io.github.mangi.eta.agent.model
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.roundToInt
+import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
 
 internal object AgentContextBudget {
     private const val RESERVED_TOKENS = 8_000
@@ -14,6 +17,8 @@ internal object AgentContextBudget {
     // 原先统一 codepoint/3，中文会少算 4～6 倍，界面用量就会远低于接口账单。
     private const val CJK_TOKENS_PER_CHAR = 1.5
     private const val LATIN_TOKENS_PER_CHAR = 0.25
+    private val DATA_URL_REGEX =
+        Regex("""data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+""", RegexOption.IGNORE_CASE)
 
     fun countTokens(text: String): Int {
         if (text.isEmpty()) return 0
@@ -78,9 +83,7 @@ internal object AgentContextBudget {
     fun countMessage(message: AgentModelClient.ConversationMessage): Int {
         var tokens = TOKENS_PER_MESSAGE
         // contentJson 才是发出去的 content；有它时不要再加一份纯文本。
-        tokens += countTokens(
-            if (message.contentJson.isNotBlank()) message.contentJson else message.content,
-        )
+        tokens += countPayload(message)
         if (message.reasoningContent.isNotBlank()) {
             tokens += countTokens(message.reasoningContent)
         }
@@ -91,6 +94,90 @@ internal object AgentContextBudget {
             tokens += countTokens(message.toolCallsJson)
         }
         return tokens
+    }
+
+    private fun countPayload(message: AgentModelClient.ConversationMessage): Int {
+        if (message.contentJson.isNotBlank()) {
+            return countStructuredContent(message.contentJson)
+        }
+        return countTokens(stripInlineDataUrls(message.content))
+    }
+
+    /**
+     * 多模态 content 里的图片按视觉 token 计，不能把 data URL / 路径当正文去估。
+     * 工具回图进下一轮 prompt 时，base64 按拉丁 4 字符/token 会一下子多出几万。
+     */
+    private fun countStructuredContent(raw: String): Int {
+        val parsed = runCatching { JSONTokener(raw).nextValue() }.getOrNull()
+        when (parsed) {
+            is JSONArray -> {
+                var tokens = 0
+                for (index in 0 until parsed.length()) {
+                    val item = parsed.optJSONObject(index)
+                    tokens += if (item != null) {
+                        countContentPart(item)
+                    } else {
+                        countTokens(stripInlineDataUrls(parsed.optString(index)))
+                    }
+                }
+                return tokens
+            }
+            is JSONObject -> return countContentPart(parsed)
+            is String -> return countTokens(stripInlineDataUrls(parsed))
+            else -> return countTokens(stripInlineDataUrls(raw))
+        }
+    }
+
+    private fun countContentPart(part: JSONObject): Int {
+        val type = part.optString("type")
+        return when (type) {
+            "text" -> countTokens(part.optString("text"))
+            "image_url", "image_file", "image", "input_image" -> countContentImage(part)
+            else -> {
+                val text = part.optString("text")
+                if (text.isNotBlank()) countTokens(text) else 0
+            }
+        }
+    }
+
+    private fun countContentImage(part: JSONObject): Int {
+        val url = part.optJSONObject("image_url")?.optString("url").orEmpty()
+            .ifBlank { part.optString("url") }
+            .ifBlank { part.optString("path") }
+        val width = part.optInt("width").takeIf { it > 0 }
+            ?: part.optJSONObject("image_url")?.optInt("width")?.takeIf { it > 0 }
+        val height = part.optInt("height").takeIf { it > 0 }
+            ?: part.optJSONObject("image_url")?.optInt("height")?.takeIf { it > 0 }
+        if (width != null && height != null) {
+            return countImageTokens(width, height)
+        }
+        val bytes = dataUrlDecodedBytes(url)
+        return if (bytes != null) {
+            countImageTokens(
+                AgentModelClient.ModelImage(
+                    reference = url,
+                    mimeType = "image/*",
+                    bytes = bytes,
+                    source = "content_image",
+                ),
+            )
+        } else {
+            IMAGE_MIN_TOKENS
+        }
+    }
+
+    private fun dataUrlDecodedBytes(url: String): Int? {
+        val marker = "base64,"
+        val index = url.indexOf(marker, ignoreCase = true)
+        if (index < 0) return null
+        val encoded = url.substring(index + marker.length).filterNot { it.isWhitespace() }
+        if (encoded.isEmpty()) return null
+        return (encoded.length * 3) / 4
+    }
+
+    private fun stripInlineDataUrls(text: String): String {
+        if (!text.contains("data:image", ignoreCase = true)) return text
+        return DATA_URL_REGEX.replace(text, "[image]")
     }
 
     fun countCurrentTurn(prompt: String, images: List<AgentModelClient.ModelImage>): Int {
