@@ -50,10 +50,12 @@ sealed interface ProviderSetting {
         get() = BalanceOption()
 }
 
-internal fun ProviderSetting.canQueryBalance(): Boolean =
-    balanceOption.enabled &&
-        balanceOption.apiPath.isNotBlank() &&
-        balanceOption.resultPath.isNotBlank()
+internal fun ProviderSetting.canQueryBalance(): Boolean {
+    val option = balanceOption.resolved()
+    return option.enabled &&
+        option.apiPath.isNotBlank() &&
+        option.resultPath.isNotBlank()
+}
 
 @Serializable
 @SerialName(ProviderTypes.OPENAI_COMPATIBLE)

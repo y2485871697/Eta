@@ -1,6 +1,8 @@
 package io.github.mangi.eta.data.repository
 
 import io.github.mangi.eta.data.model.BalanceOption
+import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
+import io.github.mangi.eta.data.model.canQueryBalance
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -116,5 +118,29 @@ class ProviderBalanceFetcherTest {
         assertEquals(BalanceOption.NEW_API_PATH, applied.apiPath)
         assertEquals(BalanceOption.NEW_API_RESULT_PATH, applied.resultPath)
         assertEquals("114514", applied.userId)
+    }
+
+    @Test
+    fun resolvedFillsBlankNewApiPaths() {
+        val resolved = BalanceOption(
+            enabled = true,
+            preset = BalanceOption.PRESET_NEW_API,
+        ).resolved()
+        assertEquals(BalanceOption.NEW_API_PATH, resolved.apiPath)
+        assertEquals(BalanceOption.NEW_API_RESULT_PATH, resolved.resultPath)
+    }
+
+    @Test
+    fun canQueryBalanceAcceptsNewApiWithoutStoredPaths() {
+        val provider = OpenAiCompatibleProviderSetting(
+            id = "fish",
+            name = "魚",
+            baseUrl = "https://example.com/v1",
+            balanceOption = BalanceOption(
+                enabled = true,
+                preset = BalanceOption.PRESET_NEW_API,
+            ),
+        )
+        assertTrue(provider.canQueryBalance())
     }
 }

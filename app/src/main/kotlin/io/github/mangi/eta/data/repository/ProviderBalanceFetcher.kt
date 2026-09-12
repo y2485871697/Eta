@@ -27,11 +27,12 @@ internal object ProviderBalanceFetcher {
         option: BalanceOption = provider.balanceOption,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            require(option.enabled) { "Balance query not enabled" }
-            require(option.apiPath.isNotBlank()) { "Balance API path not set" }
-            require(option.resultPath.isNotBlank()) { "Result JSON path not set" }
-            val url = resolveBalanceUrl(provider.baseUrl, option.apiPath, option.preset)
-            val token = option.accessToken.ifBlank { provider.apiKey }
+            val resolved = option.resolved()
+            require(resolved.enabled) { "Balance query not enabled" }
+            require(resolved.apiPath.isNotBlank()) { "Balance API path not set" }
+            require(resolved.resultPath.isNotBlank()) { "Result JSON path not set" }
+            val url = resolveBalanceUrl(provider.baseUrl, resolved.apiPath, resolved.preset)
+            val token = resolved.accessToken.ifBlank { provider.apiKey }
             val request = Request.Builder()
                 .url(url)
                 .headers(
@@ -40,11 +41,6 @@ internal object ProviderBalanceFetcher {
                         .apply {
                             if (token.isNotBlank()) {
                                 add("Authorization", "Bearer $token")
-                            }
-                            if (option.preset == BalanceOption.PRESET_NEW_API &&
-                                option.userId.isNotBlank()
-                            ) {
-                                add(BalanceOption.NEW_API_USER_HEADER, option.userId)
                             }
                             CustomHeaderFilter.mergeInto(this, provider.customHeaders)
                         }
@@ -59,7 +55,7 @@ internal object ProviderBalanceFetcher {
                 }
                 text
             }
-            extractValue(body, option.resultPath)
+            extractValue(body, resolved.resultPath)
         }
     }
 

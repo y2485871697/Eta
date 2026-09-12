@@ -1233,7 +1233,6 @@
   <string name="ui_balance_preset_new_api">NewAPI</string>
   <string name="ui_balance_preset_custom_summary">自行填寫介面路徑與 JSON 結果鍵</string>
   <string name="ui_balance_preset_new_api_summary">請求 /api/user/self，並以 data.quota / 500000 換算額度</string>
-  <string name="ui_balance_user_id">使用者 ID</string>
   <string name="ui_balance_access_token">存取權杖</string>
   <string name="ui_balance_access_token_summary">來自 NewAPI 個人安全設定。留空則使用供應商 API Key</string>
 

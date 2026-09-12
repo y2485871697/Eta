@@ -98,8 +98,8 @@ internal fun AgentModelPickerButton(
             alignEnd = true,
             preferAbove = true,
             focusable = false,
-            minWidth = 180.dp,
-            maxWidth = 180.dp,
+            minWidth = 220.dp,
+            maxWidth = 220.dp,
             maxHeight = popupMaxHeight,
         ) {
             ModelPickerPopupContent(

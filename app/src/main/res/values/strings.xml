@@ -1235,7 +1235,6 @@
   <string name="ui_balance_preset_new_api">NewAPI</string>
   <string name="ui_balance_preset_custom_summary">Enter the API path and JSON result key</string>
   <string name="ui_balance_preset_new_api_summary">Query /api/user/self and convert quota with data.quota / 500000</string>
-  <string name="ui_balance_user_id">User ID</string>
   <string name="ui_balance_access_token">Access token</string>
   <string name="ui_balance_access_token_summary">From NewAPI personal security settings. Leave blank to use the provider API key</string>
 

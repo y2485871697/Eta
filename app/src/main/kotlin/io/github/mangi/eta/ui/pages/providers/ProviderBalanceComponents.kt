@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,7 +55,16 @@ internal fun ProviderBalanceOptionFields(
     var isTesting by remember { mutableStateOf(false) }
     var accessTokenVisible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val isNewApi = balanceOption.preset == BalanceOption.PRESET_NEW_API
+    val resolved = balanceOption.resolved()
+    val isNewApi = resolved.preset == BalanceOption.PRESET_NEW_API
+
+    LaunchedEffect(resolved.preset, resolved.apiPath, resolved.resultPath) {
+        if (resolved.apiPath != balanceOption.apiPath ||
+            resolved.resultPath != balanceOption.resultPath
+        ) {
+            onBalanceOptionChange(resolved)
+        }
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         BasicComponent(
@@ -102,14 +112,6 @@ internal fun ProviderBalanceOptionFields(
                 Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
                 if (isNewApi) {
                     TextField(
-                        value = balanceOption.userId,
-                        onValueChange = { onBalanceOptionChange(balanceOption.copy(userId = it)) },
-                        label = stringResource(R.string.ui_balance_user_id),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    TextField(
                         value = balanceOption.accessToken,
                         onValueChange = {
                             onBalanceOptionChange(balanceOption.copy(accessToken = it))
@@ -145,38 +147,39 @@ internal fun ProviderBalanceOptionFields(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
                     )
+                } else {
+                    TextField(
+                        value = balanceOption.apiPath,
+                        onValueChange = { onBalanceOptionChange(balanceOption.copy(apiPath = it)) },
+                        label = stringResource(R.string.ui_balance_api_path),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextField(
+                        value = balanceOption.resultPath,
+                        onValueChange = { onBalanceOptionChange(balanceOption.copy(resultPath = it)) },
+                        label = stringResource(R.string.ui_balance_result_path),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
-                TextField(
-                    value = balanceOption.apiPath,
-                    onValueChange = { onBalanceOptionChange(balanceOption.copy(apiPath = it)) },
-                    label = stringResource(R.string.ui_balance_api_path),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                TextField(
-                    value = balanceOption.resultPath,
-                    onValueChange = { onBalanceOptionChange(balanceOption.copy(resultPath = it)) },
-                    label = stringResource(R.string.ui_balance_result_path),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(12.dp))
                 TextButton(
                     text = if (isTesting) {
                         context.getString(R.string.page_testing_f43705)
                     } else {
                         stringResource(R.string.ui_test_balance)
                     },
-                    enabled = balanceOption.enabled && balanceOption.apiPath.isNotBlank() &&
-                        balanceOption.resultPath.isNotBlank() && !isTesting && provider != null,
+                    enabled = resolved.enabled && resolved.apiPath.isNotBlank() &&
+                        resolved.resultPath.isNotBlank() && !isTesting && provider != null,
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         provider ?: return@TextButton
                         scope.launch {
                             isTesting = true
                             testResult = null
-                            testResult = ProviderBalanceFetcher.fetch(provider, balanceOption)
+                            testResult = ProviderBalanceFetcher.fetch(provider, resolved)
                                 .fold(
                                     onSuccess = { formatBalanceDisplay(it) },
                                     onFailure = { it.message ?: it.toString() },

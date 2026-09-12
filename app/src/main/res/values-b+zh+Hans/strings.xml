@@ -1233,7 +1233,6 @@
   <string name="ui_balance_preset_new_api">NewAPI</string>
   <string name="ui_balance_preset_custom_summary">自行填写接口路径和 JSON 结果键</string>
   <string name="ui_balance_preset_new_api_summary">请求 /api/user/self，并用 data.quota / 500000 换算额度</string>
-  <string name="ui_balance_user_id">用户 ID</string>
   <string name="ui_balance_access_token">访问令牌</string>
   <string name="ui_balance_access_token_summary">来自 NewAPI 个人安全设置。留空则使用提供商 API Key</string>
 
