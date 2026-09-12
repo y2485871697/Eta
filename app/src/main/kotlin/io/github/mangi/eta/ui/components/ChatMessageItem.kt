@@ -725,36 +725,35 @@ private fun AgentMessageBlock(
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 7.dp),
     ) {
-        when {
-            message.content.isBlank() && message.isStreaming -> {
-                AITypingIndicator(
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-            streamingState != null && !streamingRevealComplete -> {
-                StreamingMarkdown(
-                    state = streamingState,
-                    content = message.content,
-                    isStreaming = message.isStreaming,
-                    onRevealCompleteChange = { streamingRevealComplete = it },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            message.renderMarkdown -> {
-                SelectionContainer {
-                    StableMarkdown(
-                        content = message.content,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-            message.content.isNotBlank() -> {
-                SelectionContainer {
-                    Text(
-                        text = message.content,
-                        style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.onSurface,
-                    )
+        if (message.content.isBlank() && message.isStreaming) {
+            AITypingIndicator(
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        } else {
+            SelectionContainer {
+                when {
+                    streamingState != null && !streamingRevealComplete -> {
+                        StreamingMarkdown(
+                            state = streamingState,
+                            content = message.content,
+                            isStreaming = message.isStreaming,
+                            onRevealCompleteChange = { streamingRevealComplete = it },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    message.renderMarkdown -> {
+                        StableMarkdown(
+                            content = message.content,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    message.content.isNotBlank() -> {
+                        Text(
+                            text = message.content,
+                            style = MiuixTheme.textStyles.body1,
+                            color = MiuixTheme.colorScheme.onSurface,
+                        )
+                    }
                 }
             }
         }
@@ -1795,19 +1794,21 @@ private fun ChatCodeBlock(
             .let { base ->
                 if (revealState != null) base.smoothTextReveal(revealState) else base
             }
-        Text(
-            text = code,
-            style = if (revealState != null) {
-                style.copy(textMotion = TextMotion.Animated)
-            } else {
-                style
-            },
-            color = MiuixTheme.colorScheme.onSurface,
-            modifier = codeModifier,
-            onTextLayout = revealState?.let { state ->
-                { layoutResult -> state.onTextLayout(code, layoutResult) }
-            },
-        )
+        SelectionContainer {
+            Text(
+                text = code,
+                style = if (revealState != null) {
+                    style.copy(textMotion = TextMotion.Animated)
+                } else {
+                    style
+                },
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = codeModifier,
+                onTextLayout = revealState?.let { state ->
+                    { layoutResult -> state.onTextLayout(code, layoutResult) }
+                },
+            )
+        }
     }
 }
 
