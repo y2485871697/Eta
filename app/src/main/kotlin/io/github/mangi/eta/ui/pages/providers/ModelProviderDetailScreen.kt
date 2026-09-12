@@ -24,7 +24,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.mapSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,10 +40,9 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.EtaApp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.data.model.AnthropicProviderSetting
-import io.github.mangi.eta.data.model.CustomProviderSetting
-import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
-import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.BalanceOption
+import io.github.mangi.eta.data.model.CustomProviderSetting
+import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.withId
 import io.github.mangi.eta.data.repository.ProviderRepository
@@ -80,78 +78,6 @@ import top.yukonga.miuix.kmp.preference.WindowSpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
-
-internal data class ProviderConfigDraft(
-    val name: String,
-    val baseUrl: String,
-    val apiKey: String,
-    val systemPrompt: String,
-    val isEnabled: Boolean,
-    val endpointMode: String,
-    val hostedWebSearchEnabled: Boolean,
-    val anthropicVersion: String,
-    val balanceOption: BalanceOption,
-) {
-    companion object {
-        fun from(provider: ProviderSetting): ProviderConfigDraft = ProviderConfigDraft(
-            name = provider.name,
-            baseUrl = provider.baseUrl,
-            apiKey = provider.apiKey,
-            systemPrompt = provider.systemPrompt.orEmpty(),
-            isEnabled = provider.isEnabled,
-            endpointMode = when (provider) {
-                is OpenAiCompatibleProviderSetting -> provider.endpointMode
-                is CustomProviderSetting -> provider.endpointMode
-                is AnthropicProviderSetting -> ""
-            },
-            hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
-            anthropicVersion = (provider as? AnthropicProviderSetting)?.anthropicVersion
-                ?: AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION,
-            balanceOption = provider.balanceOption,
-        )
-    }
-}
-
-internal val ProviderConfigDraftSaver = mapSaver(
-    save = { draft ->
-        mapOf(
-            "name" to draft.name,
-            "baseUrl" to draft.baseUrl,
-            "apiKey" to draft.apiKey,
-            "systemPrompt" to draft.systemPrompt,
-            "isEnabled" to draft.isEnabled,
-            "endpointMode" to draft.endpointMode,
-            "hostedWebSearchEnabled" to draft.hostedWebSearchEnabled,
-            "anthropicVersion" to draft.anthropicVersion,
-            "balanceOptionEnabled" to draft.balanceOption.enabled,
-            "balanceOptionPreset" to draft.balanceOption.preset,
-            "balanceOptionApiPath" to draft.balanceOption.apiPath,
-            "balanceOptionResultPath" to draft.balanceOption.resultPath,
-            "balanceOptionUserId" to draft.balanceOption.userId,
-            "balanceOptionAccessToken" to draft.balanceOption.accessToken,
-        )
-    },
-    restore = { state ->
-        ProviderConfigDraft(
-            name = state.getValue("name") as String,
-            baseUrl = state.getValue("baseUrl") as String,
-            apiKey = state.getValue("apiKey") as String,
-            systemPrompt = state.getValue("systemPrompt") as String,
-            isEnabled = state.getValue("isEnabled") as Boolean,
-            endpointMode = state.getValue("endpointMode") as String,
-            hostedWebSearchEnabled = state.getValue("hostedWebSearchEnabled") as Boolean,
-            anthropicVersion = state.getValue("anthropicVersion") as String,
-            balanceOption = BalanceOption(
-                enabled = state["balanceOptionEnabled"] as? Boolean ?: false,
-                preset = state["balanceOptionPreset"] as? String ?: BalanceOption.PRESET_CUSTOM,
-                apiPath = state["balanceOptionApiPath"] as? String ?: "",
-                resultPath = state["balanceOptionResultPath"] as? String ?: "",
-                userId = state["balanceOptionUserId"] as? String ?: "",
-                accessToken = state["balanceOptionAccessToken"] as? String ?: "",
-            ),
-        )
-    },
-)
 
 @Composable
 internal fun ModelProviderDetailScreen(
@@ -277,6 +203,7 @@ private fun ProviderConfigTab(
     onDeleted: () -> Unit,
 ) {
     val context = LocalContext.current
+    var headersExpanded by rememberSaveable { mutableStateOf(false) }
     var apiKeyVisible by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var testStatus by remember { mutableStateOf<String?>(null) }
@@ -410,6 +337,8 @@ private fun ProviderConfigTab(
                                         endpointMode = draft.endpointMode,
                                         hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
                                         anthropicVersion = draft.anthropicVersion,
+                                        customHeaders = draft.headers.map { it.header },
+                                        balanceOption = draft.balanceOption,
                                         balanceOption = draft.balanceOption,
                                     )
                                 )
@@ -421,6 +350,13 @@ private fun ProviderConfigTab(
                 )
             }
         }
+
+        providerHeadersEditor(
+            headers = draft.headers,
+            expanded = headersExpanded,
+            onExpandedChange = { headersExpanded = it },
+            onHeadersChange = { onDraftChange(draft.copy(headers = it)) },
+        )
 
         item(key = "preferences_and_prompt") {
             ProviderSection(title = stringResource(R.string.ui_preferences_and_strategies_2abd3c)) {
@@ -447,11 +383,36 @@ private fun ProviderConfigTab(
                         endpointMode = draft.endpointMode,
                         hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
                         anthropicVersion = draft.anthropicVersion,
+                        customHeaders = draft.headers.map { it.header },
                         balanceOption = draft.balanceOption,
                     ),
                 )
             }
         }
+
+        item(key = "system_prompt") {
+            ProviderSection(title = stringResource(R.string.ui_system_prompt_word_193981)) {
+                HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
+                Column(modifier = Modifier.padding(16.dp)) {
+                    TextField(
+                        value = draft.systemPrompt,
+                        onValueChange = { onDraftChange(draft.copy(systemPrompt = it)) },
+                        label = stringResource(R.string.ui_system_prompt_word_193981),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp),
+                        singleLine = false,
+                    )
+                    Text(
+                        text = stringResource(R.string.ui_leave_blank_to_use_the_default_mobile_agent_prompt_w_21e7c8),
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+        }
+
         item(key = "actions") {
             // 操作分层：主按钮实心独占，次要操作降级为文字按钮，与弹窗按钮语言一致
             Column(
@@ -489,7 +450,7 @@ private fun ProviderConfigTab(
                                 endpointMode = draft.endpointMode,
                                 hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
                                 anthropicVersion = draft.anthropicVersion,
-                                balanceOption = draft.balanceOption,
+                                customHeaders = draft.headers.map { it.header },
                             )
                             try {
                                 if (isNew) {
@@ -652,61 +613,6 @@ private fun ProviderConfigTab(
             )
         }
     }
-}
-
-private fun buildUpdatedProvider(
-    source: ProviderSetting,
-    name: String,
-    baseUrl: String,
-    apiKey: String,
-    systemPrompt: String,
-    isEnabled: Boolean,
-    endpointMode: String,
-    hostedWebSearchEnabled: Boolean,
-    anthropicVersion: String,
-    balanceOption: BalanceOption,
-): ProviderSetting {
-    val prompt = systemPrompt.trim().takeIf { it.isNotBlank() }
-    return when (source) {
-        is OpenAiCompatibleProviderSetting -> source.copy(
-            name = name.trim(),
-            baseUrl = baseUrl.trim(),
-            apiKey = apiKey.trim(),
-            systemPrompt = prompt,
-            isEnabled = isEnabled,
-            endpointMode = endpointMode,
-            hostedWebSearchEnabled = hostedWebSearchEnabled,
-            balanceOption = balanceOption,
-        )
-        is CustomProviderSetting -> source.copy(
-            name = name.trim(),
-            baseUrl = baseUrl.trim(),
-            apiKey = apiKey.trim(),
-            systemPrompt = prompt,
-            isEnabled = isEnabled,
-            endpointMode = endpointMode,
-            hostedWebSearchEnabled = hostedWebSearchEnabled,
-            balanceOption = balanceOption,
-        )
-        is AnthropicProviderSetting -> source.copy(
-            name = name.trim(),
-            baseUrl = baseUrl.trim(),
-            apiKey = apiKey.trim(),
-            systemPrompt = prompt,
-            isEnabled = isEnabled,
-            anthropicVersion = anthropicVersion.trim().ifBlank { AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION },
-            balanceOption = balanceOption,
-        )
-    }
-}
-
-private fun validateProviderDraft(context: android.content.Context, draft: ProviderConfigDraft): String? {
-    if (draft.name.isBlank()) return context.getString(R.string.page_name_cannot_be_empty_ca8984)
-    val uri = runCatching { java.net.URI(draft.baseUrl.trim()) }.getOrNull()
-    if (uri == null || uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) {
-        return context.getString(R.string.page_base_url_must_be_a_valid_http_s_address_0e7d58)
-    }
-    return null
 }
 
 private suspend fun testConnection(
