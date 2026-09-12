@@ -15,6 +15,7 @@ import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.ConversationFolderUi
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.ContextCompactedMessageUi
+import io.github.mangi.eta.ui.model.ConversationTokenUsageUi
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.SystemNoticeCode
@@ -304,7 +305,10 @@ internal object AgentConversationStore {
                 elapsedSeconds = compactedCount,
                 argumentsSummary = compressorLabel,
                 contextTokens = baselineTokens.takeIf { it > 0 },
-                inputTokens = resumeRound.takeIf { it > 0 },
+                inputTokens = preservedUsage.inputTokens.toTokenColumn().takeIf { it > 0 },
+                outputTokens = preservedUsage.outputTokens.toTokenColumn(),
+                cachedTokens = preservedUsage.cachedTokens.toTokenColumn().takeIf { it > 0 },
+                imageCount = resumeRound.coerceAtLeast(0),
             )
 
             else -> null
@@ -368,14 +372,26 @@ internal object AgentConversationStore {
                 tools = toolsJson.toStringList(),
             )
 
-            TYPE_CONTEXT_COMPACTED -> ContextCompactedMessageUi(
-                id = id,
-                compactedCount = elapsedSeconds ?: 0,
-                summary = content,
-                compressorLabel = argumentsSummary.orEmpty(),
-                baselineTokens = contextTokens ?: 0,
-                resumeRound = inputTokens ?: 0,
-            )
+            TYPE_CONTEXT_COMPACTED -> {
+                val legacyResumeRound = outputTokens == null
+                ContextCompactedMessageUi(
+                    id = id,
+                    compactedCount = elapsedSeconds ?: 0,
+                    summary = content,
+                    compressorLabel = argumentsSummary.orEmpty(),
+                    baselineTokens = contextTokens ?: 0,
+                    resumeRound = if (legacyResumeRound) inputTokens ?: 0 else imageCount,
+                    preservedUsage = if (legacyResumeRound) {
+                        ConversationTokenUsageUi()
+                    } else {
+                        ConversationTokenUsageUi(
+                            inputTokens = (inputTokens ?: 0).toLong(),
+                            outputTokens = (outputTokens ?: 0).toLong(),
+                            cachedTokens = (cachedTokens ?: 0).toLong(),
+                        )
+                    },
+                )
+            }
 
             else -> null
         }
@@ -420,6 +436,10 @@ internal object AgentConversationStore {
                 else -> null
             }
         }
+
+
+    private fun Long.toTokenColumn(): Int =
+        coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
 
     private const val TYPE_USER = "user"
     private const val TYPE_ASSISTANT = "assistant"

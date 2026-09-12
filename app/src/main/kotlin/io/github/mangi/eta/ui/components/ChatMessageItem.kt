@@ -1,7 +1,6 @@
 package io.github.mangi.eta.ui.components
 
 import android.graphics.BitmapFactory
-import android.os.SystemClock
 import android.util.Base64
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -355,11 +354,15 @@ internal fun AgentWorkProcess(
     retainedStreamingStates: Map<String, StreamingMarkdownState>,
     modifier: Modifier = Modifier,
     isPaused: Boolean = false,
+    isTrailing: Boolean = false,
+    turnStreaming: Boolean = false,
 ) {
     val running = messages.any { message ->
         (message is ThinkingMessageUi && message.isStreaming) ||
             (message is ToolActivityMessageUi && message.status == ToolActivityStatusUi.Running)
     }
+    // 推理结束但本轮还在跑时，已完成步骤仍留在卡片里；整轮步骤都结束后才自动收起。
+    val keepOpen = running || (isTrailing && turnStreaming)
     val toolCount = messages.count { it is ToolActivityMessageUi }
     val runningTool = messages.lastOrNull { message ->
         message is ToolActivityMessageUi && message.status == ToolActivityStatusUi.Running
@@ -369,9 +372,9 @@ internal fun AgentWorkProcess(
     var expanded by rememberSaveable(id) { mutableStateOf(running) }
     var manuallyExpanded by rememberSaveable(id) { mutableStateOf(false) }
 
-    LaunchedEffect(running) {
+    LaunchedEffect(keepOpen) {
         if (manuallyExpanded) return@LaunchedEffect
-        expanded = running
+        expanded = keepOpen
     }
 
     val view = LocalView.current
@@ -931,8 +934,6 @@ private fun StreamingMarkdown(
     val currentIsStreaming by rememberUpdatedState(isStreaming)
     val restoreGeneration = state.restoreState.generation
     val view = LocalView.current
-    var lastGenerationHapticAt by remember { mutableLongStateOf(0L) }
-    val lastHapticContentLength = remember { intArrayOf(0) }
 
     LifecycleResumeEffect(state) {
         revealCoordinator.pauseAnimationsAndCatchUp()
@@ -943,8 +944,13 @@ private fun StreamingMarkdown(
         }
     }
 
-    LaunchedEffect(revealCoordinator) {
-        revealCoordinator.runFrameClock()
+    LaunchedEffect(revealCoordinator, view) {
+        revealCoordinator.setOnRevealAdvanced { TouchHaptics.generationTick(view) }
+        try {
+            revealCoordinator.runFrameClock()
+        } finally {
+            revealCoordinator.setOnRevealAdvanced(null)
+        }
     }
 
     LaunchedEffect(content, isStreaming) {
@@ -962,22 +968,6 @@ private fun StreamingMarkdown(
         )
         if (isStreaming) {
             currentRevealCompleteCallback(false)
-        }
-    }
-
-    SideEffect {
-        if (!isStreaming) {
-            lastHapticContentLength[0] = content.length
-            return@SideEffect
-        }
-        val grew = content.length > lastHapticContentLength[0]
-        lastHapticContentLength[0] = content.length
-        if (grew) {
-            val now = SystemClock.uptimeMillis()
-            if (now - lastGenerationHapticAt >= 16L) {
-                lastGenerationHapticAt = now
-                TouchHaptics.generationTick(view)
-            }
         }
     }
 

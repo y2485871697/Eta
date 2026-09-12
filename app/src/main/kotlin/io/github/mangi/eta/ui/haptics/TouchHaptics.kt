@@ -2,6 +2,7 @@ package io.github.mangi.eta.ui.haptics
 
 import android.content.SharedPreferences
 import android.os.Build
+import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.runtime.Composable
@@ -40,14 +41,23 @@ internal class LiveToolHapticTracker(
  */
 internal object TouchHaptics {
     private val liveToolTracker = LiveToolHapticTracker()
+    private const val GENERATION_TICK_INTERVAL_MS = 32L
+    private var lastGenerationTickAt = 0L
 
     fun isTouchEnabled(): Boolean = Prefs.isEnabled(Prefs.Keys.HAPTIC_TOUCH_FEEDBACK)
 
     fun isMessageGenerationEnabled(): Boolean =
         isTouchEnabled() && Prefs.isEnabled(Prefs.Keys.HAPTIC_MESSAGE_GENERATION)
 
+    /**
+     * 流式打字的轻触。间隔过短时马达会吞掉后续 tick，输出越快越像没在跟。
+     * 32ms 大约一帧半，快流也能连成一串，又不会把 HyperOS 的 tick 挤掉。
+     */
     fun generationTick(view: View?) {
         if (!isMessageGenerationEnabled()) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastGenerationTickAt < GENERATION_TICK_INTERVAL_MS) return
+        lastGenerationTickAt = now
         tick(view)
     }
 

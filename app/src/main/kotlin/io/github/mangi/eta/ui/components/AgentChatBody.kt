@@ -679,6 +679,8 @@ internal fun AgentConversationMessages(
             ),
             overscrollEffect = null,
         ) {
+            val trailingWorkKey =
+                (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
             items(
                 items = timelineEntries,
                 key = { it.key },
@@ -736,6 +738,8 @@ internal fun AgentConversationMessages(
                             currentBrowserMessageId = currentBrowserMessageId,
                             retainedStreamingStates = streamingMarkdownStates,
                             isPaused = isPaused,
+                            isTrailing = entry.key == trailingWorkKey,
+                            turnStreaming = isStreaming,
                             modifier = itemModifier,
                         )
                     }

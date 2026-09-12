@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -133,6 +134,7 @@ private val CompressTargetTokenOptions = listOf(500, 1000, 2000, 4000)
 @Composable
 internal fun CompressConversationDialog(
     show: Boolean,
+    isCompressing: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: (
         providerId: String?,
@@ -154,7 +156,6 @@ internal fun CompressConversationDialog(
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
     var showModelDialog by remember { mutableStateOf(false) }
     var isLoadingModels by remember { mutableStateOf(false) }
-    var compressing by remember { mutableStateOf(false) }
     var keepRecentFocused by remember { mutableStateOf(false) }
     val imeBottom = rememberActivityImeBottomDp()
     val configuration = LocalConfiguration.current
@@ -168,7 +169,6 @@ internal fun CompressConversationDialog(
     LaunchedEffect(show, prefs) {
         if (!show) {
             showModelDialog = false
-            compressing = false
             return@LaunchedEffect
         }
         targetTokens = storedCompressTargetTokens()
@@ -189,9 +189,7 @@ internal fun CompressConversationDialog(
         show = show,
         title = stringResource(R.string.action_compress_conversation),
         modifier = Modifier.offset(y = dialogImeOffset),
-        onDismissRequest = {
-            if (!compressing) onDismiss()
-        },
+        onDismissRequest = onDismiss,
     ) {
         val scrollState = rememberScrollState()
         LaunchedEffect(keepRecentFocused, imeBottom, scrollState.maxValue) {
@@ -214,7 +212,8 @@ internal fun CompressConversationDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = maxBodyHeight)
-                    .verticalScroll(scrollState),
+                    .verticalScroll(scrollState)
+                    .alpha(if (isCompressing) 0.42f else 1f),
             ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -228,7 +227,7 @@ internal fun CompressConversationDialog(
                 )
                 Switch(
                     checked = customModelEnabled,
-                    enabled = !compressing,
+                    enabled = !isCompressing,
                     onCheckedChange = { value ->
                         TouchHaptics.click(view)
                         customModelEnabled = value
@@ -243,7 +242,7 @@ internal fun CompressConversationDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(enabled = !compressing && !isLoadingModels) {
+                        .clickable(enabled = !isCompressing && !isLoadingModels) {
                             TouchHaptics.click(view)
                             showModelDialog = true
                         }
@@ -281,7 +280,7 @@ internal fun CompressConversationDialog(
                                 Prefs.putInt(Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS, value)
                             }
                         },
-                        enabled = !compressing,
+                        enabled = !isCompressing,
                         label = { Text(value.toString()) },
                     )
                 }
@@ -309,7 +308,7 @@ internal fun CompressConversationDialog(
                         Prefs.putInt(Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT, number)
                     }
                 },
-                enabled = !compressing,
+                enabled = !isCompressing,
                 singleLine = true,
                 label = { Text(stringResource(R.string.ui_compress_keep_recent_title)) },
                 supportingText = { Text(stringResource(R.string.ui_compress_keep_recent_summary)) },
@@ -328,7 +327,8 @@ internal fun CompressConversationDialog(
                     .onFocusChanged { keepRecentFocused = it.isFocused },
             )
 
-            if (compressing) {
+            }
+            if (isCompressing) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -344,19 +344,20 @@ internal fun CompressConversationDialog(
                     )
                 }
             }
-            }
 
             MiuixDialogActions(
                 confirmText = stringResource(R.string.compress_conversation_confirm),
                 cancelText = stringResource(R.string.action_cancel),
-                confirmEnabled = !compressing,
-                cancelEnabled = !compressing,
+                confirmEnabled = !isCompressing,
+                cancelEnabled = !isCompressing,
+                modifier = Modifier
+                    .padding(top = 16.dp)
+                    .alpha(if (isCompressing) 0.42f else 1f),
                 onCancel = onDismiss,
                 onConfirm = {
-                    if (compressing) return@MiuixDialogActions
+                    if (isCompressing) return@MiuixDialogActions
                     focusManager.clearFocus()
                     keyboard?.hide()
-                    compressing = true
                     val parsedKeepRecent = keepRecentField.text.toIntOrNull()?.coerceIn(0, 100) ?: keepRecent
                     onConfirm(
                         selectedModel?.providerId.takeIf { customModelEnabled },
@@ -364,11 +365,9 @@ internal fun CompressConversationDialog(
                         targetTokens,
                         parsedKeepRecent,
                     ) { ok ->
-                        compressing = false
                         if (ok) onDismiss()
                     }
                 },
-                modifier = Modifier.padding(top = 16.dp),
             )
         }
     }

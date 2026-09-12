@@ -29,6 +29,7 @@ class UsageStatsRepositoryTest {
         EtaDatabase.closeForTests()
         context.deleteDatabase("eta.db")
         SettingsDataStore.init(context)
+        runBlocking { SettingsDataStore.clearRetiredUsage() }
     }
 
     @After
@@ -142,6 +143,172 @@ class UsageStatsRepositoryTest {
         assertEquals(120L, totals.input)
         assertEquals(8L, totals.output)
         assertEquals(40L, totals.cached)
+    }
+
+    @Test
+    fun statsIncludeCompactedPreservedTokensAndSkipLegacyResumeRound() {
+        val totals = aggregateVisibleTokens(
+            listOf(
+                io.github.mangi.eta.data.db.UsageContentRow(
+                    type = "context_compacted",
+                    inputTokens = 3,
+                    outputTokens = null,
+                    cachedTokens = null,
+                ),
+                io.github.mangi.eta.data.db.UsageContentRow(
+                    type = "context_compacted",
+                    inputTokens = 1500,
+                    outputTokens = 40,
+                    cachedTokens = 200,
+                ),
+                io.github.mangi.eta.data.db.UsageContentRow(
+                    type = "assistant",
+                    inputTokens = 80,
+                    outputTokens = 12,
+                    cachedTokens = 10,
+                ),
+            ),
+        )
+        assertEquals(1580L, totals.input)
+        assertEquals(52L, totals.output)
+        assertEquals(210L, totals.cached)
+    }
+
+    @Test
+    fun tokenStatsKeepRetiredTotalsAfterConversationsAreGone() = runBlocking {
+        val day = LocalDate.now().minusDays(1)
+        SettingsDataStore.addRetiredUsage(
+            inputTokens = 1500,
+            outputTokens = 40,
+            cachedTokens = 200,
+            conversations = 3,
+            messages = 12,
+            heatmap = mapOf(day to 3),
+        )
+        val stats = UsageStatsRepository.load(context)
+        assertEquals(0L, stats.currentInputTokens)
+        assertEquals(1500L, stats.lifetimeInputTokens)
+        assertEquals(0L, stats.currentOutputTokens)
+        assertEquals(40L, stats.lifetimeOutputTokens)
+        assertEquals(0L, stats.currentCachedTokens)
+        assertEquals(200L, stats.lifetimeCachedTokens)
+        assertEquals(0, stats.currentConversations)
+        assertEquals(3, stats.lifetimeConversations)
+        assertEquals(0, stats.currentMessages)
+        assertEquals(12, stats.lifetimeMessages)
+        assertEquals(3, stats.conversationsPerDay[day])
+    }
+
+    @Test
+    fun heatmapMergesLiveAndRetiredDays() {
+        val start = LocalDate.of(2026, 1, 1)
+        val liveDay = LocalDate.of(2026, 1, 10)
+        val retiredDay = LocalDate.of(2026, 1, 11)
+        val tooOld = LocalDate.of(2025, 12, 1)
+        val merged = mergeHeatmap(
+            live = mapOf(liveDay to 1, retiredDay to 2),
+            retired = mapOf(retiredDay to 3, tooOld to 9),
+            startDate = start,
+        )
+        assertEquals(1, merged[liveDay])
+        assertEquals(5, merged[retiredDay])
+        assertEquals(null, merged[tooOld])
+    }
+
+    @Test
+    fun modelUsageGroupsByProviderAndCountsDistinctConversations() {
+        val first = applyModelUsageDelta(
+            raw = null,
+            delta = ModelUsageDelta(
+                providerId = "openai",
+                providerName = "OPENAI",
+                modelId = "grok-4.6",
+                modelDisplayName = "grok-4.6",
+                inputTokens = 10_400,
+                outputTokens = 40,
+                conversationId = "conv-1",
+                day = LocalDate.of(2026, 9, 12),
+            ),
+        )
+        val second = applyModelUsageDelta(
+            raw = first,
+            delta = ModelUsageDelta(
+                providerId = "openai",
+                providerName = "OPENAI",
+                modelId = "grok-4.6",
+                modelDisplayName = "grok-4.6",
+                inputTokens = 200,
+                outputTokens = 20,
+                conversationId = "conv-1",
+                day = LocalDate.of(2026, 9, 12),
+            ),
+        )
+        val third = applyModelUsageDelta(
+            raw = second,
+            delta = ModelUsageDelta(
+                providerId = "openai",
+                providerName = "OPENAI",
+                modelId = "grok-4.6",
+                modelDisplayName = "grok-4.6",
+                inputTokens = 100,
+                outputTokens = 10,
+                conversationId = "conv-2",
+                day = LocalDate.of(2026, 9, 13),
+            ),
+        )
+        val snapshot = decodeModelUsageSnapshot(third)
+        val model = snapshot.providers.single().models.single()
+        assertEquals("OPENAI", snapshot.providers.single().name)
+        assertEquals(10_700L, model.inputTokens)
+        assertEquals(70L, model.outputTokens)
+        assertEquals(2, model.conversationCount)
+        assertEquals(2, model.activeDays)
+        assertEquals(5_350L, model.dailyAverageTokens)
+        assertEquals(5_350L, model.conversationAverageTokens)
+    }
+
+    @Test
+    fun modelUsageFiltersEventsByTimeRange() {
+        val zone = java.time.ZoneId.systemDefault()
+        val inside = java.time.LocalDateTime.of(2026, 8, 26, 13, 40)
+            .atZone(zone).toInstant().toEpochMilli()
+        val outside = java.time.LocalDateTime.of(2026, 8, 26, 14, 10)
+            .atZone(zone).toInstant().toEpochMilli()
+        val raw = applyModelUsageDelta(
+            raw = applyModelUsageDelta(
+                raw = null,
+                delta = ModelUsageDelta(
+                    providerId = "openai",
+                    providerName = "OPENAI",
+                    modelId = "grok-4.6",
+                    modelDisplayName = "grok-4.6",
+                    inputTokens = 10_400,
+                    outputTokens = 40,
+                    conversationId = "conv-1",
+                    atMillis = inside,
+                ),
+            ),
+            delta = ModelUsageDelta(
+                providerId = "openai",
+                providerName = "OPENAI",
+                modelId = "grok-4.6",
+                modelDisplayName = "grok-4.6",
+                inputTokens = 800,
+                outputTokens = 20,
+                conversationId = "conv-2",
+                atMillis = outside,
+            ),
+        )
+        val start = java.time.LocalDateTime.of(2026, 8, 26, 13, 28)
+            .atZone(zone).toInstant().toEpochMilli()
+        val end = java.time.LocalDateTime.of(2026, 8, 26, 14, 0, 59, 999_000_000)
+            .atZone(zone).toInstant().toEpochMilli()
+        val filtered = decodeModelUsageSnapshot(raw).filtered(start, end)
+        val model = filtered.providers.single().models.single()
+        assertEquals(10_400L, model.inputTokens)
+        assertEquals(40L, model.outputTokens)
+        assertEquals(1, model.conversationCount)
+        assertEquals(1, model.activeDays)
     }
 
     @Test

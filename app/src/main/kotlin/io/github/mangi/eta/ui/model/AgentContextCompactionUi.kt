@@ -32,8 +32,17 @@ internal object AgentContextCompactionUi {
             message.role.equals("user", ignoreCase = true) &&
                 !AgentContextCompactor.isCompressionSummary(message)
         } + extraKeptUserMessages.coerceAtLeast(0)
+        // 圆环不能再用压缩前的窗口账单，但累计用量要留在标记上，供会话/设置统计。
+        val preservedUsage = conversationTokenUsage(messages)
+        val messagesWithoutOldUsage = messages.map { message ->
+            if (message is ContextCompactedMessageUi) {
+                message.copy(preservedUsage = ConversationTokenUsageUi())
+            } else {
+                message
+            }
+        }
         return insertMarker(
-            messages = messages,
+            messages = messagesWithoutOldUsage,
             marker = ContextCompactedMessageUi(
                 id = markerId,
                 compactedCount = compactedCount,
@@ -41,9 +50,10 @@ internal object AgentContextCompactionUi {
                 compressorLabel = compressorLabel,
                 baselineTokens = baselineTokens,
                 resumeRound = resumeRound,
+                preservedUsage = preservedUsage,
             ),
             keptUserCount = keptUserCount,
-        )
+        ).let(::clearBilledTokenUsage)
     }
 
     internal fun insertMarker(

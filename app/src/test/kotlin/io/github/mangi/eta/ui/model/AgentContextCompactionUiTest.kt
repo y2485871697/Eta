@@ -71,6 +71,96 @@ class AgentContextCompactionUiTest {
         assertTrue("summary should not keep the prefix", !marker.summary.startsWith("["))
     }
 
+    @Test
+    fun applyMarkerKeepsCumulativeUsageOnMarkerAndClearsAssistantBills() {
+        val original = listOf(
+            msg("user", "第一轮"),
+            msg("assistant", "第一轮答复"),
+            msg("user", "第二轮"),
+            msg("assistant", "第二轮答复"),
+        )
+        val compressed = listOf(
+            msg("system", "${AgentContextCompactor.SUMMARY_PREFIX_ZH}\n第一轮已经看过屏幕"),
+            msg("user", "第二轮"),
+            msg("assistant", "第二轮答复"),
+        )
+        val ui = listOf(
+            UserMessageUi("u1", "第一轮"),
+            AgentMessageUi(
+                "a1",
+                "第一轮答复",
+                usage = TokenUsageUi(inputTokens = 100, outputTokens = 20, cachedTokens = 40),
+            ),
+            UserMessageUi("u2", "第二轮"),
+            AgentMessageUi(
+                "a2",
+                "第二轮答复",
+                usage = TokenUsageUi(inputTokens = 50, outputTokens = 10, cachedTokens = 10),
+            ),
+        )
+        val updated = AgentContextCompactionUi.applyMarker(
+            messages = ui,
+            originalHistory = original,
+            compressedHistory = compressed,
+            markerId = "c1",
+        )
+        val marker = updated.filterIsInstance<ContextCompactedMessageUi>().single()
+        assertEquals(150L, marker.preservedUsage.inputTokens)
+        assertEquals(30L, marker.preservedUsage.outputTokens)
+        assertEquals(50L, marker.preservedUsage.cachedTokens)
+        assertTrue(updated.filterIsInstance<AgentMessageUi>().all { it.usage == null })
+        val usage = conversationTokenUsage(updated)
+        assertEquals(150L, usage.inputTokens)
+        assertEquals(30L, usage.outputTokens)
+        assertEquals(50L, usage.cachedTokens)
+    }
+
+    @Test
+    fun applyMarkerFoldsExistingMarkerUsageWhenCompressingAgain() {
+        val original = listOf(
+            msg("user", "第二轮"),
+            msg("assistant", "第二轮答复"),
+        )
+        val compressed = listOf(
+            msg("system", "${AgentContextCompactor.SUMMARY_PREFIX_ZH}\n继续压缩"),
+            msg("user", "第二轮"),
+            msg("assistant", "第二轮答复"),
+        )
+        val ui = listOf(
+            ContextCompactedMessageUi(
+                id = "old",
+                compactedCount = 4,
+                summary = "旧摘要",
+                preservedUsage = ConversationTokenUsageUi(
+                    inputTokens = 150,
+                    outputTokens = 30,
+                    cachedTokens = 50,
+                ),
+            ),
+            UserMessageUi("u2", "第二轮"),
+            AgentMessageUi(
+                "a2",
+                "第二轮答复",
+                usage = TokenUsageUi(inputTokens = 80, outputTokens = 12, cachedTokens = 20),
+            ),
+        )
+        val updated = AgentContextCompactionUi.applyMarker(
+            messages = ui,
+            originalHistory = original,
+            compressedHistory = compressed,
+            markerId = "new",
+        )
+        val marker = updated.filterIsInstance<ContextCompactedMessageUi>().single()
+        assertEquals("new", marker.id)
+        assertEquals(230L, marker.preservedUsage.inputTokens)
+        assertEquals(42L, marker.preservedUsage.outputTokens)
+        assertEquals(70L, marker.preservedUsage.cachedTokens)
+        val usage = conversationTokenUsage(updated)
+        assertEquals(230L, usage.inputTokens)
+        assertEquals(42L, usage.outputTokens)
+        assertEquals(70L, usage.cachedTokens)
+    }
+
     private fun msg(role: String, content: String) =
         AgentModelClient.ConversationMessage(role = role, content = content)
 }

@@ -10,6 +10,7 @@ import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.ContextCompactedMessageUi
+import io.github.mangi.eta.ui.model.ConversationTokenUsageUi
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.SystemNoticeCode
 import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
@@ -452,6 +453,11 @@ class AgentConversationStoreTest {
             compressorLabel = "魚 · grok-4.6",
             baselineTokens = 1800,
             resumeRound = 2,
+            preservedUsage = ConversationTokenUsageUi(
+                inputTokens = 2200,
+                outputTokens = 90,
+                cachedTokens = 700,
+            ),
         )
         runBlocking {
             AgentConversationStore.save(
@@ -482,6 +488,9 @@ class AgentConversationStoreTest {
         assertEquals("魚 · grok-4.6", loaded.compressorLabel)
         assertEquals(1800, loaded.baselineTokens)
         assertEquals(2, loaded.resumeRound)
+        assertEquals(2200L, loaded.preservedUsage.inputTokens)
+        assertEquals(90L, loaded.preservedUsage.outputTokens)
+        assertEquals(700L, loaded.preservedUsage.cachedTokens)
     }
 
 }

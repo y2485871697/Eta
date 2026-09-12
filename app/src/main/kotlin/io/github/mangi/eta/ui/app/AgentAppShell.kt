@@ -73,6 +73,7 @@ fun AgentAppShell(
     onOpenBrowser: () -> Unit,
     onOpenWorkspace: () -> Unit,
     autoCompressEnabled: Boolean = false,
+    isCompressingContext: Boolean = false,
     onToggleAutoCompress: (Boolean) -> Unit = {},
     onCompressConversation: (
         providerId: String?,
@@ -135,6 +136,7 @@ fun AgentAppShell(
                             onOpenWorkspace = onOpenWorkspace,
                             currentConversationTitle = currentConversationTitle,
                             autoCompressEnabled = autoCompressEnabled,
+                            isCompressingContext = isCompressingContext,
                             onToggleAutoCompress = onToggleAutoCompress,
                             onCompressConversation = onCompressConversation,
                             onSearchHistory = onSearchHistory,
@@ -212,6 +214,7 @@ private fun AgentTopBar(
     onOpenBrowser: () -> Unit,
     onOpenWorkspace: () -> Unit,
     autoCompressEnabled: Boolean = false,
+    isCompressingContext: Boolean = false,
     onToggleAutoCompress: (Boolean) -> Unit = {},
     onCompressConversation: (
         providerId: String?,
@@ -259,6 +262,7 @@ private fun AgentTopBar(
                 onOpenBrowser = onOpenBrowser,
                 onOpenWorkspace = onOpenWorkspace,
                 autoCompressEnabled = autoCompressEnabled,
+                isCompressingContext = isCompressingContext,
                 onToggleAutoCompress = onToggleAutoCompress,
                 onCompressConversation = onCompressConversation,
                 onSearchHistory = onSearchHistory,

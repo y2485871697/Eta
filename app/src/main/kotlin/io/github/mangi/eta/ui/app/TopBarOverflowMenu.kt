@@ -58,6 +58,7 @@ internal fun TopBarOverflowMenu(
     onOpenBrowser: () -> Unit,
     onOpenWorkspace: () -> Unit,
     autoCompressEnabled: Boolean,
+    isCompressingContext: Boolean = false,
     onToggleAutoCompress: (Boolean) -> Unit,
     onCompressConversation: (
         providerId: String?,
@@ -250,6 +251,7 @@ internal fun TopBarOverflowMenu(
 
     CompressConversationDialog(
         show = showCompressDialog,
+        isCompressing = isCompressingContext,
         onDismiss = { showCompressDialog = false },
         onConfirm = onCompressConversation,
     )

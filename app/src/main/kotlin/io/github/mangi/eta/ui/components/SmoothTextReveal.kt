@@ -47,6 +47,11 @@ internal class SmoothTextRevealCoordinator {
     private val drainedState = MutableStateFlow(true)
     private val startedState = MutableStateFlow<Set<RevealBlockKey>>(emptySet())
     private var animationsPaused = false
+    private var onRevealAdvanced: ((Float) -> Unit)? = null
+
+    fun setOnRevealAdvanced(listener: ((Float) -> Unit)?) {
+        onRevealAdvanced = listener
+    }
 
     val drained: StateFlow<Boolean> = drainedState
     /** 已经开始显现的块，用于让列表 marker 与正文保持同一生命周期。 */
@@ -155,12 +160,15 @@ internal class SmoothTextRevealCoordinator {
                 val totalBacklog = records.values.sumOf { candidate ->
                     max(0.0, (candidate.targetCount - candidate.progress).toDouble())
                 }.toFloat()
+                val previous = record.progress
                 record.progress = advanceSmoothReveal(
                     current = record.progress,
                     target = record.targetCount,
                     elapsedSeconds = elapsedSeconds,
                     totalBacklog = totalBacklog,
                 )
+                val delta = record.progress - previous
+                if (delta > 0f) onRevealAdvanced?.invoke(delta)
                 if (record.progress > 0f && record.key !in startedState.value) {
                     startedState.value = startedState.value + record.key
                 }

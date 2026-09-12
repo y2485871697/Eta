@@ -47,7 +47,7 @@ internal interface ConversationDao {
 
     @Query(
         "SELECT type, input_tokens, output_tokens, cached_tokens " +
-            "FROM conversation_messages WHERE type = 'assistant'"
+            "FROM conversation_messages WHERE type IN ('assistant', 'context_compacted')"
     )
     suspend fun usageContentRows(): List<UsageContentRow>
 

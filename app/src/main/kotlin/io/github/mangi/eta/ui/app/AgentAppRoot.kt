@@ -235,6 +235,7 @@ fun AgentAppRoot(
             onOpenBrowser = { pushRoute(AppRoute.Browser) },
             onOpenWorkspace = { pushRoute(AppRoute.Workspace) },
             autoCompressEnabled = agentState.autoCompressEnabled,
+            isCompressingContext = agentState.homeState.isCompressingContext,
             onToggleAutoCompress = { agentState.updateAutoCompressEnabled(it) },
             onCompressConversation = { providerId, modelId, targetTokens, keepRecent, onFinished ->
                 agentState.compressCurrentConversation(

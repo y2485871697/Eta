@@ -199,3 +199,26 @@ internal fun formatBalanceDisplay(raw: String): String {
         trimmed
     }
 }
+
+internal data class TokenBalanceConversion(
+    val divisor: Double,
+    val multiplier: Double = 1.0,
+) {
+    fun creditsForInputTokens(inputTokens: Long): Double {
+        if (divisor == 0.0) return 0.0
+        return inputTokens * multiplier / divisor
+    }
+}
+
+internal fun tokenBalanceConversion(option: BalanceOption): TokenBalanceConversion? {
+    val expression = option.resolved().resultPath.trim()
+    if (expression.isBlank()) return null
+    val binary = Regex("""^(.+?)\s+([+\-*/])\s+(.+)$""").matchEntire(expression) ?: return null
+    val operator = binary.groupValues[2]
+    val right = binary.groupValues[3].trim().toDoubleOrNull() ?: return null
+    return when (operator) {
+        "/" -> if (right == 0.0) null else TokenBalanceConversion(divisor = right)
+        "*" -> TokenBalanceConversion(divisor = 1.0, multiplier = right)
+        else -> null
+    }
+}

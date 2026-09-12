@@ -125,10 +125,20 @@ fun conversationTokenUsage(messages: List<AgentChatMessageUi>): ConversationToke
     var output = 0L
     var cached = 0L
     messages.forEach { message ->
-        val usage = (message as? AgentMessageUi)?.usage ?: return@forEach
-        input += usage.inputTokens ?: 0
-        output += usage.outputTokens ?: 0
-        cached += usage.cachedTokens ?: 0
+        when (message) {
+            is AgentMessageUi -> {
+                val usage = message.usage ?: return@forEach
+                input += usage.inputTokens ?: 0
+                output += usage.outputTokens ?: 0
+                cached += usage.cachedTokens ?: 0
+            }
+            is ContextCompactedMessageUi -> {
+                input += message.preservedUsage.inputTokens
+                output += message.preservedUsage.outputTokens
+                cached += message.preservedUsage.cachedTokens
+            }
+            else -> Unit
+        }
     }
     return ConversationTokenUsageUi(
         inputTokens = input,
@@ -179,6 +189,7 @@ data class ContextCompactedMessageUi(
     val compressorLabel: String = "",
     val baselineTokens: Int = 0,
     val resumeRound: Int = 0,
+    val preservedUsage: ConversationTokenUsageUi = ConversationTokenUsageUi(),
 ) : AgentChatMessageUi
 
 @Immutable

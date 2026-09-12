@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.github.mangi.eta.data.model.AppearanceAccentColor
@@ -18,6 +19,8 @@ import io.github.mangi.eta.data.model.AppearanceThemeMode
 import io.github.mangi.eta.data.model.AppearanceTopBarBlurStyle
 import io.github.mangi.eta.data.model.Settings
 import java.io.IOException
+import java.time.LocalDate
+import org.json.JSONObject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
@@ -43,6 +46,13 @@ internal object SettingsDataStore {
         booleanPreferencesKey("appearance_predictive_back_enabled")
     private val APPEARANCE_INTERFACE_SCALE = floatPreferencesKey("appearance_interface_scale")
     private val APP_LAUNCH_COUNT = intPreferencesKey("app_launch_count")
+    private val RETIRED_INPUT_TOKENS = longPreferencesKey("retired_input_tokens")
+    private val RETIRED_OUTPUT_TOKENS = longPreferencesKey("retired_output_tokens")
+    private val RETIRED_CACHED_TOKENS = longPreferencesKey("retired_cached_tokens")
+    private val RETIRED_CONVERSATIONS = intPreferencesKey("retired_conversations")
+    private val RETIRED_MESSAGES = intPreferencesKey("retired_messages")
+    private val RETIRED_HEATMAP_JSON = stringPreferencesKey("retired_heatmap_json")
+    private val MODEL_USAGE_JSON = stringPreferencesKey("model_usage_json")
     private const val SELECTED_MODEL_BY_PROVIDER_PREFIX = "selected_model_id_by_provider."
 
     private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = STORE_NAME)
@@ -201,6 +211,117 @@ internal object SettingsDataStore {
         }
     }
 
+    suspend fun retiredUsage(): RetiredUsage {
+        ensureInitialized()
+        return dataStore.data
+            .catch { cause ->
+                if (cause is IOException) emit(emptyPreferences()) else throw cause
+            }
+            .map { prefs ->
+                RetiredUsage(
+                    inputTokens = prefs[RETIRED_INPUT_TOKENS] ?: 0L,
+                    outputTokens = prefs[RETIRED_OUTPUT_TOKENS] ?: 0L,
+                    cachedTokens = prefs[RETIRED_CACHED_TOKENS] ?: 0L,
+                    conversations = prefs[RETIRED_CONVERSATIONS] ?: 0,
+                    messages = prefs[RETIRED_MESSAGES] ?: 0,
+                    heatmap = decodeHeatmap(prefs[RETIRED_HEATMAP_JSON]),
+                )
+            }
+            .first()
+    }
+
+    suspend fun addRetiredUsage(
+        inputTokens: Long = 0L,
+        outputTokens: Long = 0L,
+        cachedTokens: Long = 0L,
+        conversations: Int = 0,
+        messages: Int = 0,
+        heatmap: Map<LocalDate, Int> = emptyMap(),
+    ) {
+        if (
+            inputTokens <= 0L &&
+            outputTokens <= 0L &&
+            cachedTokens <= 0L &&
+            conversations <= 0 &&
+            messages <= 0 &&
+            heatmap.isEmpty()
+        ) {
+            return
+        }
+        ensureInitialized()
+        dataStore.edit { prefs ->
+            prefs[RETIRED_INPUT_TOKENS] =
+                (prefs[RETIRED_INPUT_TOKENS] ?: 0L) + inputTokens.coerceAtLeast(0L)
+            prefs[RETIRED_OUTPUT_TOKENS] =
+                (prefs[RETIRED_OUTPUT_TOKENS] ?: 0L) + outputTokens.coerceAtLeast(0L)
+            prefs[RETIRED_CACHED_TOKENS] =
+                (prefs[RETIRED_CACHED_TOKENS] ?: 0L) + cachedTokens.coerceAtLeast(0L)
+            prefs[RETIRED_CONVERSATIONS] =
+                (prefs[RETIRED_CONVERSATIONS] ?: 0) + conversations.coerceAtLeast(0)
+            prefs[RETIRED_MESSAGES] =
+                (prefs[RETIRED_MESSAGES] ?: 0) + messages.coerceAtLeast(0)
+            if (heatmap.isNotEmpty()) {
+                val merged = decodeHeatmap(prefs[RETIRED_HEATMAP_JSON]).toMutableMap()
+                heatmap.forEach { (day, count) ->
+                    if (count > 0) merged[day] = (merged[day] ?: 0) + count
+                }
+                prefs[RETIRED_HEATMAP_JSON] = encodeHeatmap(merged)
+            }
+        }
+    }
+
+    suspend fun clearRetiredUsage() {
+        ensureInitialized()
+        dataStore.edit { prefs ->
+            prefs.remove(RETIRED_INPUT_TOKENS)
+            prefs.remove(RETIRED_OUTPUT_TOKENS)
+            prefs.remove(RETIRED_CACHED_TOKENS)
+            prefs.remove(RETIRED_CONVERSATIONS)
+            prefs.remove(RETIRED_MESSAGES)
+            prefs.remove(RETIRED_HEATMAP_JSON)
+        }
+    }
+
+    suspend fun modelUsageJson(): String {
+        ensureInitialized()
+        return dataStore.data
+            .catch { cause ->
+                if (cause is IOException) emit(emptyPreferences()) else throw cause
+            }
+            .map { prefs -> prefs[MODEL_USAGE_JSON].orEmpty() }
+            .first()
+    }
+
+    suspend fun addModelUsage(deltaJson: String) {
+        if (deltaJson.isBlank()) return
+        ensureInitialized()
+        dataStore.edit { prefs ->
+            prefs[MODEL_USAGE_JSON] = deltaJson
+        }
+    }
+
+    private fun decodeHeatmap(raw: String?): Map<LocalDate, Int> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                json.keys().forEach { key ->
+                    val day = runCatching { LocalDate.parse(key) }.getOrNull() ?: return@forEach
+                    val count = json.optInt(key, 0)
+                    if (count > 0) put(day, count)
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun encodeHeatmap(days: Map<LocalDate, Int>): String {
+        val json = JSONObject()
+        days.forEach { (day, count) ->
+            if (count > 0) json.put(day.toString(), count)
+        }
+        return json.toString()
+    }
+
     private fun ensureInitialized() {
         check(::dataStore.isInitialized) {
             "SettingsDataStore.init(context) must be called in Application.onCreate()"
@@ -251,3 +372,12 @@ internal object SettingsDataStore {
         this[APPEARANCE_INTERFACE_SCALE] = settings.interfaceScale
     }
 }
+
+internal data class RetiredUsage(
+    val inputTokens: Long = 0L,
+    val outputTokens: Long = 0L,
+    val cachedTokens: Long = 0L,
+    val conversations: Int = 0,
+    val messages: Int = 0,
+    val heatmap: Map<LocalDate, Int> = emptyMap(),
+)

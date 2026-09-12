@@ -40,4 +40,31 @@ class ConversationTokenUsageTest {
         assertNull(usage.cachePercent)
         assertEquals(0L, usage.totalTokens)
     }
+
+    @Test
+    fun includesPreservedUsageFromCompactedMarker() {
+        val usage = conversationTokenUsage(
+            listOf(
+                ContextCompactedMessageUi(
+                    id = "c1",
+                    compactedCount = 8,
+                    summary = "旧对话",
+                    preservedUsage = ConversationTokenUsageUi(
+                        inputTokens = 1200,
+                        outputTokens = 80,
+                        cachedTokens = 400,
+                    ),
+                ),
+                AgentMessageUi(
+                    id = "a1",
+                    content = "新答复",
+                    usage = TokenUsageUi(inputTokens = 50, outputTokens = 10, cachedTokens = 5),
+                ),
+            ),
+        )
+        assertEquals(1250L, usage.inputTokens)
+        assertEquals(90L, usage.outputTokens)
+        assertEquals(405L, usage.cachedTokens)
+        assertTrue(usage.hasUsage)
+    }
 }
