@@ -109,6 +109,31 @@ class AgentTraceFormatterTest {
     }
 
     @Test
+    fun terminalExecSummaryUsesSessionEnvironmentWhenOmitted() {
+        val sessionFormatter = AgentTraceFormatter(
+            terminalSessionEnvironmentProvider = { id ->
+                if (id == "term_linux") "debian" else null
+            },
+            terminalSessionIdentityProvider = { id ->
+                if (id == "term_linux") "root" else null
+            },
+        )
+        val exec = AgentModelClient.ToolCall(
+            id = "term-exec",
+            name = "terminal",
+            argumentsJson = """{"action":"exec","session_id":"term_linux","command":"gh run list"}""",
+        )
+        val summary = sessionFormatter.summarizeArguments(exec)
+        assertTrue(summary.contains("Debian"))
+        assertTrue(summary.contains("root"))
+        assertFalse(summary.contains("Android"))
+        assertFalse(summary.contains("gh run list"))
+        assertTrue(
+            formatter.summarizeArguments(exec).contains("Android"),
+        )
+    }
+
+    @Test
     fun terminalCommandsAreExposedOnlyThroughDisplayField() {
         val terminal = AgentModelClient.ToolCall(
             id = "terminal-call",

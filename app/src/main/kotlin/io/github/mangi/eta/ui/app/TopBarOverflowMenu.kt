@@ -258,6 +258,7 @@ internal fun TopBarOverflowMenu(
         onDismiss = { showSearchDialog = false },
         onSearch = onSearchHistory,
         onOpenHit = onOpenHistoryHit,
+        showConversationTitle = false,
     )
     ConversationTokenUsageDialog(
         show = showTokenUsageDialog,

@@ -152,6 +152,12 @@ internal class AgentLocalTools(
         inspectedGitHubSnapshots.clear()
     }
 
+    fun terminalSessionEnvironment(sessionId: String): String? =
+        terminalController.sessionEnvironmentWireName(sessionId)
+
+    fun terminalSessionIdentity(sessionId: String): String? =
+        terminalController.sessionIdentity(sessionId)
+
     override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult =
         runCatching {
             val args = JSONObject(toolCall.argumentsJson.ifBlank { "{}" })

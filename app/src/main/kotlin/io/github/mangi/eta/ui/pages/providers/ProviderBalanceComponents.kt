@@ -73,7 +73,7 @@ internal fun ProviderBalanceOptionFields(
         )
 
         AnimatedVisibility(visible = expanded) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column {
                 WindowSpinnerPreference(
                     items = listOf(
                         DropdownItem(text = stringResource(R.string.ui_balance_preset_custom)),
@@ -99,7 +99,7 @@ internal fun ProviderBalanceOptionFields(
                         )
                     },
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
                 if (isNewApi) {
                     TextField(
                         value = balanceOption.userId,
@@ -190,6 +190,7 @@ internal fun ProviderBalanceOptionFields(
                         amount = it,
                         modifier = Modifier.padding(top = 8.dp),
                     )
+                }
                 }
             }
         }

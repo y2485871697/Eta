@@ -94,6 +94,8 @@ internal object AgentModelClient {
         capabilitiesProvider: () -> AgentToolCapabilities = { AgentToolCapabilities(rootAvailable = false) },
         onEvent: (AgentEvent) -> Unit = {},
         linuxEnvironmentLabelProvider: () -> String = { "Linux" },
+        terminalSessionEnvironmentProvider: (String) -> String? = { null },
+        terminalSessionIdentityProvider: (String) -> String? = { null },
         skipHistoryTrimming: Boolean = false,
     ): ModelResponse.Text {
         config.validate()
@@ -144,6 +146,8 @@ internal object AgentModelClient {
         val tools = toolsFor(initialCapabilities)
         val traceFormatter = AgentTraceFormatter(
             linuxEnvironmentLabelProvider = linuxEnvironmentLabelProvider,
+            terminalSessionEnvironmentProvider = terminalSessionEnvironmentProvider,
+            terminalSessionIdentityProvider = terminalSessionIdentityProvider,
         )
         onEvent(
             AgentEvent.RunStarted(

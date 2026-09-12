@@ -40,6 +40,12 @@ internal class RootShellTerminalController(
     private val asyncJobs = linkedMapOf<String, AsyncCommand>()
     private val cleanupStarted = AtomicBoolean(false)
 
+    fun sessionEnvironmentWireName(sessionId: String): String? =
+        synchronized(sessions) { sessions[sessionId]?.environment?.wireName }
+
+    fun sessionIdentity(sessionId: String): String? =
+        synchronized(sessions) { sessions[sessionId]?.identity }
+
     fun runCommand(command: String, cwd: String?, timeoutSeconds: Int): String {
         return runCommand(
             command = command,

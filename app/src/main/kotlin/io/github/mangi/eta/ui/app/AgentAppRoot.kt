@@ -245,7 +245,9 @@ fun AgentAppRoot(
                     onFinished,
                 )
             },
-            onSearchHistory = { query -> agentState.searchHistory(query) },
+            onSearchHistory = { query ->
+                agentState.searchHistory(query, currentConversationOnly = true)
+            },
             onOpenHistoryHit = { hit ->
                 conversationPaneOpen = false
                 agentState.openHistorySearchHit(hit)

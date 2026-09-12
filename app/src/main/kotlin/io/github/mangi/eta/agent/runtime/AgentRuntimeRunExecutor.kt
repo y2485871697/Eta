@@ -215,6 +215,8 @@ internal class AgentRuntimeRunExecutor(
                         LinuxDistribution.DEBIAN -> "Debian"
                     }
                 },
+                terminalSessionEnvironmentProvider = executor::terminalSessionEnvironment,
+                terminalSessionIdentityProvider = executor::terminalSessionIdentity,
                 onEvent = { event ->
                     timing.accept(event)
                     acceptEvent(

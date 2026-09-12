@@ -7,6 +7,8 @@ import org.json.JSONObject
 /** 工具摘要面向用户展示，不包含敏感参数；终端命令通过独立字段提供给用户核对。 */
 internal class AgentTraceFormatter(
     private val linuxEnvironmentLabelProvider: () -> String = { "Linux" },
+    private val terminalSessionEnvironmentProvider: (String) -> String? = { null },
+    private val terminalSessionIdentityProvider: (String) -> String? = { null },
 ) {
     fun summarizeArguments(toolCall: AgentModelClient.ToolCall): String =
         when (toolCall.name) {
@@ -108,14 +110,11 @@ internal class AgentTraceFormatter(
     private fun summarizeRunCommandArguments(argumentsJson: String): String =
         runCatching {
             val arguments = JSONObject(argumentsJson)
-            val environment = arguments.optString("environment", "android")
-                .terminalEnvironmentLabel()
-            val identity = arguments.optString("identity", "root")
-                .takeIf { it == "root" || it == "user" }
+            val resolved = resolveTerminalRuntime(arguments)
             buildList {
                 add("执行命令")
-                add(environment)
-                identity?.let(::add)
+                add(resolved.environment)
+                resolved.identity?.let(::add)
             }.joinToString(" · ")
         }.getOrDefault("执行命令")
 
@@ -123,18 +122,28 @@ internal class AgentTraceFormatter(
         runCatching {
             val arguments = JSONObject(argumentsJson)
             val action = arguments.optString("action").terminalActionLabel()
-            val environment = arguments.optString("environment", "android")
-                .terminalEnvironmentLabel()
-            val identity = arguments.optString("identity", "root")
-                .takeIf { it == "root" || it == "user" }
+            val resolved = resolveTerminalRuntime(arguments)
             buildList {
                 add("终端")
                 add(action)
-                add(environment)
-                identity?.let(::add)
+                add(resolved.environment)
+                resolved.identity?.let(::add)
                 if (arguments.optBoolean("async", false)) add("后台")
             }.joinToString(" · ")
         }.getOrDefault("终端")
+
+    private fun resolveTerminalRuntime(arguments: JSONObject): TerminalRuntimeSummary {
+        val sessionId = arguments.optString("session_id").takeIf { it.isNotBlank() }
+        val environment = arguments.optString("environment")
+            .ifBlank { sessionId?.let(terminalSessionEnvironmentProvider).orEmpty() }
+            .ifBlank { "android" }
+            .terminalEnvironmentLabel()
+        val identity = arguments.optString("identity")
+            .ifBlank { sessionId?.let(terminalSessionIdentityProvider).orEmpty() }
+            .ifBlank { "root" }
+            .takeIf { it == "root" || it == "user" }
+        return TerminalRuntimeSummary(environment = environment, identity = identity)
+    }
 
     private fun summarizeTextLength(
         label: String,
@@ -520,6 +529,11 @@ internal class AgentTraceFormatter(
         "linux" -> linuxEnvironmentLabelProvider()
         else -> "Android"
     }
+
+    private data class TerminalRuntimeSummary(
+        val environment: String,
+        val identity: String?,
+    )
 
     private companion object {
         const val BROWSER_TOOL_NAME = "browser_use"

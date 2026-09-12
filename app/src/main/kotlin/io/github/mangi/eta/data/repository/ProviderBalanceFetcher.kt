@@ -108,7 +108,9 @@ internal object ProviderBalanceFetcher {
     }
 
     internal fun evaluateExpression(root: JsonElement, expression: String): String {
-        val binary = binaryExpr.matchEntire(expression)
+        val trimmed = expression.trim()
+        trimmed.toDoubleOrNull()?.let { return formatNumber(it) }
+        val binary = binaryExpr.matchEntire(trimmed)
         if (binary != null) {
             val left = evaluateExpression(root, binary.groupValues[1]).toDoubleOrNull()
                 ?: error("Unable to parse balance from JSON path ${binary.groupValues[1]}")

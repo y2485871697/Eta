@@ -1005,13 +1005,21 @@ internal class AgentAppState(
         conversationPaneState = conversationPaneState.copy(searchQuery = query)
     }
 
-    fun searchHistory(query: String): List<MessageSearchHit> {
-        val conversations = conversationsById.toMutableMap()
-        val currentId = selectedConversationId
-        if (currentId != null) {
-            conversations[currentId] = homeState
-        } else if (homeState.messages.isNotEmpty()) {
-            conversations[""] = homeState
+    fun searchHistory(
+        query: String,
+        currentConversationOnly: Boolean = false,
+    ): List<MessageSearchHit> {
+        val conversations = if (currentConversationOnly) {
+            currentConversationSearchScope()
+        } else {
+            conversationsById.toMutableMap().also { all ->
+                val currentId = selectedConversationId
+                if (currentId != null) {
+                    all[currentId] = homeState
+                } else if (homeState.messages.isNotEmpty()) {
+                    all[""] = homeState
+                }
+            }
         }
         return searchConversationMessages(
             conversations = conversations,
@@ -1026,6 +1034,15 @@ internal class AgentAppState(
                 tool = appContext.getString(R.string.search_history_role_tool),
             ),
         )
+    }
+
+    private fun currentConversationSearchScope(): Map<String, AgentChatHomeUiState> {
+        val currentId = selectedConversationId
+        return when {
+            currentId != null -> mapOf(currentId to homeState)
+            homeState.messages.isNotEmpty() -> mapOf("" to homeState)
+            else -> emptyMap()
+        }
     }
 
     fun openHistorySearchHit(hit: MessageSearchHit) {

@@ -33,6 +33,7 @@ internal fun SearchHistoryDialog(
     onDismiss: () -> Unit,
     onSearch: (String) -> List<MessageSearchHit>,
     onOpenHit: (MessageSearchHit) -> Unit,
+    showConversationTitle: Boolean = true,
 ) {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<MessageSearchHit>>(emptyList()) }
@@ -96,12 +97,14 @@ internal fun SearchHistoryDialog(
                                     }
                                     .padding(vertical = 10.dp),
                             ) {
-                                Text(
-                                    text = hit.conversationTitle,
-                                    style = MiuixTheme.textStyles.body1,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                if (showConversationTitle) {
+                                    Text(
+                                        text = hit.conversationTitle,
+                                        style = MiuixTheme.textStyles.body1,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                                 Text(
                                     text = "${hit.roleLabel} · ${hit.snippet}",
                                     style = MiuixTheme.textStyles.body2,
