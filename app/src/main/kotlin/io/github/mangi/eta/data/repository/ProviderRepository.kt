@@ -61,7 +61,7 @@ internal object ProviderRepository {
         val nextOrder = (allProviders().maxOfOrNull { it.sortOrder } ?: -1) + 1
         val added = provider.withSortOrder(nextOrder)
         replaceProvider(added)
-        repairSelection()
+        // 不自动切换到新添加的 provider，保持当前选择不变。
         return added
     }
 
@@ -96,7 +96,7 @@ internal object ProviderRepository {
             builtIn = false,
         )
         replaceProvider(copy)
-        repairSelection()
+        // 复制 provider 时不自动切换当前模型。
         return copy
     }
 
