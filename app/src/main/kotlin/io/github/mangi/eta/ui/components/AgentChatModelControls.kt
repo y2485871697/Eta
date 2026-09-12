@@ -69,16 +69,16 @@ internal fun AgentModelPickerButton(
     val menuState = rememberEtaMenuState()
     var expandedProviderIds by remember { mutableStateOf(emptySet<String>()) }
     val selected = state.selectedModel
-    val enabled = (!isStreaming || isPaused) && !state.isChanging && state.providerGroups.isNotEmpty()
-    LaunchedEffect(enabled) {
-        if (!enabled) menuState.dismiss()
+    val pickerAvailable = (!isStreaming || isPaused) && state.providerGroups.isNotEmpty()
+    LaunchedEffect(pickerAvailable) {
+        if (!pickerAvailable) menuState.dismiss()
     }
     val currentModel = selected?.displayName ?: stringResource(R.string.model_not_selected)
     val switchModelDescription = stringResource(R.string.model_switch_current, currentModel)
     Box(modifier = modifier) {
         ChatInputNonFocusableIconButton(
             onClick = {
-                if (!enabled) return@ChatInputNonFocusableIconButton
+                if (!pickerAvailable) return@ChatInputNonFocusableIconButton
                 expandedProviderIds = defaultExpandedModelProviderIds(state.selectedModel)
                 menuState.onAnchorClick()
             },
@@ -88,12 +88,12 @@ internal fun AgentModelPickerButton(
                 modelId = selected?.modelId,
                 sourceType = selected?.providerSourceType,
                 size = ChatInputActionIconSize,
-                modifier = Modifier.graphicsLayer(alpha = if (enabled) 1f else 0.38f),
+                modifier = Modifier.graphicsLayer(alpha = if (pickerAvailable) 1f else 0.38f),
             )
         }
 
         EtaDropdownMenu(
-            expanded = menuState.expanded && enabled,
+            expanded = menuState.expanded && pickerAvailable,
             onDismissRequest = menuState::dismiss,
             alignEnd = true,
             preferAbove = true,
@@ -109,8 +109,7 @@ internal fun AgentModelPickerButton(
                     expandedProviderIds = if (expanded) setOf(providerId) else emptySet()
                 },
                 onModelSelected = { modelId ->
-                    menuState.dismiss()
-                    onModelSelected(modelId)
+                    if (!state.isChanging) onModelSelected(modelId)
                 },
             )
         }
