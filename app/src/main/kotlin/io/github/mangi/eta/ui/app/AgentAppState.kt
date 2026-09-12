@@ -2814,9 +2814,7 @@ internal class AgentAppState(
         if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return
         if (!allowRepeat && runId != null && runId in runCompressedDuringRun) return
         val state = conversationsById[conversationId] ?: return
-        val contextWindow = modelPickerState.selectedModel?.contextWindow
-            ?: state.availableModels.firstOrNull { it.id == state.selectedModelId }?.contextWindow
-            ?: 128_000
+        val contextWindow = modelPickerState.selectedModel?.contextWindow ?: 128_000
         val estimatedTokens = liveContextUsage(
             history = state.history,
             currentInput = "",
