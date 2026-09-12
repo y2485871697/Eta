@@ -944,10 +944,11 @@ private fun AgentChatBottomBar(
     onEditAssistant: (String) -> Unit,
     onAssistantSelected: (String) -> Unit = {},
 ) {
+    val drawerBlocksIme = LocalConversationDrawerBlocksIme.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .imePadding(),
+            .then(if (drawerBlocksIme) Modifier else Modifier.imePadding()),
     ) {
         if (messageBackdrop != null) {
             val blurColors = BlurDefaults.blurColors(
@@ -1052,6 +1053,7 @@ private fun ContextCompressingIndicator(modifier: Modifier = Modifier) {
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)

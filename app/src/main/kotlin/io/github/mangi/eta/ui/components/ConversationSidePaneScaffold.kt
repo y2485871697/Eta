@@ -21,7 +21,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -365,7 +370,9 @@ private fun ConversationPanePanel(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .safeDrawingPadding()
+                // 搜索框在顶部，键盘不必把底部 dock 和会话输入一起顶上来。
+                .windowInsetsPadding(WindowInsets.safeDrawing.exclude(WindowInsets.ime))
+                .consumeWindowInsets(WindowInsets.ime)
                 .padding(horizontal = DrawerMetrics.PaneHorizontalPadding),
         ) {
             Spacer(modifier = Modifier.height(DrawerMetrics.TopInset))
