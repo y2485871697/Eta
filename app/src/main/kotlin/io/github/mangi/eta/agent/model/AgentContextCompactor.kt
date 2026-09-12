@@ -19,7 +19,7 @@ internal object AgentContextCompactor {
         history: List<AgentModelClient.ConversationMessage>,
         contextWindow: Int,
         keepRecentMessages: Int = DEFAULT_KEEP_RECENT,
-        thresholdPercent: Int = 80,
+        thresholdPercent: Int = 90,
         estimatedTokens: Int? = null,
     ): Boolean {
         if (recentKeepStartIndex(history, keepRecentMessages) <= 0) return false

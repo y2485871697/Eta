@@ -106,7 +106,7 @@ class AgentContextCompactorTest {
                 history = history,
                 contextWindow = 500_000,
                 keepRecentMessages = 2,
-                thresholdPercent = 80,
+                thresholdPercent = 90,
                 estimatedTokens = 262_556,
             ),
         )
@@ -115,8 +115,8 @@ class AgentContextCompactorTest {
                 history = history,
                 contextWindow = 500_000,
                 keepRecentMessages = 2,
-                thresholdPercent = 80,
-                estimatedTokens = 442_000,
+                thresholdPercent = 90,
+                estimatedTokens = 451_000,
             ),
         )
     }

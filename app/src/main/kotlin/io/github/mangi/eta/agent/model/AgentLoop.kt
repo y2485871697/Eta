@@ -216,7 +216,7 @@ internal class AgentLoop(
         val compressConfig = compactPolicy.compressModelConfig ?: return
         val originalCount = messages.length()
         // 只用接口账单判断是否该压。本地 JSON/CJK 估算会把系统提示和工具结果算到
-        // 窗口的 80% 以上，圆环还在 20%–30% 时就会提前压缩。
+        // 窗口的 90% 以上，圆环还在 20%–30% 时就会提前压缩。
         val estimated = lastUsage?.occupancyTokens() ?: return
         val history = AgentConversationCodec.transcript(messages, systemCount.coerceIn(0, originalCount))
         if (!AgentContextCompactor.shouldCompress(
