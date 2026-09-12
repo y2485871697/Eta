@@ -378,11 +378,14 @@ internal fun AgentWorkProcess(
     SideEffect {
         if (isPaused) return@SideEffect
         messages.forEach { message ->
-            if (
+            val liveId = when {
                 message is ToolActivityMessageUi &&
-                message.status == ToolActivityStatusUi.Running
-            ) {
-                TouchHaptics.onLiveToolActivity(view, message.id)
+                    message.status == ToolActivityStatusUi.Running -> message.id
+                message is ThinkingMessageUi && message.isStreaming -> message.id
+                else -> null
+            }
+            if (liveId != null) {
+                TouchHaptics.onLiveToolActivity(view, liveId)
             }
         }
     }
@@ -2306,6 +2309,15 @@ private fun ToolActivityInline(
     )
 
     val title = message.argumentsSummary.ifBlank { toolDisplayName(message.toolName) }
+    val showCompletedPlaceholder = message.argumentsSummary.isBlank() &&
+        message.command.isNullOrBlank() &&
+        message.resultSummary.isNullOrBlank() &&
+        !showBrowserShortcut &&
+        message.status == ToolActivityStatusUi.Success
+    val hasDetails = !message.command.isNullOrBlank() ||
+        !message.resultSummary.isNullOrBlank() ||
+        showBrowserShortcut ||
+        showCompletedPlaceholder
     val browserSubtitle = browserSnapshot?.let { snapshot ->
         when {
             snapshot.isLoading ->
@@ -2331,7 +2343,13 @@ private fun ToolActivityInline(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .clickable { isExpanded = !isExpanded }
+            .then(
+                if (hasDetails) {
+                    Modifier.clickable { isExpanded = !isExpanded }
+                } else {
+                    Modifier
+                }
+            )
             .padding(horizontal = if (compact) 10.dp else 20.dp, vertical = 3.dp)
     ) {
         Row(
@@ -2428,17 +2446,19 @@ private fun ToolActivityInline(
                         }
                     }
                 }
-                Icon(
-                    imageVector = if (isExpanded) Icons.Rounded.ExpandMore
-                        else Icons.Rounded.ChevronRight,
-                    contentDescription = null,
-                    modifier = Modifier.size(13.dp),
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
-                )
+                if (hasDetails) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Rounded.ExpandMore
+                            else Icons.Rounded.ChevronRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(13.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
+                    )
+                }
             }
         }
 
-        AnimatedVisibility(visible = isExpanded) {
+        AnimatedVisibility(visible = isExpanded && hasDetails) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2474,6 +2494,12 @@ private fun ToolActivityInline(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                } else if (showCompletedPlaceholder) {
+                    Text(
+                        text = stringResource(R.string.tool_status_success),
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
                 }
                 if (showBrowserShortcut) {
                     browserSnapshot?.takeIf { it.available }?.let { snapshot ->

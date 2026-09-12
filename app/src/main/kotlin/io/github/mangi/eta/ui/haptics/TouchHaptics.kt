@@ -51,7 +51,7 @@ internal object TouchHaptics {
         tick(view)
     }
 
-    /** 终端、读图、浏览网页等工具标签首次进入运行态时轻触一次。推理走流式 tick，不走这里。 */
+    /** 推理、终端、读图、网页搜索等标签首次出现时轻触一次。 */
     fun onLiveToolActivity(view: View?, toolId: String) {
         if (!liveToolTracker.markIfNew(toolId)) return
         generationTick(view)
