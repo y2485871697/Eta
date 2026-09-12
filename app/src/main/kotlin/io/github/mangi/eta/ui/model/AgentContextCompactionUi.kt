@@ -11,6 +11,8 @@ internal object AgentContextCompactionUi {
         compressedHistory: List<AgentModelClient.ConversationMessage>,
         extraKeptUserMessages: Int = 0,
         compressorLabel: String = "",
+        baselineTokens: Int = 0,
+        resumeRound: Int = 0,
         markerId: String = "compacted-${System.currentTimeMillis()}",
     ): List<AgentChatMessageUi> {
         if (compressedHistory == originalHistory) return messages
@@ -37,6 +39,8 @@ internal object AgentContextCompactionUi {
                 compactedCount = compactedCount,
                 summary = summary,
                 compressorLabel = compressorLabel,
+                baselineTokens = baselineTokens,
+                resumeRound = resumeRound,
             ),
             keptUserCount = keptUserCount,
         )

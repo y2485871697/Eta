@@ -174,6 +174,8 @@ data class ContextCompactedMessageUi(
     val compactedCount: Int,
     val summary: String,
     val compressorLabel: String = "",
+    val baselineTokens: Int = 0,
+    val resumeRound: Int = 0,
 ) : AgentChatMessageUi
 
 @Immutable

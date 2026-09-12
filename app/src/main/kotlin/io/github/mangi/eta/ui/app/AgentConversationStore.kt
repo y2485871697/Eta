@@ -296,6 +296,8 @@ internal object AgentConversationStore {
                 content = summary,
                 elapsedSeconds = compactedCount,
                 argumentsSummary = compressorLabel,
+                contextTokens = baselineTokens.takeIf { it > 0 },
+                inputTokens = resumeRound.takeIf { it > 0 },
             )
 
             else -> null
@@ -360,6 +362,8 @@ internal object AgentConversationStore {
                 compactedCount = elapsedSeconds ?: 0,
                 summary = content,
                 compressorLabel = argumentsSummary.orEmpty(),
+                baselineTokens = contextTokens ?: 0,
+                resumeRound = inputTokens ?: 0,
             )
 
             else -> null

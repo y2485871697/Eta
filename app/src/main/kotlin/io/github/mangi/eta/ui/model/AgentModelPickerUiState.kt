@@ -136,44 +136,85 @@ internal fun latestContextUsage(
  * 没有 total 时退回 input+output。都没有时由调用方走本地历史估算，并加上当前请求开销。
  */
 internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int? {
-    val billedIndex = messages.indexOfLast { message ->
-        message is AgentMessageUi && windowTokensFromUsage(message.usage) != null
+    val compactIndex = messages.indexOfLast { it is ContextCompactedMessageUi }
+    val marker = compactIndex.takeIf { it >= 0 }?.let { messages[it] as ContextCompactedMessageUi }
+    val resumeRound = marker?.resumeRound ?: 0
+    val billedIndex = messages.indices.lastOrNull { index ->
+        val message = messages[index]
+        message is AgentMessageUi &&
+            windowTokensFromUsage(message.usage) != null &&
+            index > compactIndex &&
+            (resumeRound <= 0 || (messageRoundFromId(message.id) ?: 0) >= resumeRound)
+    } ?: -1
+    if (billedIndex >= 0) {
+        val billed = windowTokensFromUsage((messages[billedIndex] as AgentMessageUi).usage) ?: return null
+        return billed + countUnbilledTail(messages, billedIndex + 1)
     }
-    if (billedIndex < 0) return null
-    val billed = windowTokensFromUsage((messages[billedIndex] as AgentMessageUi).usage) ?: return null
+    val baseline = marker?.baselineTokens ?: 0
+    if (compactIndex >= 0 && baseline > 0 && resumeRound > 0) {
+        return baseline + countUnbilledTail(messages, compactIndex + 1, resumeRound)
+    }
+    return null
+}
+
+internal fun countUnbilledTail(
+    messages: List<AgentChatMessageUi>,
+    startIndex: Int,
+    resumeRound: Int = 0,
+): Int {
     var tail = 0
-    for (index in billedIndex + 1 until messages.size) {
-        when (val message = messages[index]) {
-            is UserMessageUi -> {
-                if (message.content.isNotBlank() || message.images.isNotEmpty()) {
-                    tail += AgentContextBudget.countCurrentTurn(message.content, emptyList()) +
-                        AgentContextBudget.countStoredImages(message.images.size)
-                }
-            }
-            is AgentMessageUi -> {
-                if (message.content.isNotBlank() && windowTokensFromUsage(message.usage) == null) {
-                    tail += AgentContextBudget.countCurrentTurn(message.content, emptyList())
-                }
-            }
-            is ThinkingMessageUi -> {
-                if (message.content.isNotBlank()) {
-                    tail += AgentContextBudget.countCurrentTurn(message.content, emptyList())
-                }
-            }
-            is ToolActivityMessageUi -> {
-                val text = buildString {
-                    if (message.argumentsSummary.isNotBlank()) append(message.argumentsSummary)
-                    message.command?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
-                    message.resultSummary?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
-                }
-                if (text.isNotBlank()) {
-                    tail += AgentContextBudget.countCurrentTurn(text, emptyList())
-                }
-            }
-            else -> Unit
+    for (index in startIndex until messages.size) {
+        val message = messages[index]
+        if (resumeRound > 0) {
+            val round = messageRoundFromId(message.id)
+            if (round == null || round < resumeRound) continue
         }
+        tail += countLiveMessageTokens(message)
     }
-    return billed + tail
+    return tail
+}
+
+internal fun countLiveMessageTokens(message: AgentChatMessageUi): Int =
+    when (message) {
+        is UserMessageUi -> {
+            if (message.content.isBlank() && message.images.isEmpty()) {
+                0
+            } else {
+                AgentContextBudget.countCurrentTurn(message.content, emptyList()) +
+                    AgentContextBudget.countStoredImages(message.images.size)
+            }
+        }
+        is AgentMessageUi -> {
+            if (message.content.isBlank() || windowTokensFromUsage(message.usage) != null) {
+                0
+            } else {
+                AgentContextBudget.countCurrentTurn(message.content, emptyList())
+            }
+        }
+        is ThinkingMessageUi -> {
+            if (message.content.isBlank()) 0
+            else AgentContextBudget.countCurrentTurn(message.content, emptyList())
+        }
+        is ToolActivityMessageUi -> {
+            val text = buildString {
+                if (message.argumentsSummary.isNotBlank()) append(message.argumentsSummary)
+                message.command?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
+                message.resultSummary?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
+            }
+            if (text.isBlank()) 0 else AgentContextBudget.countCurrentTurn(text, emptyList())
+        }
+        else -> 0
+    }
+
+internal fun messageRoundFromId(id: String): Int? {
+    Regex("-thinking-(\d+)-").find(id)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
+    Regex("-tool-(\d+)-").find(id)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
+    Regex("-hosted-(\d+)-").find(id)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
+    if (id.startsWith("assistant-run-")) {
+        val parts = id.split("-")
+        if (parts.size >= 9) return parts[parts.size - 2].toIntOrNull()
+    }
+    return null
 }
 
 internal fun windowTokensFromUsage(usage: TokenUsageUi?): Int? {

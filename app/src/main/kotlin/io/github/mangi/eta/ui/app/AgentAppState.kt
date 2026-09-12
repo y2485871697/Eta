@@ -29,6 +29,7 @@ import io.github.mangi.eta.agent.model.AgentFileReference
 import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.agent.model.AgentFileReferencePolicy
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
+import io.github.mangi.eta.agent.model.AgentContextBudget
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.agent.model.AgentRequestOverhead
 import io.github.mangi.eta.agent.model.AgentConversationCodec
@@ -71,6 +72,7 @@ import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.AgentContextCompactionUi
+import io.github.mangi.eta.ui.model.ContextCompactedMessageUi
 import io.github.mangi.eta.ui.model.clearBilledTokenUsage
 import io.github.mangi.eta.ui.model.latestBilledContextTokens
 import io.github.mangi.eta.ui.model.liveContextUsage
@@ -1885,6 +1887,10 @@ internal class AgentAppState(
                     compressedHistory = compressedHistory,
                     extraKeptUserMessages = 1,
                     compressorLabel = compressorLabel,
+                    baselineTokens = (compressedHistory + userHistoryMessage).sumOf {
+                        AgentContextBudget.countMessage(it)
+                    },
+                    resumeRound = 1,
                 ),
             ),
         )
@@ -2806,6 +2812,8 @@ internal class AgentAppState(
                     compressedHistory = event.history,
                     extraKeptUserMessages = 0,
                     compressorLabel = event.compressorLabel,
+                    baselineTokens = event.history.sumOf { AgentContextBudget.countMessage(it) },
+                    resumeRound = event.round,
                 ),
             ),
         )
@@ -2827,6 +2835,7 @@ internal class AgentAppState(
         if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return
         if (!allowRepeat && runId != null && runId in runCompressedDuringRun) return
         val state = conversationsById[conversationId] ?: return
+        if (state.isStreaming) return
         val contextWindow = modelPickerState.selectedModel?.contextWindow ?: 128_000
         val estimatedTokens = liveContextUsage(
             history = state.history,
@@ -2943,6 +2952,11 @@ internal class AgentAppState(
 
     private fun updateAssistantUsage(runId: String, round: Int, usage: TokenUsageUi) {
         if (usage.isEmpty) return
+        val compactResumeRound = conversationStateForRun(runId).messages
+            .lastOrNull { it is ContextCompactedMessageUi }
+            ?.let { (it as ContextCompactedMessageUi).resumeRound }
+            ?: 0
+        if (compactResumeRound > 0 && round < compactResumeRound) return
         // 只补充 token 用量。不能触碰 isStreaming：Usage 事件紧跟在文本块结束之后，
         // 若把 isStreaming 改回 true，流式渲染会在流式/静态两种视图间反复切换，整段重渲染。
         val overhead = runOverheadTokens[runId] ?: requestOverheadTokens

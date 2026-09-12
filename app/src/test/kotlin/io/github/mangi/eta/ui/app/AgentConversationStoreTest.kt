@@ -450,6 +450,8 @@ class AgentConversationStoreTest {
             compactedCount = 6,
             summary = "用户要查 Actions，已经推送成功。",
             compressorLabel = "魚 · grok-4.6",
+            baselineTokens = 1800,
+            resumeRound = 2,
         )
         runBlocking {
             AgentConversationStore.save(
@@ -478,6 +480,8 @@ class AgentConversationStoreTest {
         assertEquals(6, loaded.compactedCount)
         assertEquals("用户要查 Actions，已经推送成功。", loaded.summary)
         assertEquals("魚 · grok-4.6", loaded.compressorLabel)
+        assertEquals(1800, loaded.baselineTokens)
+        assertEquals(2, loaded.resumeRound)
     }
 
 }

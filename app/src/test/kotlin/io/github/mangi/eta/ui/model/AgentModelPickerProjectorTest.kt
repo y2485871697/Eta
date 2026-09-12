@@ -588,6 +588,45 @@ class AgentModelPickerProjectorTest {
     }
 
     @Test
+    fun latestBilledContextTokensIgnoresStaleUsageAfterCompactAndKeepsStreamingTail() {
+        val compacted = listOf(
+            UserMessageUi(id = "u-old", content = "old question"),
+            AgentMessageUi(
+                id = "assistant-run-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1-0",
+                content = "old long answer",
+                usage = TokenUsageUi(contextTokens = 90_000, inputTokens = 80_000, outputTokens = 10_000),
+            ),
+            ContextCompactedMessageUi(
+                id = "c1",
+                compactedCount = 8,
+                summary = "旧上下文",
+                baselineTokens = 2_000,
+                resumeRound = 2,
+            ),
+            UserMessageUi(id = "u-keep", content = "continue"),
+            AgentMessageUi(
+                id = "assistant-run-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1-1",
+                content = "kept round 1",
+                usage = TokenUsageUi(contextTokens = 90_000),
+            ),
+            ThinkingMessageUi(
+                id = "run-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-thinking-2-0",
+                content = "new reasoning",
+                isStreaming = true,
+            ),
+            AgentMessageUi(
+                id = "assistant-run-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-2-0",
+                content = "new answer",
+                isStreaming = true,
+            ),
+        )
+        val expected = 2_000 +
+            AgentContextBudget.countCurrentTurn("new reasoning", emptyList()) +
+            AgentContextBudget.countCurrentTurn("new answer", emptyList())
+        assertEquals(expected, latestBilledContextTokens(compacted))
+    }
+
+    @Test
     fun windowTokensFromUsageFallsBackToInputPlusOutput() {
         assertEquals(
             262_556,
