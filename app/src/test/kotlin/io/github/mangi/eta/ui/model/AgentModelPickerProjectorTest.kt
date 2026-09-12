@@ -561,6 +561,33 @@ class AgentModelPickerProjectorTest {
     }
 
     @Test
+    fun latestBilledContextTokensAddsUnbilledThinkingAndToolResults() {
+        val billed = listOf(
+            UserMessageUi(id = "u1", content = "hi"),
+            AgentMessageUi(
+                id = "a1",
+                content = "ok",
+                usage = TokenUsageUi(contextTokens = 1000, inputTokens = 900, outputTokens = 100),
+            ),
+        )
+        val thinking = ThinkingMessageUi(id = "t1", content = "long reasoning text", isStreaming = true)
+        val tool = ToolActivityMessageUi(
+            id = "tool1",
+            toolName = "terminal",
+            status = ToolActivityStatusUi.Success,
+            argumentsSummary = "ls -la",
+            resultSummary = "total 12",
+        )
+        val streaming = AgentMessageUi(id = "a2", content = "partial reply", isStreaming = true)
+        val live = billed + thinking + tool + streaming
+        val expected = 1000 +
+            AgentContextBudget.countCurrentTurn(thinking.content, emptyList()) +
+            AgentContextBudget.countCurrentTurn("ls -la\ntotal 12", emptyList()) +
+            AgentContextBudget.countCurrentTurn(streaming.content, emptyList())
+        assertEquals(expected, latestBilledContextTokens(live))
+    }
+
+    @Test
     fun windowTokensFromUsageFallsBackToInputPlusOutput() {
         assertEquals(
             262_556,

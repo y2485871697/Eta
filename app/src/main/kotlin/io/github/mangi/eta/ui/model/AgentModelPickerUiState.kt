@@ -155,6 +155,21 @@ internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int?
                     tail += AgentContextBudget.countCurrentTurn(message.content, emptyList())
                 }
             }
+            is ThinkingMessageUi -> {
+                if (message.content.isNotBlank()) {
+                    tail += AgentContextBudget.countCurrentTurn(message.content, emptyList())
+                }
+            }
+            is ToolActivityMessageUi -> {
+                val text = buildString {
+                    if (message.argumentsSummary.isNotBlank()) append(message.argumentsSummary)
+                    message.command?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
+                    message.resultSummary?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
+                }
+                if (text.isNotBlank()) {
+                    tail += AgentContextBudget.countCurrentTurn(text, emptyList())
+                }
+            }
             else -> Unit
         }
     }

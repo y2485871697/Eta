@@ -98,6 +98,7 @@ import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.TokenUsageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
+import io.github.mangi.eta.ui.model.ToolActivityStatusUi
 import io.github.mangi.eta.ui.model.ToolGroupUi
 import io.github.mangi.eta.ui.model.ToolItemUi
 import io.github.mangi.eta.ui.model.UserMessageUi
@@ -137,6 +138,7 @@ internal class AgentAppState(
     private var currentRunId: String? = null
     private var currentRunJob: Job? = null
     private var compressionJob: Job? = null
+    private val runCompressedDuringRun = mutableSetOf<String>()
     private val persistenceLock = Any()
     private var persistenceJob: Job? = null
     private val runtimeRecoveryInProgress = AtomicBoolean(false)
@@ -2074,11 +2076,16 @@ internal class AgentAppState(
         replaceLatestAssistantWithNotice(runId, SystemNoticeCode.Stopped)
         snapshotPartialAssistantToHistory(runId)
         setConversationStreaming(runId, false)
+        val conversationId = conversationIdForRun(runId)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
         runOverheadTokens.remove(runId)
+        runCompressedDuringRun.remove(runId)
         refreshConversationSummaries()
         persistConversations()
+        if (conversationId != null) {
+            scheduleAutoCompress(conversationId, allowRepeat = true)
+        }
     }
 
     fun pauseCurrentRun() {
@@ -2125,6 +2132,7 @@ internal class AgentAppState(
             runMessageProjector.clearRun(runId)
             runConversationIds.remove(runId)
             runOverheadTokens.remove(runId)
+            runCompressedDuringRun.remove(runId)
         }
         updateCurrentConversation(
             homeState.copy(
@@ -2687,10 +2695,16 @@ internal class AgentAppState(
                         AgentEvent.AssistantBlockKind.TOOL_CALL -> messages
                     }
                 }
+                if (event.kind == AgentEvent.AssistantBlockKind.TEXT ||
+                    event.kind == AgentEvent.AssistantBlockKind.THINKING
+                ) {
+                    scheduleAutoCompressForRun(runId)
+                }
             }
 
             is AgentEvent.UsageReceived -> {
                 updateAssistantUsage(runId, event.round, event.usage.toUi())
+                scheduleAutoCompressForRun(runId)
             }
 
             is AgentEvent.UserSupplementReceived -> {
@@ -2710,6 +2724,7 @@ internal class AgentAppState(
                 updateRunTrace(runId) { messages ->
                     runMessageProjector.finishTool(runId, event, messages)
                 }
+                scheduleAutoCompressForRun(runId)
             }
 
             is AgentEvent.HostedToolStarted -> {
@@ -2725,6 +2740,7 @@ internal class AgentAppState(
                 updateRunTrace(runId) { messages ->
                     runMessageProjector.finishHostedTool(runId, event, messages)
                 }
+                scheduleAutoCompressForRun(runId)
             }
 
             is AgentEvent.ModelRetryScheduled -> {
@@ -2772,6 +2788,93 @@ internal class AgentAppState(
         }
     }
 
+    private fun hasRunningTools(messages: List<AgentChatMessageUi>): Boolean =
+        messages.any { it is ToolActivityMessageUi && it.status == ToolActivityStatusUi.Running }
+
+    /**
+     * run 内边界：推理结束、正文结束、工具批次完成后检查。
+     * 有工具还在跑时不压，避免打断当前批次。
+     */
+    private fun scheduleAutoCompressForRun(runId: String) {
+        val conversationId = conversationIdForRun(runId) ?: return
+        val state = conversationsById[conversationId] ?: return
+        if (hasRunningTools(state.messages)) return
+        scheduleAutoCompress(conversationId, allowRepeat = false, runId = runId)
+    }
+
+    /**
+     * 用量达到自动压缩阈值时压缩已提交的历史。
+     * run 进行中只压一次（旧历史），run 结束后再兜底一次（含本轮 transcript）。
+     */
+    private fun scheduleAutoCompress(
+        conversationId: String,
+        allowRepeat: Boolean,
+        runId: String? = null,
+    ) {
+        if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return
+        if (!allowRepeat && runId != null && runId in runCompressedDuringRun) return
+        val state = conversationsById[conversationId] ?: return
+        val contextWindow = modelPickerState.selectedModel?.contextWindow
+            ?: state.availableModels.firstOrNull { it.id == state.selectedModelId }?.contextWindow
+            ?: 128_000
+        val estimatedTokens = liveContextUsage(
+            history = state.history,
+            currentInput = "",
+            pendingImages = emptyList(),
+            selectedModel = modelPickerState.selectedModel,
+            billedContextTokens = latestBilledContextTokens(state.messages),
+            requestOverheadTokens = requestOverheadTokens,
+            billedOverheadTokens = billedOverheadTokens,
+        ).contextTokens
+        if (!shouldAutoCompress(state.history, contextWindow, estimatedTokens)) return
+        if (runId != null && !allowRepeat) {
+            runCompressedDuringRun.add(runId)
+        }
+        val previous = compressionJob
+        compressionJob = scope.launch(Dispatchers.IO) {
+            previous?.join()
+            try {
+                withContext(Dispatchers.Main) { setConversationCompressing(conversationId, true) }
+                compressSubmittedHistory(conversationId)
+            } finally {
+                withContext(Dispatchers.Main) { setConversationCompressing(conversationId, false) }
+            }
+        }
+    }
+
+    private suspend fun compressSubmittedHistory(conversationId: String) {
+        val snapshot = withContext(Dispatchers.Main) {
+            conversationsById[conversationId]
+        } ?: return
+        val originalHistory = snapshot.history
+        val fallback = RuntimeConfigRepository.currentRuntimeConfig()
+        val compressModelConfig = resolveCompressModelConfig(fallback)
+        val compressed = tryCompressHistory(originalHistory, compressModelConfig)
+        if (compressed == originalHistory) return
+        withContext(Dispatchers.Main) {
+            val latest = conversationsById[conversationId] ?: return@withContext
+            if (latest.history != originalHistory) return@withContext
+            updateConversation(
+                conversationId,
+                latest.copy(
+                    isCompressingContext = false,
+                    history = compressed,
+                    messages = AgentContextCompactionUi.applyMarker(
+                        messages = clearBilledTokenUsage(latest.messages),
+                        originalHistory = originalHistory,
+                        compressedHistory = compressed,
+                        extraKeptUserMessages = 0,
+                        compressorLabel = compressorLabel(compressModelConfig),
+                    ),
+                ),
+            )
+            billedOverheadConversationId = conversationId
+            billedOverheadTokens = null
+            showCompactedRevisionNotice()
+            persistConversations()
+        }
+    }
+
     private fun applyRunResult(
         runId: String,
         result: AgentRuntimeWire.RunResult,
@@ -2799,9 +2902,11 @@ internal class AgentAppState(
             )
         }
         setConversationStreaming(runId, false)
+        val conversationId = conversationIdForRun(runId)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
         runOverheadTokens.remove(runId)
+        runCompressedDuringRun.remove(runId)
         refreshConversationSummaries()
         persistConversations(
             onSaved = if (acknowledgeRuntimeResult) {
@@ -2812,6 +2917,9 @@ internal class AgentAppState(
                 null
             }
         )
+        if (conversationId != null) {
+            scheduleAutoCompress(conversationId, allowRepeat = true)
+        }
     }
 
     private fun updateRunTrace(
