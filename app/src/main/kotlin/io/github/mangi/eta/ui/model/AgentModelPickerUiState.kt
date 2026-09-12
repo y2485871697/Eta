@@ -130,10 +130,14 @@ internal fun latestContextUsage(
 )
 
 /**
- * 下一轮即将发出的上下文：上一轮账单占用的窗口 + 账单之后新发出的用户消息 + 当前草稿。
+ * 下一轮即将发出的上下文：最近一次接口账单占用的窗口 + 那次请求之后的增量。
  *
- * 优先用接口的 total_tokens（prompt+completion，下一轮历史里会带上那条回复）。
- * 没有 total 时退回 input+output。都没有时由调用方走本地历史估算，并加上当前请求开销。
+ * 对齐 DeepSeek Harness 的 token-meter：provider usage 是锚点，只对账单之后
+ * 新出现的表层做启发式加总。prompt 已经包含系统提示、工具 schema 和此前的
+ * 思考/工具结果，不能再从历史头重扫一遍，否则会从本地估算直接跳到「账单+历史」。
+ *
+ * 优先用 total_tokens（prompt+completion）。没有 total 时退回 input+output。
+ * 流式中途只有 prompt 时，只把当前这条助手回复的未入账输出加上去。
  */
 internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int? {
     val compactIndex = messages.indexOfLast { it is ContextCompactedMessageUi }
@@ -149,7 +153,7 @@ internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int?
     if (billedIndex >= 0) {
         val billedMessage = messages[billedIndex] as AgentMessageUi
         val billed = windowTokensFromUsage(billedMessage.usage) ?: return null
-        val tailStart = liveTailStartIndex(messages, billedIndex, billedMessage)
+        val tailStart = if (billedMessage.isStreaming) billedIndex else billedIndex + 1
         return billed + countUnbilledTail(
             messages = messages,
             startIndex = tailStart,
@@ -162,28 +166,6 @@ internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int?
         return baseline + countUnbilledTail(messages, compactIndex + 1, resumeRound)
     }
     return null
-}
-
-/**
- * 账单之后还在生成时，继续把本轮推理/工具/增量输出加进去。
- * 有些网关会先回 prompt 用量、输出仍在流，这时不能把带 usage 的助手消息直接当成终态。
- */
-private fun liveTailStartIndex(
-    messages: List<AgentChatMessageUi>,
-    billedIndex: Int,
-    billedMessage: AgentMessageUi,
-): Int {
-    if (!billedMessage.isStreaming) return billedIndex + 1
-    val output = billedMessage.usage?.outputTokens ?: 0
-    val reasoning = billedMessage.usage?.reasoningTokens ?: 0
-    val promptOnly = output <= 0 && reasoning <= 0
-    if (!promptOnly) return billedIndex
-    val previousBilled = messages.indices.lastOrNull { index ->
-        index < billedIndex &&
-            messages[index] is AgentMessageUi &&
-            windowTokensFromUsage((messages[index] as AgentMessageUi).usage) != null
-    } ?: -1
-    return (previousBilled + 1).coerceAtLeast(0)
 }
 
 internal fun countUnbilledTail(

@@ -669,10 +669,34 @@ class AgentModelPickerProjectorTest {
             ThinkingMessageUi(id = "t1", content = "still reasoning", isStreaming = true),
             billed,
         )
-        val expected = 119_910 +
-            AgentContextBudget.countCurrentTurn("still reasoning", emptyList()) +
-            AgentContextBudget.countCurrentTurn(billed.content, emptyList())
+        val expected = 119_910 + AgentContextBudget.countCurrentTurn(billed.content, emptyList())
         assertEquals(expected, latestBilledContextTokens(live))
+    }
+
+    @Test
+    fun latestBilledContextTokensDoesNotReplayEarlierThinkingOnPromptOnlyUsage() {
+        val billed = AgentMessageUi(
+            id = "a1",
+            content = "partial",
+            isStreaming = true,
+            usage = TokenUsageUi(contextTokens = 85_166, inputTokens = 85_166),
+        )
+        val live = listOf(
+            UserMessageUi(id = "u1", content = "看图并继续改上下文统计"),
+            ThinkingMessageUi(id = "t1", content = "很长的历史推理内容".repeat(80), isStreaming = false),
+            ToolActivityMessageUi(
+                id = "tool1",
+                toolName = "terminal",
+                status = ToolActivityStatusUi.Success,
+                argumentsSummary = "rg token",
+                resultSummary = "many matches",
+            ),
+            billed,
+        )
+        assertEquals(
+            85_166 + AgentContextBudget.countCurrentTurn(billed.content, emptyList()),
+            latestBilledContextTokens(live),
+        )
     }
 
     @Test
