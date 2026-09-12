@@ -66,6 +66,7 @@ internal class AgentLoop(
     private val sensitiveToolCallIds = linkedSetOf<String>()
     private var pendingToolImageMessage: JSONObject? = null
     private var lastUsage: AgentTokenUsage? = null
+    private var lastUsageMessageCount: Int = 0
 
     fun reasoningSnapshot(): String = accumulatedReasoning.toString().trim()
 
@@ -78,6 +79,7 @@ internal class AgentLoop(
             runController.throwIfCancelled()
             appendPendingSteeringMessage()
             maybeCompactBeforeRound(round)
+            emitProjectedPrompt(round)
 
             val roundTools = toolsForRound?.invoke() ?: tools
             toolCallValidator = AgentToolCallValidator(roundTools)
@@ -92,6 +94,7 @@ internal class AgentLoop(
                     onProviderEvent = { attemptRound, providerEvent ->
                         if (providerEvent is ProviderEvent.Usage) {
                             lastUsage = providerEvent.usage
+                            lastUsageMessageCount = messages.length()
                         }
                         if (providerEvent is ProviderEvent.BlockDelta &&
                             providerEvent.kind == AssistantBlockKind.THINKING
@@ -183,6 +186,7 @@ internal class AgentLoop(
                         }
                 }
                 appendToolOutcomes(round, outcomes)
+                emitProjectedPrompt(round)
                 round += 1
                 continue
             }
@@ -215,9 +219,9 @@ internal class AgentLoop(
         if (round <= 1 || !compactPolicy.enabled) return
         val compressConfig = compactPolicy.compressModelConfig ?: return
         val originalCount = messages.length()
-        // 只用接口账单判断是否该压。本地 JSON/CJK 估算会把系统提示和工具结果算到
-        // 窗口的 90% 以上，圆环还在 20%–30% 时就会提前压缩。
-        val estimated = lastUsage?.occupancyTokens() ?: return
+        // 只用接口账单做锚点，再加账单之后新进历史的增量。这样既不会把整包
+        // JSON 重估一遍提前压缩，也能在工具循环里跟上下一轮真实 prompt。
+        val estimated = projectedPromptTokens() ?: return
         val history = AgentConversationCodec.transcript(messages, systemCount.coerceIn(0, originalCount))
         if (!AgentContextCompactor.shouldCompress(
                 history = history,
@@ -258,6 +262,10 @@ internal class AgentLoop(
             }
         }.getOrNull()
         if (compressed != null) {
+            lastUsage = AgentTokenUsage(
+                inputTokens = compressed.sumOf { AgentContextBudget.countMessage(it) }.takeIf { it > 0 },
+            )
+            lastUsageMessageCount = messages.length()
             onHistoryCompacted()
             onEvent(
                 AgentEvent.ContextCompacted(
@@ -393,6 +401,29 @@ internal class AgentLoop(
                 imageBytes = result.images.sumOf { it.bytes },
                 success = traceFormatter.isSuccessResult(result),
             )
+        )
+    }
+
+    private fun projectedPromptTokens(): Int? {
+        val billedInput = lastUsage?.occupancyTokens() ?: return null
+        if (lastUsageMessageCount <= 0) return billedInput
+        var added = 0
+        for (index in lastUsageMessageCount until messages.length()) {
+            val message = messages.optJSONObject(index) ?: continue
+            added += AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(message))
+        }
+        return billedInput + added
+    }
+
+    private fun emitProjectedPrompt(round: Int) {
+        val projected = projectedPromptTokens() ?: return
+        if (projected <= 0) return
+        onEvent(
+            AgentEvent.UsageReceived(
+                round = round,
+                usage = AgentTokenUsage(inputTokens = projected),
+                projected = true,
+            ),
         )
     }
 

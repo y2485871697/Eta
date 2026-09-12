@@ -827,6 +827,46 @@ class AgentModelClientLoopTest {
     }
 
     @Test
+    fun projectsPromptOccupancyAfterToolResults() {
+        val events = mutableListOf<AgentEvent>()
+        val provider = ScriptedProvider(
+            responses = listOf(
+                { _, _ ->
+                    assistant(
+                        finishReason = "tool_calls",
+                        toolCalls = listOf(toolCall("call-1", "get_current_context", "{}")),
+                        promptTokens = 135_880,
+                    )
+                },
+                { _, _ -> assistant(content = "完成", finishReason = "stop", promptTokens = 137_865) },
+            )
+        )
+        val messages = org.json.JSONArray()
+        messages.put(AgentConversationCodec.userTextMessage("核对账单"))
+
+        AgentLoop(
+            config = modelConfig(),
+            messages = messages,
+            tools = AgentToolCatalog.build(terminalTools = false, browserTools = false),
+            provider = provider,
+            toolExecutor = AgentModelClient.ToolExecutor {
+                AgentModelClient.ToolResult("{\"now\":\"2026-09-12\"}")
+            },
+            runController = AgentRunController(),
+            traceFormatter = AgentTraceFormatter(),
+            onEvent = events::add,
+            compactPolicy = AgentLoop.CompactPolicy.Disabled,
+        ).run()
+
+        val real = events.filterIsInstance<AgentEvent.UsageReceived>().filter { !it.projected }
+        val projected = events.filterIsInstance<AgentEvent.UsageReceived>().filter { it.projected }
+        assertEquals(135_880, real.first().usage.inputTokens)
+        assertTrue(projected.isNotEmpty())
+        assertTrue((projected.first().usage.inputTokens ?: 0) > 135_880)
+        assertEquals(137_865, real.last().usage.inputTokens)
+    }
+
+    @Test
     fun compactSkipsWhenBilledOccupancyIsBelowThreshold() {
         var compactCalls = 0
         val provider = ScriptedProvider(

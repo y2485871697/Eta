@@ -551,11 +551,11 @@ class AgentModelPickerProjectorTest {
                 ),
             ),
         )
-        assertEquals(262_556, latestBilledContextTokens(completed))
+        assertEquals(262_295, latestBilledContextTokens(completed))
 
         val afterSend = completed + UserMessageUi(id = "u3", content = "next question")
         assertEquals(
-            262_556 + AgentContextBudget.countCurrentTurn("next question", emptyList()),
+            262_295 + AgentContextBudget.countCurrentTurn("next question", emptyList()),
             latestBilledContextTokens(afterSend),
         )
     }
@@ -627,15 +627,15 @@ class AgentModelPickerProjectorTest {
     }
 
     @Test
-    fun windowTokensFromUsagePrefersInputPlusOutputOverTotal() {
+    fun windowTokensFromUsagePrefersPromptTokensToMatchProviderInput() {
         assertEquals(
-            262_556,
+            262_295,
             windowTokensFromUsage(TokenUsageUi(inputTokens = 262_295, outputTokens = 261)),
         )
         assertEquals(
-            98_728,
+            137_865,
             windowTokensFromUsage(
-                TokenUsageUi(contextTokens = 96_030, inputTokens = 98_263, outputTokens = 465),
+                TokenUsageUi(contextTokens = 135_880, inputTokens = 137_865, outputTokens = 77),
             ),
         )
         assertEquals(
@@ -675,6 +675,26 @@ class AgentModelPickerProjectorTest {
         )
         val expected = 119_910 + AgentContextBudget.countCurrentTurn(billed.content, emptyList())
         assertEquals(expected, latestBilledContextTokens(live))
+    }
+
+    @Test
+    fun latestBilledContextTokensReadsBlankUsageHolder() {
+        val holder = AgentMessageUi(
+            id = "assistant-run-x-3-usage",
+            content = "",
+            usage = TokenUsageUi(inputTokens = 137_865, outputTokens = 77),
+        )
+        val live = listOf(
+            UserMessageUi(id = "u1", content = "hi"),
+            AgentMessageUi(
+                id = "a-old",
+                content = "old answer",
+                usage = TokenUsageUi(inputTokens = 96_030),
+            ),
+            ThinkingMessageUi(id = "t1", content = "thinking", isStreaming = true),
+            holder,
+        )
+        assertEquals(137_865, latestBilledContextTokens(live))
     }
 
     @Test

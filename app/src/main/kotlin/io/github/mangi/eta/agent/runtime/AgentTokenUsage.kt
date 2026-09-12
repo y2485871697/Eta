@@ -15,13 +15,11 @@ internal data class AgentTokenUsage(
             cachedTokens == null
 
     /**
-     * 当前窗口占用：优先 ST 的 prompt+completion，没有分项时才用 total_tokens。
-     * cache 已包含在 prompt 里，不再另加。
+     * 当前请求占用的窗口：对齐 ST「输入」。
+     * cache 已包含在 prompt 里；completion 是本轮输出，下一轮才会进 prompt。
      */
     fun occupancyTokens(): Int? {
-        val input = inputTokens ?: 0
-        val output = outputTokens ?: 0
-        if (input > 0 || output > 0) return input + output
+        inputTokens?.takeIf { it > 0 }?.let { return it }
         return contextTokens?.takeIf { it > 0 }
     }
 }

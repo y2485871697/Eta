@@ -1548,7 +1548,7 @@ internal class AgentAppState(
         val billed = if (homeState.messageEdit != null) {
             null
         } else {
-            latestBilledContextTokens(homeState.messages)
+            billedPromptTokens(homeState)
         }
         val usage = liveContextUsage(
             history = history,
@@ -1574,6 +1574,9 @@ internal class AgentAppState(
     /**
      * 判断是否应自动压缩对话历史。
      */
+    private fun billedPromptTokens(state: AgentChatHomeUiState): Int? =
+        state.livePromptTokens ?: latestBilledContextTokens(state.messages)
+
     private fun compressionContextWindow(fallback: Int? = null): Int? =
         modelPickerState.selectedModel?.contextWindow?.takeIf { it > 0 }
             ?: fallback?.takeIf { it > 0 }
@@ -1672,7 +1675,7 @@ internal class AgentAppState(
                 currentInput = prompt,
                 pendingImages = images,
                 selectedModel = modelPickerState.selectedModel,
-                billedContextTokens = latestBilledContextTokens(state.messages),
+                billedContextTokens = billedPromptTokens(state),
                 requestOverheadTokens = requestOverheadTokens,
                 billedOverheadTokens = billedOverheadTokens,
             ).contextTokens,
@@ -1753,7 +1756,7 @@ internal class AgentAppState(
                 currentInput = prompt,
                 pendingImages = images,
                 selectedModel = modelPickerState.selectedModel,
-                billedContextTokens = latestBilledContextTokens(state.messages),
+                billedContextTokens = billedPromptTokens(state),
                 requestOverheadTokens = requestOverheadTokens,
                 billedOverheadTokens = billedOverheadTokens,
             ).contextTokens
@@ -1893,6 +1896,7 @@ internal class AgentAppState(
                 history = compressedHistory + userHistoryMessage,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = clearBilledTokenUsage(current.messages),
+                    livePromptTokens = null,
                     originalHistory = originalHistory,
                     compressedHistory = compressedHistory,
                     extraKeptUserMessages = 1,
@@ -2713,7 +2717,11 @@ internal class AgentAppState(
             }
 
             is AgentEvent.UsageReceived -> {
-                updateAssistantUsage(runId, event.round, event.usage.toUi())
+                val occupancy = event.usage.occupancyTokens()
+                if (!event.projected) {
+                    updateAssistantUsage(runId, event.round, event.usage.toUi())
+                }
+                updateLivePromptTokens(runId, occupancy)
             }
 
             is AgentEvent.UserSupplementReceived -> {
@@ -2818,6 +2826,7 @@ internal class AgentAppState(
                 history = event.history,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = clearBilledTokenUsage(current.messages),
+                    livePromptTokens = null,
                     originalHistory = current.history,
                     compressedHistory = event.history,
                     extraKeptUserMessages = 0,
@@ -2852,7 +2861,7 @@ internal class AgentAppState(
             currentInput = "",
             pendingImages = emptyList(),
             selectedModel = modelPickerState.selectedModel,
-            billedContextTokens = latestBilledContextTokens(state.messages),
+            billedContextTokens = billedPromptTokens(state),
             requestOverheadTokens = requestOverheadTokens,
             billedOverheadTokens = billedOverheadTokens,
         ).contextTokens
@@ -2891,6 +2900,7 @@ internal class AgentAppState(
                     history = compressed,
                     messages = AgentContextCompactionUi.applyMarker(
                         messages = clearBilledTokenUsage(latest.messages),
+                        livePromptTokens = null,
                         originalHistory = originalHistory,
                         compressedHistory = compressed,
                         extraKeptUserMessages = 0,
@@ -2972,19 +2982,46 @@ internal class AgentAppState(
         val overhead = runOverheadTokens[runId] ?: requestOverheadTokens
         val conversationId = conversationIdForRun(runId)
         updateMessages(runId) { messages ->
-            val targetIndex = messages.indexOfLast { message ->
+            val textIndex = messages.indexOfLast { message ->
+                message is AgentMessageUi &&
+                    isAssistantMessageForRound(message.id, runId, round) &&
+                    message.content.isNotBlank()
+            }
+            val holderIndex = messages.indexOfLast { message ->
                 message is AgentMessageUi && isAssistantMessageForRound(message.id, runId, round)
             }
-            messages.mapIndexed { index, message ->
-                if (index == targetIndex && message is AgentMessageUi) {
-                    message.copy(usage = usage)
-                } else {
-                    message
+            val targetIndex = if (textIndex >= 0) textIndex else holderIndex
+            if (targetIndex < 0) {
+                messages + AgentMessageUi(
+                    id = "${assistantMessagePrefix(runId)}$round-usage",
+                    content = "",
+                    isStreaming = false,
+                    usage = usage,
+                )
+            } else {
+                messages.mapIndexed { index, message ->
+                    if (index == targetIndex && message is AgentMessageUi) {
+                        message.copy(usage = usage)
+                    } else {
+                        message
+                    }
                 }
             }
         }
         billedOverheadConversationId = conversationId
         billedOverheadTokens = overhead
+    }
+
+    private fun updateLivePromptTokens(runId: String, tokens: Int?) {
+        if (tokens == null || tokens <= 0) return
+        val conversationId = conversationIdForRun(runId) ?: return
+        val state = conversationsById[conversationId] ?: return
+        if (state.livePromptTokens == tokens) return
+        updateConversation(
+            conversationId,
+            state.copy(livePromptTokens = tokens),
+            updateTimestamp = false,
+        )
     }
 
     private fun insertSupplementMessage(
@@ -3473,6 +3510,7 @@ internal class AgentAppState(
                     history = compressedHistory,
                     messages = AgentContextCompactionUi.applyMarker(
                         messages = clearBilledTokenUsage(current.messages),
+                    livePromptTokens = null,
                         originalHistory = originalHistory,
                         compressedHistory = compressedHistory,
                         compressorLabel = compressorLabel,
@@ -3484,6 +3522,7 @@ internal class AgentAppState(
                 history = compressedHistory,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = clearBilledTokenUsage(homeState.messages),
+                    livePromptTokens = null,
                     originalHistory = originalHistory,
                     compressedHistory = compressedHistory,
                     compressorLabel = compressorLabel,

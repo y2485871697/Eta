@@ -641,6 +641,7 @@ internal object AgentRuntimeWire {
             is AgentEvent.UsageReceived -> {
                 putString(KEY_TYPE, "usage_received")
                 putInt("round", event.round)
+                putBoolean("projected", event.projected)
                 putTokenUsage(event.usage)
             }
 
@@ -794,6 +795,7 @@ internal object AgentRuntimeWire {
         "usage_received" -> AgentEvent.UsageReceived(
             round = bundle.getInt("round"),
             usage = bundle.getTokenUsage(),
+            projected = bundle.getBoolean("projected", false),
         )
 
         "user_supplement_received" -> AgentEvent.UserSupplementReceived(

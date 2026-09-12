@@ -133,6 +133,7 @@ internal fun AgentChatBody(
     modelPickerState: AgentModelPickerUiState,
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
+    livePromptTokens: Int? = null,
     autoCompressEnabled: Boolean = false,
     input: String,
     isStreaming: Boolean,
@@ -220,8 +221,12 @@ internal fun AgentChatBody(
         }
     }
 
-    val billedContextTokens = remember(visibleMessages, messageEdit) {
-        if (messageEdit != null) null else latestBilledContextTokens(visibleMessages)
+    val billedContextTokens = remember(messages, livePromptTokens, messageEdit) {
+        if (messageEdit != null) {
+            null
+        } else {
+            livePromptTokens ?: latestBilledContextTokens(messages)
+        }
     }
     val uncommittedLiveTokens = remember(visibleMessages, billedContextTokens, messageEdit) {
         if (messageEdit != null || billedContextTokens != null) 0

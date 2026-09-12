@@ -20,6 +20,8 @@ internal data class AgentChatUiState(
     val pendingFileReferences: List<PendingFileReferenceUi> = emptyList(),
     val appliedRuntimeRunIds: List<String> = emptyList(),
     val messageEdit: MessageEditUiState? = null,
+    /** 当前请求的 prompt 占用；工具循环里由 Runtime 按账单+增量投影，对齐 ST 输入。 */
+    val livePromptTokens: Int? = null,
 )
 
 @Immutable

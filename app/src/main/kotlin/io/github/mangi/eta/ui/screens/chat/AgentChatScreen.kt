@@ -35,6 +35,7 @@ internal fun AgentChatScreen(
             autoCompressEnabled = autoCompressEnabled,
             requestOverheadTokens = requestOverheadTokens,
             billedOverheadTokens = billedOverheadTokens,
+            livePromptTokens = state.livePromptTokens,
             input = state.input,
             isStreaming = state.isStreaming,
             isPaused = state.isPaused,

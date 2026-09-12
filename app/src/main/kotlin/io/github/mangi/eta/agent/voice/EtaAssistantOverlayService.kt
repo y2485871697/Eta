@@ -521,23 +521,25 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
             }
 
             is AgentEvent.UsageReceived -> {
-                val assistantPrefix = "assistant-$runId-${event.round}"
-                val usage = TokenUsageUi(
-                    contextTokens = event.usage.contextTokens,
-                    inputTokens = event.usage.inputTokens,
-                    outputTokens = event.usage.outputTokens,
-                    reasoningTokens = event.usage.reasoningTokens,
-                    cachedTokens = event.usage.cachedTokens,
-                )
-                val targetIndex = messages.indexOfLast { message ->
-                    message is AgentMessageUi &&
-                        (message.id == assistantPrefix || message.id.startsWith("$assistantPrefix-"))
-                }
-                messages = messages.mapIndexed { index, message ->
-                    if (index == targetIndex && message is AgentMessageUi) {
-                        message.copy(usage = usage)
-                    } else {
-                        message
+                if (!event.projected) {
+                    val assistantPrefix = "assistant-$runId-${event.round}"
+                    val usage = TokenUsageUi(
+                        contextTokens = event.usage.contextTokens,
+                        inputTokens = event.usage.inputTokens,
+                        outputTokens = event.usage.outputTokens,
+                        reasoningTokens = event.usage.reasoningTokens,
+                        cachedTokens = event.usage.cachedTokens,
+                    )
+                    val targetIndex = messages.indexOfLast { message ->
+                        message is AgentMessageUi &&
+                            (message.id == assistantPrefix || message.id.startsWith("$assistantPrefix-"))
+                    }
+                    messages = messages.mapIndexed { index, message ->
+                        if (index == targetIndex && message is AgentMessageUi) {
+                            message.copy(usage = usage)
+                        } else {
+                            message
+                        }
                     }
                 }
             }

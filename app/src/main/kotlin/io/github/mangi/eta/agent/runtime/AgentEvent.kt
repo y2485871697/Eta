@@ -110,10 +110,11 @@ internal sealed interface AgentEvent {
 
     data class UsageReceived(
         val round: Int,
-        val usage: AgentTokenUsage
+        val usage: AgentTokenUsage,
+        val projected: Boolean = false,
     ) : AgentEvent {
         override fun toLogLine(): String =
-            "usage_received round=$round, ctx=${usage.contextTokens}, in=${usage.inputTokens}, out=${usage.outputTokens}, reasoning=${usage.reasoningTokens}, cache=${usage.cachedTokens}"
+            "usage_received round=$round, projected=$projected, ctx=${usage.contextTokens}, in=${usage.inputTokens}, out=${usage.outputTokens}, reasoning=${usage.reasoningTokens}, cache=${usage.cachedTokens}"
     }
 
     data class UserSupplementReceived(
