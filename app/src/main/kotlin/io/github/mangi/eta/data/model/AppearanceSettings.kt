@@ -8,15 +8,15 @@ const val DEFAULT_INTERFACE_SCALE = 1f
 
 @Serializable
 data class AppearanceSettings(
-    val themeMode: AppearanceThemeMode = AppearanceThemeMode.SYSTEM,
+    val themeMode: AppearanceThemeMode = AppearanceThemeMode.LIGHT,
     val monetEnabled: Boolean = true,
-    val paletteStyle: AppearancePaletteStyle = AppearancePaletteStyle.TONAL_SPOT,
+    val paletteStyle: AppearancePaletteStyle = AppearancePaletteStyle.NEUTRAL,
     val accentColor: AppearanceAccentColor = AppearanceAccentColor.SYSTEM,
     val pureBlackEnabled: Boolean = false,
     val blurEnabled: Boolean = true,
     val topBarBlurStyle: AppearanceTopBarBlurStyle = AppearanceTopBarBlurStyle.GAUSSIAN,
     val swipeDismissEnabled: Boolean = true,
-    val predictiveBackEnabled: Boolean = true,
+    val predictiveBackEnabled: Boolean = false,
     val interfaceScale: Float = DEFAULT_INTERFACE_SCALE,
 ) {
     fun normalized(): AppearanceSettings = copy(
@@ -33,7 +33,7 @@ enum class AppearanceThemeMode(val persistedValue: String) {
 
     companion object {
         fun fromPersistedValue(value: String?): AppearanceThemeMode =
-            entries.firstOrNull { it.persistedValue == value } ?: SYSTEM
+            entries.firstOrNull { it.persistedValue == value } ?: LIGHT
     }
 }
 
@@ -51,7 +51,7 @@ enum class AppearancePaletteStyle(val persistedValue: String) {
 
     companion object {
         fun fromPersistedValue(value: String?): AppearancePaletteStyle =
-            entries.firstOrNull { it.persistedValue == value } ?: TONAL_SPOT
+            entries.firstOrNull { it.persistedValue == value } ?: NEUTRAL
     }
 }
 

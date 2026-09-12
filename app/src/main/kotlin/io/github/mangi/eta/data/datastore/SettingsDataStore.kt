@@ -233,7 +233,7 @@ internal object SettingsDataStore {
                 this[APPEARANCE_TOP_BAR_BLUR_STYLE],
             ),
             swipeDismissEnabled = this[APPEARANCE_SWIPE_DISMISS_ENABLED] ?: true,
-            predictiveBackEnabled = this[APPEARANCE_PREDICTIVE_BACK_ENABLED] ?: true,
+            predictiveBackEnabled = this[APPEARANCE_PREDICTIVE_BACK_ENABLED] ?: false,
             interfaceScale = this[APPEARANCE_INTERFACE_SCALE] ?: 1f,
         ).normalized(),
     )

@@ -6,21 +6,24 @@ import org.junit.Test
 
 class AppearanceSettingsTest {
     @Test
-    fun defaultsPreserveExistingAppearanceBehavior() {
+    fun defaultsMatchPreferredAppearance() {
         val settings = AppearanceSettings()
 
-        assertEquals(AppearanceThemeMode.SYSTEM, settings.themeMode)
+        assertEquals(AppearanceThemeMode.LIGHT, settings.themeMode)
+        assertEquals(AppearancePaletteStyle.NEUTRAL, settings.paletteStyle)
+        assertEquals(AppearanceAccentColor.SYSTEM, settings.accentColor)
         assertTrue(settings.monetEnabled)
         assertTrue(settings.blurEnabled)
+        assertEquals(AppearanceTopBarBlurStyle.GAUSSIAN, settings.topBarBlurStyle)
         assertTrue(settings.swipeDismissEnabled)
-        assertTrue(settings.predictiveBackEnabled)
+        assertEquals(false, settings.predictiveBackEnabled)
         assertEquals(DEFAULT_INTERFACE_SCALE, settings.interfaceScale)
     }
 
     @Test
     fun invalidPersistedEnumsFallBackToStableDefaults() {
-        assertEquals(AppearanceThemeMode.SYSTEM, AppearanceThemeMode.fromPersistedValue("unknown"))
-        assertEquals(AppearancePaletteStyle.TONAL_SPOT, AppearancePaletteStyle.fromPersistedValue(null))
+        assertEquals(AppearanceThemeMode.LIGHT, AppearanceThemeMode.fromPersistedValue("unknown"))
+        assertEquals(AppearancePaletteStyle.NEUTRAL, AppearancePaletteStyle.fromPersistedValue(null))
         assertEquals(AppearanceAccentColor.SYSTEM, AppearanceAccentColor.fromPersistedValue(""))
         assertEquals(
             AppearanceTopBarBlurStyle.GAUSSIAN,
