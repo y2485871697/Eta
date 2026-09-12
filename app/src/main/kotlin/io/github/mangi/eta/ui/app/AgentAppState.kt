@@ -1894,9 +1894,9 @@ internal class AgentAppState(
             current.copy(
                 isCompressingContext = false,
                 history = compressedHistory + userHistoryMessage,
+                livePromptTokens = null,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = clearBilledTokenUsage(current.messages),
-                    livePromptTokens = null,
                     originalHistory = originalHistory,
                     compressedHistory = compressedHistory,
                     extraKeptUserMessages = 1,
@@ -2824,9 +2824,9 @@ internal class AgentAppState(
             current.copy(
                 isCompressingContext = false,
                 history = event.history,
+                livePromptTokens = null,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = clearBilledTokenUsage(current.messages),
-                    livePromptTokens = null,
                     originalHistory = current.history,
                     compressedHistory = event.history,
                     extraKeptUserMessages = 0,
@@ -2898,9 +2898,9 @@ internal class AgentAppState(
                 latest.copy(
                     isCompressingContext = false,
                     history = compressed,
+                    livePromptTokens = null,
                     messages = AgentContextCompactionUi.applyMarker(
                         messages = clearBilledTokenUsage(latest.messages),
-                        livePromptTokens = null,
                         originalHistory = originalHistory,
                         compressedHistory = compressed,
                         extraKeptUserMessages = 0,
@@ -3508,9 +3508,9 @@ internal class AgentAppState(
                 conversationId,
                 current.copy(
                     history = compressedHistory,
+                    livePromptTokens = null,
                     messages = AgentContextCompactionUi.applyMarker(
                         messages = clearBilledTokenUsage(current.messages),
-                    livePromptTokens = null,
                         originalHistory = originalHistory,
                         compressedHistory = compressedHistory,
                         compressorLabel = compressorLabel,
@@ -3520,9 +3520,9 @@ internal class AgentAppState(
         } else if (selectedConversationId == null && homeState.history == originalHistory) {
             homeState = homeState.copy(
                 history = compressedHistory,
+                livePromptTokens = null,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = clearBilledTokenUsage(homeState.messages),
-                    livePromptTokens = null,
                     originalHistory = originalHistory,
                     compressedHistory = compressedHistory,
                     compressorLabel = compressorLabel,
