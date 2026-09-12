@@ -496,9 +496,6 @@ private fun ProviderConfigTab(
                                     val added = ProviderRepository.addProvider(
                                         built.withId(ProviderRepository.newId())
                                     )
-                                    if (added.isEnabled) {
-                                        RuntimeConfigRepository.setSelectedProviderId(added.id)
-                                    }
                                     RuntimeConfigRepository.syncToRemotePreferences(
                                         EtaApp.serviceInstance
                                     )
