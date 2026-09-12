@@ -2224,40 +2224,42 @@ private fun ThinkingRow(
         }
 
         AnimatedVisibility(visible = expanded && message.content.isNotBlank()) {
-            Column {
-                if (!compact) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 13.dp)
-                            .height(0.5.dp)
-                            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.45f)),
-                    )
-                }
-                val contentModifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = if (compact) 27.dp else 13.dp,
-                        end = 13.dp,
-                        top = if (compact) 2.dp else 8.dp,
-                        bottom = if (compact) 8.dp else 12.dp,
-                    )
-                if (streamingState != null) {
-                    StreamingMarkdown(
-                        state = streamingState,
-                        content = message.content,
-                        isStreaming = message.isStreaming,
-                        onRevealCompleteChange = {},
-                        tone = ChatMarkdownTone.Thinking,
-                        modifier = contentModifier,
-                    )
-                } else {
-                    StableMarkdown(
-                        content = message.content,
-                        tone = ChatMarkdownTone.Thinking,
-                        markdownState = checkNotNull(stableMarkdownState),
-                        modifier = contentModifier,
-                    )
+            SelectionContainer {
+                Column {
+                    if (!compact) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 13.dp)
+                                .height(0.5.dp)
+                                .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.45f)),
+                        )
+                    }
+                    val contentModifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = if (compact) 27.dp else 13.dp,
+                            end = 13.dp,
+                            top = if (compact) 2.dp else 8.dp,
+                            bottom = if (compact) 8.dp else 12.dp,
+                        )
+                    if (streamingState != null) {
+                        StreamingMarkdown(
+                            state = streamingState,
+                            content = message.content,
+                            isStreaming = message.isStreaming,
+                            onRevealCompleteChange = {},
+                            tone = ChatMarkdownTone.Thinking,
+                            modifier = contentModifier,
+                        )
+                    } else {
+                        StableMarkdown(
+                            content = message.content,
+                            tone = ChatMarkdownTone.Thinking,
+                            markdownState = checkNotNull(stableMarkdownState),
+                            modifier = contentModifier,
+                        )
+                    }
                 }
             }
         }
@@ -2447,13 +2449,15 @@ private fun ToolActivityInline(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(bottom = 2.dp)
                     )
-                    Text(
-                        text = message.resultSummary,
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 10,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = message.resultSummary,
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 10,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 if (showBrowserShortcut) {
                     browserSnapshot?.takeIf { it.available }?.let { snapshot ->
