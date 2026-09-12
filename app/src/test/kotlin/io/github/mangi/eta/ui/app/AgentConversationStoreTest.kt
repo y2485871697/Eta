@@ -9,6 +9,7 @@ import io.github.mangi.eta.data.db.ConversationStateEntity
 import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
+import io.github.mangi.eta.ui.model.ContextCompactedMessageUi
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.SystemNoticeCode
 import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
@@ -441,4 +442,42 @@ class AgentConversationStoreTest {
         assertEquals(listOf("folder-work"), snapshot.folders.map { it.id })
         assertEquals("工作", snapshot.folders.single().name)
     }
+
+    @Test
+    fun saveAndLoadPreservesContextCompactedMarker() {
+        val marker = ContextCompactedMessageUi(
+            id = "compacted-1",
+            compactedCount = 6,
+            summary = "用户要查 Actions，已经推送成功。",
+            compressorLabel = "魚 · grok-4.6",
+        )
+        runBlocking {
+            AgentConversationStore.save(
+                context = context,
+                selectedConversationId = "conv-compact",
+                conversationsById = mapOf(
+                    "conv-compact" to AgentChatHomeUiState(
+                        messages = listOf(
+                            UserMessageUi(id = "u1", content = "旧消息"),
+                            marker,
+                            UserMessageUi(id = "u2", content = "继续"),
+                        ),
+                        input = "",
+                        isStreaming = false,
+                        thinkingEnabled = false,
+                    ),
+                ),
+                titles = mapOf("conv-compact" to "压缩"),
+                updatedAt = mapOf("conv-compact" to 2L),
+            )
+        }
+        val restored = AgentConversationStore.load(context)
+            .conversationsById.getValue("conv-compact").messages
+        assertEquals(listOf("u1", "compacted-1", "u2"), restored.map { it.id })
+        val loaded = restored[1] as ContextCompactedMessageUi
+        assertEquals(6, loaded.compactedCount)
+        assertEquals("用户要查 Actions，已经推送成功。", loaded.summary)
+        assertEquals("魚 · grok-4.6", loaded.compressorLabel)
+    }
+
 }

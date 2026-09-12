@@ -99,6 +99,18 @@ internal object AgentContextCompactor {
         }
     }
 
+    internal fun displaySummary(content: String): String {
+        val trimmed = content.trim()
+        val withoutPrefix = when {
+            trimmed.startsWith(SUMMARY_PREFIX) -> trimmed.removePrefix(SUMMARY_PREFIX)
+            trimmed.startsWith(SUMMARY_PREFIX_ZH) -> trimmed.removePrefix(SUMMARY_PREFIX_ZH)
+            trimmed.startsWith("[Summary of previous conversation]") ->
+                trimmed.removePrefix("[Summary of previous conversation]")
+            else -> trimmed
+        }.trim()
+        return withoutPrefix.removePrefix(":").trim()
+    }
+
     internal fun isCompressionSummary(message: AgentModelClient.ConversationMessage): Boolean {
         if (message.role.equals("system", ignoreCase = true)) {
             val content = message.content.trimStart()

@@ -40,6 +40,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 
 @Composable
 internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Unit) {
@@ -51,6 +52,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
 
     val scope = rememberCoroutineScope()
     var selectedCompressModel by remember { mutableStateOf<AgentModelOptionUi?>(null) }
+    var customModelEnabled by remember { mutableStateOf(Prefs.isCustomCompressModelEnabled(prefs)) }
     var showModelDialog by remember { mutableStateOf(false) }
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
     var isLoadingModels by remember { mutableStateOf(prefs != null) }
@@ -61,6 +63,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
             isLoadingModels = true
             selectedCompressModel = withContext(Dispatchers.IO) { readCompressModelSelection(currentPrefs) }
             modelPickerState = withContext(Dispatchers.IO) { buildCompressModelPickerState(currentPrefs) }
+            customModelEnabled = Prefs.isCustomCompressModelEnabled(currentPrefs)
             isLoadingModels = false
         }
     }
@@ -86,6 +89,9 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                             modelPickerState = withContext(Dispatchers.IO) { buildCompressModelPickerState(currentPrefs) }
                         }
                     }
+                }
+                Prefs.Keys.AGENT_COMPRESS_CUSTOM_MODEL_ENABLED -> {
+                    customModelEnabled = Prefs.isCustomCompressModelEnabled(prefs)
                 }
             }
         }
@@ -118,18 +124,32 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
         }
 
         item(key = "compress_model") {
-            SmallTitle(stringResource(R.string.ui_compress_model_title))
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                ArrowPreference(
-                    title = stringResource(R.string.ui_compress_model_title),
-                    summary = selectedCompressModel?.displayName
-                        ?: stringResource(R.string.model_not_selected),
-                    onClick = {
+                SwitchPreference(
+                    title = stringResource(R.string.ui_custom_compress_model_title),
+                    summary = stringResource(R.string.ui_custom_compress_model_summary),
+                    checked = customModelEnabled,
+                    onCheckedChange = { value ->
                         TouchHaptics.click(view)
-                        showModelDialog = true
+                        prefs?.edit()?.putBoolean(
+                            Prefs.Keys.AGENT_COMPRESS_CUSTOM_MODEL_ENABLED,
+                            value,
+                        )?.apply()
+                        customModelEnabled = value
                     },
-                    holdDownState = showModelDialog,
                 )
+                if (customModelEnabled) {
+                    ArrowPreference(
+                        title = stringResource(R.string.ui_compress_model_title),
+                        summary = selectedCompressModel?.displayName
+                            ?: stringResource(R.string.model_not_selected),
+                        onClick = {
+                            TouchHaptics.click(view)
+                            showModelDialog = true
+                        },
+                        holdDownState = showModelDialog,
+                    )
+                }
             }
         }
 

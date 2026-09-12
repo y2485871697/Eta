@@ -28,7 +28,7 @@ internal class RootShellTerminalController(
         const val USER_STORAGE = "/storage/emulated/0"
         const val DEFAULT_TIMEOUT_SECONDS = 30
         const val MAX_TIMEOUT_SECONDS = 180
-        const val MAX_COMMAND_CHARS = 4_000
+        const val MAX_COMMAND_CHARS = 16_000
         const val MAX_OUTPUT_CHARS = 16_000
         const val MAX_READ_BYTES = 256 * 1024
         const val MAX_WRITE_BYTES = 512 * 1024

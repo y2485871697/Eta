@@ -166,6 +166,15 @@ data class ToolSummaryMessageUi(
     val tools: List<String>,
 ) : AgentChatMessageUi
 
+/** 上下文压缩分界：插在被折叠消息和保留消息之间，点击可查看摘要。 */
+@Immutable
+data class ContextCompactedMessageUi(
+    override val id: String,
+    val compactedCount: Int,
+    val summary: String,
+    val compressorLabel: String = "",
+) : AgentChatMessageUi
+
 @Immutable
 data class ToolActivityMessageUi(
     override val id: String,

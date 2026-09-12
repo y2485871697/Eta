@@ -145,6 +145,7 @@ import io.github.mangi.eta.agent.overlay.toolDisplayName
 import io.github.mangi.eta.ui.markdown.StreamingGfmParserSession
 import io.github.mangi.eta.ui.markdown.StreamingGfmSnapshot
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
+import io.github.mangi.eta.ui.model.ContextCompactedMessageUi
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.RunTraceMessageUi
 import io.github.mangi.eta.ui.model.SuggestionChipsMessageUi
@@ -336,6 +337,7 @@ internal fun ChatMessageItem(
             compact = compact,
         )
         is ToolSummaryMessageUi -> ToolSummaryInline(message = message, modifier = modifier, compact = compact)
+        is ContextCompactedMessageUi -> ContextCompactedDivider(message = message, modifier = modifier)
         is SuggestionChipsMessageUi -> SuggestionChipsRow(message = message, onSuggestionClick = onSuggestionClick, modifier = modifier)
     }
 }
@@ -2750,6 +2752,93 @@ private fun ToolSummaryInline(
                 )
             }
         }
+    }
+}
+
+// ── 上下文压缩分界 ─────────────────────────────────────────────────────
+
+@Composable
+private fun ContextCompactedDivider(
+    message: ContextCompactedMessageUi,
+    modifier: Modifier = Modifier,
+) {
+    val view = LocalView.current
+    var showSummary by remember { mutableStateOf(false) }
+    val lineColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.55f)
+    val labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val summaryAction = stringResource(R.string.context_compacted_summary_action)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(0.5.dp)
+                .background(lineColor),
+        )
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.AutoAwesome,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = labelColor,
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = pluralStringResource(
+                    R.plurals.context_compacted_messages,
+                    message.compactedCount,
+                    message.compactedCount,
+                ),
+                style = MiuixTheme.textStyles.footnote2,
+                color = labelColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .size(15.dp)
+                    .clip(CircleShape)
+                    .border(0.7.dp, labelColor.copy(alpha = 0.85f), CircleShape)
+                    .clickable {
+                        TouchHaptics.click(view)
+                        showSummary = true
+                    }
+                    .semantics {
+                        contentDescription = summaryAction
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "i",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = labelColor,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(0.5.dp)
+                .background(lineColor),
+        )
+    }
+    if (showSummary) {
+        ItemDescriptionDialog(
+            title = stringResource(R.string.context_compacted_summary_title),
+            summary = message.compressorLabel.takeIf(String::isNotBlank),
+            description = message.summary,
+            onDismiss = { showSummary = false },
+        )
     }
 }
 

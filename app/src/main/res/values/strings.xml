@@ -1158,7 +1158,6 @@
   <string name="chat_continue_prompt">Continue from where you left off. Do not repeat content already written.</string>
   <string name="chat_reasoning_effort">思考强度：%1$s</string>
   <string name="reasoning_picker_title">Adjust thinking depth</string>
-  <string name="reasoning_picker_hint">Not all models support depth adjustment. Please refer to the model and provider documentation.</string>
   <string name="status_unsupported">Unsupported</string>
   <string name="attachment_image">Image</string>
   <string name="attachment_file">File</string>
@@ -1248,6 +1247,8 @@
     <string name="ui_compress_keep_recent_title">保留最近轮数</string>
     <string name="ui_compress_keep_recent_summary">压缩后原样保留最近 N 轮用户发言及其回复。工具记录会随对应轮次一起留下，但不单独计数；旧摘要也不计入。</string>
     <string name="ui_compress_model_title">压缩模型</string>
+    <string name="ui_custom_compress_model_title">自定义压缩模型</string>
+    <string name="ui_custom_compress_model_summary">关闭后使用当前对话所选模型</string>
 
     <string name="action_auto_compress_context">Auto compact</string>
     <string name="action_compress_conversation">Compress conversation</string>
@@ -1257,6 +1258,13 @@
     <string name="compress_conversation_streaming">Cannot compress while a reply is in progress</string>
     <string name="compress_conversation_done">Conversation compressed</string>
     <string name="compress_conversation_in_progress">Compressing conversation…</string>
+
+    <plurals name="context_compacted_messages">
+        <item quantity="one">%d message compacted</item>
+        <item quantity="other">%d messages compacted</item>
+    </plurals>
+    <string name="context_compacted_summary_title">Compaction Summary</string>
+    <string name="context_compacted_summary_action">View summary</string>
 
     <string name="stats_page_title">Usage stats</string>
     <string name="stats_page_heatmap_title">Chat heatmap</string>

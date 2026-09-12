@@ -70,6 +70,7 @@ import io.github.mangi.eta.ui.model.AgentMemoryUiState
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
+import io.github.mangi.eta.ui.model.AgentContextCompactionUi
 import io.github.mangi.eta.ui.model.clearBilledTokenUsage
 import io.github.mangi.eta.ui.model.latestBilledContextTokens
 import io.github.mangi.eta.ui.model.liveContextUsage
@@ -1617,10 +1618,13 @@ internal class AgentAppState(
         modelId: String? = null,
     ): AgentModelClient.ModelConfig? {
         val prefs = Prefs.localAgentPreferences()
+        val customEnabled = Prefs.isCustomCompressModelEnabled(prefs)
         val resolvedProviderId = providerId
-            ?: prefs?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null)
+            ?: prefs?.takeIf { customEnabled }
+                ?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null)
         val resolvedModelId = modelId
-            ?: prefs?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null)
+            ?: prefs?.takeIf { customEnabled }
+                ?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null)
         if (resolvedProviderId.isNullOrBlank() || resolvedModelId.isNullOrBlank()) {
             return fallback
         }
@@ -1739,6 +1743,7 @@ internal class AgentAppState(
                         originalHistory = history,
                         compressedHistory = compressed,
                         userHistoryMessage = userHistoryMessage,
+                        compressorLabel = compressorLabel(compressModelConfig),
                     )
                 }
                 compressed
@@ -1827,11 +1832,24 @@ internal class AgentAppState(
      * 压缩成功后只补丁当前会话 history，避免用发送前快照覆盖 isStreaming / messages。
      * 失败或原样返回时不提示、不落盘。
      */
+    private fun compressorLabel(config: AgentModelClient.ModelConfig?): String {
+        val provider = config?.providerName?.trim().orEmpty()
+        val model = config?.modelDisplayName?.trim().orEmpty()
+            .ifBlank { config?.model?.trim().orEmpty() }
+        return when {
+            provider.isNotBlank() && model.isNotBlank() -> "$provider · $model"
+            model.isNotBlank() -> model
+            provider.isNotBlank() -> provider
+            else -> ""
+        }
+    }
+
     private fun applyCompressedHistoryToConversation(
         conversationId: String,
         originalHistory: List<AgentModelClient.ConversationMessage>,
         compressedHistory: List<AgentModelClient.ConversationMessage>,
         userHistoryMessage: AgentModelClient.ConversationMessage,
+        compressorLabel: String = "",
     ) {
         if (compressedHistory == originalHistory) return
         val current = conversationsById[conversationId] ?: return
@@ -1839,7 +1857,13 @@ internal class AgentAppState(
             conversationId,
             current.copy(
                 history = compressedHistory + userHistoryMessage,
-                messages = clearBilledTokenUsage(current.messages),
+                messages = AgentContextCompactionUi.applyMarker(
+                    messages = clearBilledTokenUsage(current.messages),
+                    originalHistory = originalHistory,
+                    compressedHistory = compressedHistory,
+                    extraKeptUserMessages = 1,
+                    compressorLabel = compressorLabel,
+                ),
             ),
         )
         if (conversationId == selectedConversationId) {
@@ -3215,7 +3239,12 @@ internal class AgentAppState(
                     onFinished(false)
                     return@withContext
                 }
-                applyManualCompressedHistory(conversationId, originalHistory, compressed)
+                applyManualCompressedHistory(
+                    conversationId,
+                    originalHistory,
+                    compressed,
+                    compressorLabel(modelConfig),
+                )
                 Toast.makeText(
                     appContext,
                     appContext.getString(R.string.compress_conversation_done),
@@ -3258,6 +3287,7 @@ internal class AgentAppState(
         conversationId: String?,
         originalHistory: List<AgentModelClient.ConversationMessage>,
         compressedHistory: List<AgentModelClient.ConversationMessage>,
+        compressorLabel: String = "",
     ) {
         if (conversationId != null) {
             val current = conversationsById[conversationId] ?: return
@@ -3266,13 +3296,23 @@ internal class AgentAppState(
                 conversationId,
                 current.copy(
                     history = compressedHistory,
-                    messages = clearBilledTokenUsage(current.messages),
+                    messages = AgentContextCompactionUi.applyMarker(
+                        messages = clearBilledTokenUsage(current.messages),
+                        originalHistory = originalHistory,
+                        compressedHistory = compressedHistory,
+                        compressorLabel = compressorLabel,
+                    ),
                 ),
             )
         } else if (selectedConversationId == null && homeState.history == originalHistory) {
             homeState = homeState.copy(
                 history = compressedHistory,
-                messages = clearBilledTokenUsage(homeState.messages),
+                messages = AgentContextCompactionUi.applyMarker(
+                    messages = clearBilledTokenUsage(homeState.messages),
+                    originalHistory = originalHistory,
+                    compressedHistory = compressedHistory,
+                    compressorLabel = compressorLabel,
+                ),
             )
         }
         persistConversations()

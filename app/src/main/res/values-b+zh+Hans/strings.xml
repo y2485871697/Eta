@@ -52,6 +52,13 @@
   <string name="compress_conversation_streaming">模型回复时无法压缩</string>
   <string name="compress_conversation_done">上下文已压缩</string>
   <string name="compress_conversation_in_progress">正在压缩会话…</string>
+  <string name="ui_custom_compress_model_title">自定义压缩模型</string>
+  <string name="ui_custom_compress_model_summary">关闭后使用当前对话所选模型</string>
+  <plurals name="context_compacted_messages">
+    <item quantity="other">已压缩 %d 条消息</item>
+  </plurals>
+  <string name="context_compacted_summary_title">压缩摘要</string>
+  <string name="context_compacted_summary_action">查看摘要</string>
   <string name="action_launch_kimi_web">启动 Kimi Web</string>
   <string name="route_chat">对话</string>
   <string name="route_browser">Agent 浏览器</string>
@@ -1149,7 +1156,6 @@
   <string name="chat_continue_prompt">请从上次中断处继续输出，不要重复已经给出的内容。</string>
   <string name="chat_reasoning_effort">推理强度，当前为 %1$s</string>
   <string name="reasoning_picker_title">调整思考深度</string>
-  <string name="reasoning_picker_hint">并非所有模型都支持深度调节，请参考模型和提供商文档</string>
   <string name="status_unsupported">不支持</string>
   <string name="attachment_image">图片</string>
   <string name="attachment_file">文件</string>

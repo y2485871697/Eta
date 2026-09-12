@@ -21,8 +21,15 @@ internal fun ItemDescriptionDialog(
     title: String,
     description: String,
     onDismiss: () -> Unit,
+    summary: String? = null,
 ) {
-    WindowDialog(show = true, title = title, onDismissRequest = onDismiss) {
+    WindowDialog(
+        show = true,
+        title = title,
+        summary = summary?.takeIf(String::isNotBlank),
+        summaryColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.62f),
+        onDismissRequest = onDismiss,
+    ) {
         Column(
             modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

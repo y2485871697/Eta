@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -149,6 +150,7 @@ internal fun CompressConversationDialog(
         mutableStateOf(TextFieldValue(keepRecent.toString()))
     }
     var selectedModel by remember { mutableStateOf<AgentModelOptionUi?>(null) }
+    var customModelEnabled by remember { mutableStateOf(false) }
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
     var showModelDialog by remember { mutableStateOf(false) }
     var isLoadingModels by remember { mutableStateOf(false) }
@@ -174,11 +176,12 @@ internal fun CompressConversationDialog(
         keepRecentField = TextFieldValue(keepRecent.toString())
         keepRecentFocused = false
         isLoadingModels = true
+        customModelEnabled = Prefs.isCustomCompressModelEnabled(prefs)
         val pickerState = withContext(Dispatchers.IO) {
             buildManualCompressModelPickerState()
         }
         modelPickerState = pickerState
-        selectedModel = pickerState.selectedModel
+        selectedModel = pickerState.selectedModel.takeIf { customModelEnabled }
         isLoadingModels = false
     }
 
@@ -213,28 +216,47 @@ internal fun CompressConversationDialog(
                     .heightIn(max = maxBodyHeight)
                     .verticalScroll(scrollState),
             ) {
-            Text(
-                text = stringResource(R.string.ui_compress_model_title),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 6.dp),
-            )
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = !compressing && !isLoadingModels) {
-                        TouchHaptics.click(view)
-                        showModelDialog = true
-                    }
-                    .padding(vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = selectedModel?.displayName
-                        ?: stringResource(R.string.model_not_selected),
-                    style = MaterialTheme.typography.bodyLarge,
+                    text = stringResource(R.string.ui_custom_compress_model_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
+                Switch(
+                    checked = customModelEnabled,
+                    enabled = !compressing,
+                    onCheckedChange = { value ->
+                        TouchHaptics.click(view)
+                        customModelEnabled = value
+                        Prefs.putBoolean(Prefs.Keys.AGENT_COMPRESS_CUSTOM_MODEL_ENABLED, value)
+                        if (value && selectedModel == null) {
+                            selectedModel = modelPickerState.selectedModel
+                        }
+                    },
+                )
+            }
+            if (customModelEnabled) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !compressing && !isLoadingModels) {
+                            TouchHaptics.click(view)
+                            showModelDialog = true
+                        }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = selectedModel?.displayName
+                            ?: stringResource(R.string.model_not_selected),
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
 
             Text(
@@ -337,8 +359,8 @@ internal fun CompressConversationDialog(
                     compressing = true
                     val parsedKeepRecent = keepRecentField.text.toIntOrNull()?.coerceIn(0, 100) ?: keepRecent
                     onConfirm(
-                        selectedModel?.providerId,
-                        selectedModel?.id,
+                        selectedModel?.providerId.takeIf { customModelEnabled },
+                        selectedModel?.id.takeIf { customModelEnabled },
                         targetTokens,
                         parsedKeepRecent,
                     ) { ok ->

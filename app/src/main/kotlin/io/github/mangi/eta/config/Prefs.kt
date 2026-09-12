@@ -49,6 +49,7 @@ internal object Prefs {
         const val AGENT_COMPRESS_KEEP_RECENT = "agent_compress_keep_recent"
         const val AGENT_COMPRESS_MODEL_PROVIDER_ID = "agent_compress_model_provider_id"
         const val AGENT_COMPRESS_MODEL_ID = "agent_compress_model_id"
+        const val AGENT_COMPRESS_CUSTOM_MODEL_ENABLED = "agent_compress_custom_model_enabled"
         const val AGENT_MANUAL_COMPRESS_TARGET_TOKENS = "agent_manual_compress_target_tokens"
         const val AGENT_MANUAL_COMPRESS_KEEP_RECENT = "agent_manual_compress_keep_recent"
         const val AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID = "agent_manual_compress_model_provider_id"
@@ -74,6 +75,7 @@ internal object Prefs {
             AGENT_DEVICE_SENSITIVE_ACTION_TOOLS to true,
             AGENT_THINKING_ENABLED to true,
             AGENT_AUTO_COMPRESS_ENABLED to false,
+            AGENT_COMPRESS_CUSTOM_MODEL_ENABLED to false,
             HAPTIC_TOUCH_FEEDBACK to true,
             HAPTIC_MESSAGE_GENERATION to true,
         )
@@ -87,6 +89,7 @@ internal object Prefs {
             AGENT_DEVICE_SENSITIVE_ACTION_TOOLS,
             AGENT_THINKING_ENABLED,
             AGENT_AUTO_COMPRESS_ENABLED,
+            AGENT_COMPRESS_CUSTOM_MODEL_ENABLED,
             HAPTIC_TOUCH_FEEDBACK,
             HAPTIC_MESSAGE_GENERATION,
         )
@@ -188,6 +191,16 @@ internal object Prefs {
 
     /** Eta 设置页与 Runtime 使用的本地 Agent 配置，不依赖 LSPosed。 */
     fun localAgentPreferences(): SharedPreferences? = localAgent
+
+    /** 关闭时压缩用当前对话模型；已选过自定义模型的旧配置视为开启。 */
+    fun isCustomCompressModelEnabled(preferences: SharedPreferences? = localAgent): Boolean {
+        val prefs = preferences ?: return false
+        if (prefs.contains(Keys.AGENT_COMPRESS_CUSTOM_MODEL_ENABLED)) {
+            return prefs.getBoolean(Keys.AGENT_COMPRESS_CUSTOM_MODEL_ENABLED, false)
+        }
+        return !prefs.getString(Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null).isNullOrBlank() &&
+            !prefs.getString(Keys.AGENT_COMPRESS_MODEL_ID, null).isNullOrBlank()
+    }
 
     /**
      * 首次升级优先把已有 RemotePreferences 值迁入本地；之后本地值是事实源，并在框架
