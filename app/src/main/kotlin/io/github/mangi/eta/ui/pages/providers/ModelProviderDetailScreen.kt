@@ -339,7 +339,6 @@ private fun ProviderConfigTab(
                                         anthropicVersion = draft.anthropicVersion,
                                         customHeaders = draft.headers.map { it.header },
                                         balanceOption = draft.balanceOption,
-                                        balanceOption = draft.balanceOption,
                                     )
                                 )
                             } finally {
@@ -451,6 +450,7 @@ private fun ProviderConfigTab(
                                 hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
                                 anthropicVersion = draft.anthropicVersion,
                                 customHeaders = draft.headers.map { it.header },
+                                balanceOption = draft.balanceOption,
                             )
                             try {
                                 if (isNew) {
