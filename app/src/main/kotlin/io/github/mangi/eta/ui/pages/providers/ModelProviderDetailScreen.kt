@@ -437,7 +437,18 @@ private fun ProviderConfigTab(
                 ProviderBalanceOptionFields(
                     balanceOption = draft.balanceOption,
                     onBalanceOptionChange = { onDraftChange(draft.copy(balanceOption = it)) },
-                    provider = provider,
+                    provider = buildUpdatedProvider(
+                        source = provider,
+                        name = draft.name,
+                        baseUrl = draft.baseUrl,
+                        apiKey = draft.apiKey,
+                        systemPrompt = draft.systemPrompt,
+                        isEnabled = draft.isEnabled,
+                        endpointMode = draft.endpointMode,
+                        hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
+                        anthropicVersion = draft.anthropicVersion,
+                        balanceOption = draft.balanceOption,
+                    ),
                 )
             }
         }

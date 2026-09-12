@@ -1227,6 +1227,7 @@
   <string name="ui_balance_api_path">余额 API 路径</string>
   <string name="ui_balance_result_path">结果 JSON 键</string>
   <string name="ui_test_balance">测试余额查询</string>
+  <string name="ui_balance_test_missing_fields">请先填写余额 API 路径和结果 JSON 键</string>
   <string name="ui_balance_section_title">余额</string>
   <string name="ui_balance_preset">预设模板</string>
   <string name="ui_balance_preset_custom">自定义</string>

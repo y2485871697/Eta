@@ -28,12 +28,20 @@ data class BalanceOption(
 
         fun applyPreset(preset: String, current: BalanceOption): BalanceOption =
             when (preset) {
-                PRESET_NEW_API -> current.copy(
-                    preset = PRESET_NEW_API,
-                    apiPath = NEW_API_PATH,
-                    resultPath = NEW_API_RESULT_PATH,
+                PRESET_NEW_API -> current.copy(preset = PRESET_NEW_API)
+                else -> current.copy(
+                    preset = PRESET_CUSTOM,
+                    apiPath = if (current.preset == PRESET_NEW_API && current.apiPath == NEW_API_PATH) {
+                        ""
+                    } else {
+                        current.apiPath
+                    },
+                    resultPath = if (current.preset == PRESET_NEW_API && current.resultPath == NEW_API_RESULT_PATH) {
+                        ""
+                    } else {
+                        current.resultPath
+                    },
                 )
-                else -> current.copy(preset = PRESET_CUSTOM)
             }
     }
 }

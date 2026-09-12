@@ -109,15 +109,56 @@ class ProviderBalanceFetcherTest {
     }
 
     @Test
-    fun applyNewApiPresetFillsSelfEndpointAndQuotaFormula() {
+    fun applyNewApiPresetKeepsPreviousCustomPathsForRestore() {
         val applied = BalanceOption.applyPreset(
             BalanceOption.PRESET_NEW_API,
-            BalanceOption(enabled = true, userId = "114514"),
+            BalanceOption(
+                enabled = true,
+                userId = "114514",
+                apiPath = "/usage",
+                resultPath = "remaining",
+            ),
         )
         assertEquals(BalanceOption.PRESET_NEW_API, applied.preset)
-        assertEquals(BalanceOption.NEW_API_PATH, applied.apiPath)
-        assertEquals(BalanceOption.NEW_API_RESULT_PATH, applied.resultPath)
+        assertEquals("/usage", applied.apiPath)
+        assertEquals("remaining", applied.resultPath)
         assertEquals("114514", applied.userId)
+        val resolved = applied.resolved()
+        assertEquals(BalanceOption.NEW_API_PATH, resolved.apiPath)
+        assertEquals(BalanceOption.NEW_API_RESULT_PATH, resolved.resultPath)
+    }
+
+    @Test
+    fun applyCustomPresetClearsNewApiTemplatePaths() {
+        val custom = BalanceOption.applyPreset(
+            BalanceOption.PRESET_CUSTOM,
+            BalanceOption(
+                enabled = true,
+                preset = BalanceOption.PRESET_NEW_API,
+                apiPath = BalanceOption.NEW_API_PATH,
+                resultPath = BalanceOption.NEW_API_RESULT_PATH,
+                accessToken = "token",
+            ),
+        )
+        assertEquals(BalanceOption.PRESET_CUSTOM, custom.preset)
+        assertEquals("", custom.apiPath)
+        assertEquals("", custom.resultPath)
+        assertEquals("token", custom.accessToken)
+    }
+
+    @Test
+    fun applyCustomPresetRestoresPreviousCustomPaths() {
+        val custom = BalanceOption.applyPreset(
+            BalanceOption.PRESET_CUSTOM,
+            BalanceOption(
+                enabled = true,
+                preset = BalanceOption.PRESET_NEW_API,
+                apiPath = "/usage",
+                resultPath = "remaining",
+            ),
+        )
+        assertEquals("/usage", custom.apiPath)
+        assertEquals("remaining", custom.resultPath)
     }
 
     @Test

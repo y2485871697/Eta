@@ -1229,6 +1229,7 @@
   <string name="ui_balance_api_path">Balance API path</string>
   <string name="ui_balance_result_path">Result JSON key</string>
   <string name="ui_test_balance">Test balance query</string>
+  <string name="ui_balance_test_missing_fields">Fill in the API path and JSON key first</string>
   <string name="ui_balance_section_title">Balance</string>
   <string name="ui_balance_preset">Preset</string>
   <string name="ui_balance_preset_custom">Custom</string>

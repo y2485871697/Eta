@@ -13,7 +13,6 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,21 +49,15 @@ internal fun ProviderBalanceOptionFields(
     provider: ProviderSetting? = null,
 ) {
     var expanded by remember { mutableStateOf(balanceOption.enabled) }
+    var locallyEnabled by remember { mutableStateOf(balanceOption.enabled) }
     val context = LocalContext.current
     var testResult by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
     var accessTokenVisible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val resolved = balanceOption.resolved()
+    val resolved = balanceOption.copy(enabled = locallyEnabled || balanceOption.enabled).resolved()
     val isNewApi = resolved.preset == BalanceOption.PRESET_NEW_API
-
-    LaunchedEffect(resolved.preset, resolved.apiPath, resolved.resultPath) {
-        if (resolved.apiPath != balanceOption.apiPath ||
-            resolved.resultPath != balanceOption.resultPath
-        ) {
-            onBalanceOptionChange(resolved)
-        }
-    }
+    val switchOn = locallyEnabled || balanceOption.enabled
 
     Column(modifier = Modifier.fillMaxWidth()) {
         BasicComponent(
@@ -73,10 +66,11 @@ internal fun ProviderBalanceOptionFields(
             onClick = { expanded = !expanded },
             endActions = {
                 androidx.compose.material3.Switch(
-                    checked = balanceOption.enabled,
+                    checked = switchOn,
                     onCheckedChange = {
+                        locallyEnabled = it
                         onBalanceOptionChange(balanceOption.copy(enabled = it))
-                        expanded = it
+                        if (it) expanded = true
                     }
                 )
             }
@@ -104,7 +98,7 @@ internal fun ProviderBalanceOptionFields(
                                 } else {
                                     BalanceOption.PRESET_CUSTOM
                                 },
-                                balanceOption,
+                                balanceOption.copy(enabled = switchOn),
                             ),
                         )
                     },
@@ -114,7 +108,7 @@ internal fun ProviderBalanceOptionFields(
                     TextField(
                         value = balanceOption.accessToken,
                         onValueChange = {
-                            onBalanceOptionChange(balanceOption.copy(accessToken = it))
+                            onBalanceOptionChange(balanceOption.copy(accessToken = it, enabled = switchOn))
                         },
                         label = stringResource(R.string.ui_balance_access_token),
                         singleLine = true,
@@ -150,7 +144,9 @@ internal fun ProviderBalanceOptionFields(
                 } else {
                     TextField(
                         value = balanceOption.apiPath,
-                        onValueChange = { onBalanceOptionChange(balanceOption.copy(apiPath = it)) },
+                        onValueChange = {
+                            onBalanceOptionChange(balanceOption.copy(apiPath = it, enabled = switchOn))
+                        },
                         label = stringResource(R.string.ui_balance_api_path),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -158,7 +154,9 @@ internal fun ProviderBalanceOptionFields(
                     Spacer(modifier = Modifier.height(12.dp))
                     TextField(
                         value = balanceOption.resultPath,
-                        onValueChange = { onBalanceOptionChange(balanceOption.copy(resultPath = it)) },
+                        onValueChange = {
+                            onBalanceOptionChange(balanceOption.copy(resultPath = it, enabled = switchOn))
+                        },
                         label = stringResource(R.string.ui_balance_result_path),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -171,19 +169,23 @@ internal fun ProviderBalanceOptionFields(
                     } else {
                         stringResource(R.string.ui_test_balance)
                     },
-                    enabled = resolved.enabled && resolved.apiPath.isNotBlank() &&
-                        resolved.resultPath.isNotBlank() && !isTesting && provider != null,
+                    enabled = switchOn && !isTesting && provider != null,
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        provider ?: return@TextButton
+                        val currentProvider = provider ?: return@TextButton
                         scope.launch {
                             isTesting = true
                             testResult = null
-                            testResult = ProviderBalanceFetcher.fetch(provider, resolved)
-                                .fold(
-                                    onSuccess = { formatBalanceDisplay(it) },
-                                    onFailure = { it.message ?: it.toString() },
-                                )
+                            val option = balanceOption.copy(enabled = true).resolved()
+                            testResult = if (option.apiPath.isBlank() || option.resultPath.isBlank()) {
+                                context.getString(R.string.ui_balance_test_missing_fields)
+                            } else {
+                                ProviderBalanceFetcher.fetch(currentProvider, option)
+                                    .fold(
+                                        onSuccess = { formatBalanceDisplay(it) },
+                                        onFailure = { it.message ?: it.toString() },
+                                    )
+                            }
                             isTesting = false
                         }
                     }
