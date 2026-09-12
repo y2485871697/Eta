@@ -1,13 +1,11 @@
 package io.github.mangi.eta.ui.haptics
 
-import androidx.compose.foundation.text.selection.Selection
+import android.os.SystemClock
+import android.view.View
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -15,8 +13,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 
 /**
- * 会话文本选区。刚选中时震一次；滑动手柄扩展或取消选择都不震。
- * Compose 拖动手柄会发 [HapticFeedbackType.TextHandleMove]，这里吞掉以免连震。
+ * 会话文本选区。Compose 长按选中有时只发 [HapticFeedbackType.TextHandleMove]，
+ * 在 HyperOS 上几乎无感，这里统一转成 [TouchHaptics.longPress]。
  */
 @Composable
 internal fun HapticSelectionContainer(
@@ -25,32 +23,28 @@ internal fun HapticSelectionContainer(
 ) {
     val view = LocalView.current
     val parent = LocalHapticFeedback.current
-    val haptic = remember(parent) { SelectionHapticFeedback(parent) }
-    var selection by remember { mutableStateOf<Selection?>(null) }
+    val haptic = remember(view, parent) { SelectionHapticFeedback(view, parent) }
     CompositionLocalProvider(LocalHapticFeedback provides haptic) {
-        SelectionContainer(
-            modifier = modifier,
-            selection = selection,
-            onSelectionChange = { next ->
-                if (selection == null && next != null) {
-                    TouchHaptics.longPress(view)
-                }
-                selection = next
-            },
-        ) {
-            content()
-        }
+        SelectionContainer(modifier = modifier, content = content)
     }
 }
 
 private class SelectionHapticFeedback(
+    private val view: View,
     private val parent: HapticFeedback,
 ) : HapticFeedback {
+    private var lastAt = 0L
+
     override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
         when (hapticFeedbackType) {
             HapticFeedbackType.LongPress,
             HapticFeedbackType.TextHandleMove,
-            -> Unit
+            -> {
+                val now = SystemClock.uptimeMillis()
+                if (now - lastAt < 360L) return
+                lastAt = now
+                TouchHaptics.longPress(view)
+            }
             else -> parent.performHapticFeedback(hapticFeedbackType)
         }
     }

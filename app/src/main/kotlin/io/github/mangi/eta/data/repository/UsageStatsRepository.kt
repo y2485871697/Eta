@@ -12,7 +12,7 @@ import java.util.Locale
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-data class UsageStatsSnapshot(
+internal data class UsageStatsSnapshot(
     val isLoading: Boolean = false,
     val currentConversations: Int = 0,
     val lifetimeConversations: Int = 0,
