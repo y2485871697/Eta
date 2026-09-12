@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.runtime
 
+import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.core.toSafeLogToken
 
 internal sealed interface AgentEvent {
@@ -178,6 +179,24 @@ internal sealed interface AgentEvent {
         override fun toLogLine(): String =
             "tool_images_attached round=$round, name=${toolName.toSafeLogToken()}, " +
                 "images=$imageCount, image_bytes=$imageBytes"
+    }
+
+    data class ContextCompactionStarted(
+        val round: Int,
+    ) : AgentEvent {
+        override fun toLogLine(): String = "context_compaction_started round=$round"
+    }
+
+    data class ContextCompacted(
+        val round: Int,
+        val applied: Boolean,
+        val originalCount: Int,
+        val compactedCount: Int,
+        val history: List<AgentModelClient.ConversationMessage> = emptyList(),
+        val compressorLabel: String = "",
+    ) : AgentEvent {
+        override fun toLogLine(): String =
+            "context_compacted round=$round, applied=$applied, $originalCount->$compactedCount"
     }
 
     data class RunFinished(

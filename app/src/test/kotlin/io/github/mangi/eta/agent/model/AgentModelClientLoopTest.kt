@@ -742,6 +742,71 @@ class AgentModelClientLoopTest {
         }
     }
 
+    @Test
+    fun compactRunsAfterToolBatchBeforeNextProviderRequest() {
+        val events = mutableListOf<AgentEvent>()
+        var compactCalls = 0
+        val provider = ScriptedProvider(
+            responses = listOf(
+                { _, _ ->
+                    assistant(
+                        finishReason = "tool_calls",
+                        toolCalls = listOf(toolCall("call-1", "get_current_context", "{}")),
+                    )
+                },
+                { _, _ -> assistant(content = "完成", finishReason = "stop") },
+            )
+        )
+        val history = (1..6).flatMap { n ->
+            listOf(
+                AgentConversationCodec.userTextMessage("u$n"),
+                AgentConversationCodec.assistantHistoryMessage(
+                    assistant(content = "a$n", finishReason = "stop"),
+                    emptyList(),
+                ),
+            )
+        }
+        val messages = org.json.JSONArray()
+        history.forEach { messages.put(it) }
+        messages.put(AgentConversationCodec.userTextMessage("现在"))
+
+        val result = AgentLoop(
+            config = modelConfig(),
+            messages = messages,
+            tools = AgentToolCatalog.build(terminalTools = false, browserTools = false),
+            provider = provider,
+            toolExecutor = AgentModelClient.ToolExecutor {
+                AgentModelClient.ToolResult(org.json.JSONObject().put("ok", true).toString())
+            },
+            runController = AgentRunController(),
+            traceFormatter = AgentTraceFormatter(),
+            onEvent = events::add,
+            compactPolicy = AgentLoop.CompactPolicy(
+                enabled = true,
+                contextWindow = 8,
+                keepRecentMessages = 2,
+                targetTokens = 2000,
+                compressModelConfig = modelConfig(),
+            ),
+            compactHistory = { source, _ ->
+                compactCalls += 1
+                listOf(
+                    AgentModelClient.ConversationMessage(
+                        role = "system",
+                        content = AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n摘要",
+                    ),
+                ) + source.takeLast(4)
+            },
+        ).run()
+
+        assertEquals("完成", result.content)
+        assertEquals(1, compactCalls)
+        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
+        val compacted = events.filterIsInstance<AgentEvent.ContextCompacted>().single()
+        assertTrue(compacted.applied)
+        assertTrue(messages.toString().contains("摘要") || messages.toString().contains("对话摘要"))
+    }
+
     private fun modelConfig(): AgentModelClient.ModelConfig =
         AgentModelClient.ModelConfig(
             baseUrl = "https://example.invalid/v1",

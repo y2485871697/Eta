@@ -2,6 +2,8 @@ package io.github.mangi.eta.agent.runtime
 
 import android.content.Context
 import io.github.mangi.eta.agent.accessibility.AgentAccessibilityKeeper
+import io.github.mangi.eta.agent.model.AgentContextCompactor
+import io.github.mangi.eta.agent.model.AgentLoop
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.model.AgentModelExecutionException
 import io.github.mangi.eta.agent.model.AgentModelFailure
@@ -22,11 +24,13 @@ import io.github.mangi.eta.agent.tool.AgentToolCapabilities
 import io.github.mangi.eta.agent.tool.PendingSkillConflictCapabilityParser
 import io.github.mangi.eta.agent.tool.ToolExecutionDecision
 import io.github.mangi.eta.agent.voice.EtaAssistantOverlayService
+import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
 import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.data.repository.LinuxEnvironmentSettingsRepository
+import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.agent.terminal.LinuxDistribution
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -197,6 +201,7 @@ internal class AgentRuntimeRunExecutor(
             toolExecutor = routingExecutor
             toolsBinding = runController.register { routingExecutor.close() }
             timing.preparationFinished(skillContext.installedSkills.size)
+            val compactPolicy = runBlocking { compactPolicyFor(request.config) }
             val completedResponse = AgentModelClient.complete(
                 config = request.config,
                 sessionId = request.effectiveModelSessionId,
@@ -218,6 +223,7 @@ internal class AgentRuntimeRunExecutor(
                 },
                 terminalSessionEnvironmentProvider = executor::terminalSessionEnvironment,
                 terminalSessionIdentityProvider = executor::terminalSessionIdentity,
+                compactPolicy = compactPolicy,
                 onEvent = { event ->
                     timing.accept(event)
                     acceptEvent(
@@ -350,5 +356,43 @@ internal class AgentRuntimeRunExecutor(
                     "Agent runtime event projection failed: type=${throwable.safeLogType()}"
                 }
             }
+    }
+
+    private suspend fun compactPolicyFor(config: AgentModelClient.ModelConfig): AgentLoop.CompactPolicy {
+        if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) {
+            return AgentLoop.CompactPolicy.Disabled
+        }
+        val compressModelConfig = resolveCompressModelConfig(config)
+        if (compressModelConfig == null) return AgentLoop.CompactPolicy.Disabled
+        return AgentLoop.CompactPolicy(
+            enabled = true,
+            contextWindow = config.contextWindow ?: 128_000,
+            keepRecentMessages = Prefs.getInt(
+                Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
+                AgentContextCompactor.DEFAULT_KEEP_RECENT,
+            ).coerceAtLeast(0),
+            targetTokens = Prefs.getInt(
+                Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
+                AgentContextCompactor.DEFAULT_TARGET_TOKENS,
+            ).coerceIn(500, 4000),
+            compressModelConfig = compressModelConfig,
+        )
+    }
+
+    private suspend fun resolveCompressModelConfig(
+        fallback: AgentModelClient.ModelConfig,
+    ): AgentModelClient.ModelConfig? {
+        val prefs = Prefs.localAgentPreferences()
+        val customEnabled = Prefs.isCustomCompressModelEnabled(prefs)
+        val providerId = prefs?.takeIf { customEnabled }
+            ?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null)
+        val modelId = prefs?.takeIf { customEnabled }
+            ?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null)
+        if (providerId.isNullOrBlank() || modelId.isNullOrBlank()) return fallback
+        return try {
+            RuntimeConfigRepository.configForProviderAndModel(providerId, modelId) ?: fallback
+        } catch (_: Throwable) {
+            fallback
+        }
     }
 }

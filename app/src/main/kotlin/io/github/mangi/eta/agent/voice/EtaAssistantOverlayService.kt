@@ -622,6 +622,8 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
             is AgentEvent.ProviderResponseStarted,
             is AgentEvent.ToolImagesAttached,
             is AgentEvent.RoundStarted,
+            is AgentEvent.ContextCompactionStarted,
+            is AgentEvent.ContextCompacted,
             -> Unit
         }
         return state.copy(messages = messages, phase = phase, status = status)

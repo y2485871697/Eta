@@ -693,6 +693,21 @@ internal object AgentRuntimeWire {
                 putInt("image_bytes", event.imageBytes)
             }
 
+            is AgentEvent.ContextCompactionStarted -> {
+                putString(KEY_TYPE, "context_compaction_started")
+                putInt("round", event.round)
+            }
+
+            is AgentEvent.ContextCompacted -> {
+                putString(KEY_TYPE, "context_compacted")
+                putInt("round", event.round)
+                putBoolean("applied", event.applied)
+                putInt("original_count", event.originalCount)
+                putInt("compacted_count", event.compactedCount)
+                putString("compressor_label", event.compressorLabel)
+                putString("history_json", encodeConversationHistory(event.history))
+            }
+
             is AgentEvent.RunFinished -> {
                 putString(KEY_TYPE, "run_finished")
                 putInt("round", event.round)
@@ -824,6 +839,19 @@ internal object AgentRuntimeWire {
             imageBytes = bundle.getInt("image_bytes"),
         )
 
+        "context_compaction_started" -> AgentEvent.ContextCompactionStarted(
+            round = bundle.getInt("round"),
+        )
+
+        "context_compacted" -> AgentEvent.ContextCompacted(
+            round = bundle.getInt("round"),
+            applied = bundle.getBoolean("applied"),
+            originalCount = bundle.getInt("original_count"),
+            compactedCount = bundle.getInt("compacted_count"),
+            history = decodeConversationHistory(bundle.getString("history_json")),
+            compressorLabel = bundle.getString("compressor_label").orEmpty(),
+        )
+
         "run_finished" -> AgentEvent.RunFinished(
             round = bundle.getInt("round"),
             contentChars = bundle.getInt("content_chars"),
@@ -834,6 +862,29 @@ internal object AgentRuntimeWire {
         )
 
         else -> null
+    }
+
+    private fun encodeConversationHistory(
+        history: List<AgentModelClient.ConversationMessage>,
+    ): String {
+        val array = org.json.JSONArray()
+        history.forEach { message ->
+            array.put(io.github.mangi.eta.agent.model.AgentConversationCodec.toJsonObject(message))
+        }
+        return array.toString()
+    }
+
+    private fun decodeConversationHistory(raw: String?): List<AgentModelClient.ConversationMessage> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = org.json.JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    add(io.github.mangi.eta.agent.model.AgentConversationCodec.fromJsonObject(item))
+                }
+            }
+        }.getOrDefault(emptyList())
     }
 
     private fun Bundle.putTokenUsage(usage: AgentTokenUsage) {

@@ -121,4 +121,23 @@ class AgentContextCompactorTest {
         )
     }
 
+    @Test
+    fun rebuildConversationKeepsSystemPrefix() {
+        val messages = org.json.JSONArray()
+            .put(org.json.JSONObject().put("role", "system").put("content", "rules"))
+            .put(org.json.JSONObject().put("role", "user").put("content", "old"))
+            .put(org.json.JSONObject().put("role", "assistant").put("content", "old-a"))
+        AgentContextCompactor.rebuildConversation(
+            messages,
+            systemCount = 1,
+            history = listOf(
+                msg("system", AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n摘要"),
+                msg("user", "new"),
+            ),
+        )
+        assertEquals(3, messages.length())
+        assertEquals("rules", messages.getJSONObject(0).getString("content"))
+        assertEquals("new", messages.getJSONObject(2).getString("content"))
+    }
+
 }

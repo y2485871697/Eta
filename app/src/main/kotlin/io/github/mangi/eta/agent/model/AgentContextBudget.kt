@@ -42,6 +42,15 @@ internal object AgentContextBudget {
         return max(IMAGE_MIN_TOKENS, tokens)
     }
 
+    fun estimate(messages: org.json.JSONArray): Int {
+        var tokens = 0
+        for (index in 0 until messages.length()) {
+            val message = messages.optJSONObject(index) ?: continue
+            tokens += countMessage(AgentConversationCodec.fromJsonObject(message))
+        }
+        return tokens
+    }
+
     fun countMessage(message: AgentModelClient.ConversationMessage): Int {
         var tokens = TOKENS_PER_MESSAGE
         // contentJson 才是发出去的 content；有它时不要再加一份纯文本。

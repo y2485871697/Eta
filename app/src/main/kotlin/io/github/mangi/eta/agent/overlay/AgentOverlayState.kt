@@ -133,6 +133,15 @@ internal fun AgentOverlayState.applyEvent(event: AgentEvent): AgentOverlayState 
         status = AgentOverlayStatus.ImagesRead(event.imageCount),
     )
 
+    is AgentEvent.ContextCompactionStarted -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        round = event.round,
+        status = AgentOverlayStatus.RequestingModel,
+        detailText = "",
+    )
+
+    is AgentEvent.ContextCompacted -> this
+
     is AgentEvent.RunFinished -> copy(
         phase = AgentOverlayPhase.FINISHED,
         round = event.round,

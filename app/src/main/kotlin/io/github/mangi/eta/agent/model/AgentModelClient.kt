@@ -98,6 +98,7 @@ internal object AgentModelClient {
         terminalSessionEnvironmentProvider: (String) -> String? = { null },
         terminalSessionIdentityProvider: (String) -> String? = { null },
         skipHistoryTrimming: Boolean = false,
+        compactPolicy: AgentLoop.CompactPolicy = AgentLoop.CompactPolicy.Disabled,
     ): ModelResponse.Text {
         config.validate()
         val initialCapabilities = capabilitiesProvider()
@@ -126,7 +127,13 @@ internal object AgentModelClient {
             memoryContext,
             rootAvailable = initialCapabilities.rootAvailable,
         )
-        val transcriptStartIndex = messages.length()
+        val systemCount = AgentPromptBuilder.buildSystemMessages(
+            config,
+            skillContext,
+            memoryContext,
+            rootAvailable = initialCapabilities.rootAvailable,
+        ).length()
+        var transcriptStartIndex = messages.length()
         fun toolsFor(capabilities: AgentToolCapabilities): JSONArray {
             val tools = AgentToolCatalog.build(
                 terminalTools = config.terminalTools,
@@ -169,6 +176,9 @@ internal object AgentModelClient {
             runController = runController,
             traceFormatter = traceFormatter,
             onEvent = onEvent,
+            compactPolicy = compactPolicy,
+            systemCount = systemCount,
+            onHistoryCompacted = { transcriptStartIndex = messages.length() },
             toolsForRound = {
                 val capabilities = capabilitiesProvider()
                 if (capabilities.rootAvailable != promptRootAvailable) {

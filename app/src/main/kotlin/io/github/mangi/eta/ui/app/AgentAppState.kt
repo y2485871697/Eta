@@ -98,7 +98,6 @@ import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.TokenUsageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
-import io.github.mangi.eta.ui.model.ToolActivityStatusUi
 import io.github.mangi.eta.ui.model.ToolGroupUi
 import io.github.mangi.eta.ui.model.ToolItemUi
 import io.github.mangi.eta.ui.model.UserMessageUi
@@ -2695,16 +2694,10 @@ internal class AgentAppState(
                         AgentEvent.AssistantBlockKind.TOOL_CALL -> messages
                     }
                 }
-                if (event.kind == AgentEvent.AssistantBlockKind.TEXT ||
-                    event.kind == AgentEvent.AssistantBlockKind.THINKING
-                ) {
-                    scheduleAutoCompressForRun(runId)
-                }
             }
 
             is AgentEvent.UsageReceived -> {
                 updateAssistantUsage(runId, event.round, event.usage.toUi())
-                scheduleAutoCompressForRun(runId)
             }
 
             is AgentEvent.UserSupplementReceived -> {
@@ -2724,7 +2717,6 @@ internal class AgentAppState(
                 updateRunTrace(runId) { messages ->
                     runMessageProjector.finishTool(runId, event, messages)
                 }
-                scheduleAutoCompressForRun(runId)
             }
 
             is AgentEvent.HostedToolStarted -> {
@@ -2740,7 +2732,6 @@ internal class AgentAppState(
                 updateRunTrace(runId) { messages ->
                     runMessageProjector.finishHostedTool(runId, event, messages)
                 }
-                scheduleAutoCompressForRun(runId)
             }
 
             is AgentEvent.ModelRetryScheduled -> {
@@ -2779,6 +2770,14 @@ internal class AgentAppState(
                 runMessageProjector.seal(runId)
             }
 
+            is AgentEvent.ContextCompactionStarted -> {
+                conversationIdForRun(runId)?.let { setConversationCompressing(it, true) }
+            }
+
+            is AgentEvent.ContextCompacted -> {
+                applyRuntimeCompactedHistory(runId, event)
+            }
+
             is AgentEvent.RunStarted,
             is AgentEvent.ProviderRequestStarted,
             is AgentEvent.ProviderResponseStarted,
@@ -2788,18 +2787,32 @@ internal class AgentAppState(
         }
     }
 
-    private fun hasRunningTools(messages: List<AgentChatMessageUi>): Boolean =
-        messages.any { it is ToolActivityMessageUi && it.status == ToolActivityStatusUi.Running }
-
-    /**
-     * run 内边界：推理结束、正文结束、工具批次完成后检查。
-     * 有工具还在跑时不压，避免打断当前批次。
-     */
-    private fun scheduleAutoCompressForRun(runId: String) {
+    private fun applyRuntimeCompactedHistory(runId: String, event: AgentEvent.ContextCompacted) {
         val conversationId = conversationIdForRun(runId) ?: return
-        val state = conversationsById[conversationId] ?: return
-        if (hasRunningTools(state.messages)) return
-        scheduleAutoCompress(conversationId, allowRepeat = false, runId = runId)
+        if (!event.applied || event.history.isEmpty()) {
+            setConversationCompressing(conversationId, false)
+            return
+        }
+        runCompressedDuringRun.add(runId)
+        val current = conversationsById[conversationId] ?: return
+        updateConversation(
+            conversationId,
+            current.copy(
+                isCompressingContext = false,
+                history = event.history,
+                messages = AgentContextCompactionUi.applyMarker(
+                    messages = clearBilledTokenUsage(current.messages),
+                    originalHistory = current.history,
+                    compressedHistory = event.history,
+                    extraKeptUserMessages = 0,
+                    compressorLabel = event.compressorLabel,
+                ),
+            ),
+        )
+        billedOverheadConversationId = conversationId
+        billedOverheadTokens = null
+        showCompactedRevisionNotice()
+        persistConversations()
     }
 
     /**

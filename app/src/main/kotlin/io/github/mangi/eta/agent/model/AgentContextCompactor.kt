@@ -27,6 +27,48 @@ internal object AgentContextCompactor {
         return estimated >= contextWindow * thresholdPercent / 100
     }
 
+    /**
+     * 压缩 [messages] 中系统提示之后的对话，原地替换。
+     * 成功返回压缩后的对话历史；未达阈值或失败返回 null。
+     */
+    fun compactMessages(
+        messages: org.json.JSONArray,
+        systemCount: Int,
+        contextWindow: Int,
+        config: Config,
+        estimatedTokens: Int? = null,
+        toolExecutor: AgentModelClient.ToolExecutor = NoOpToolExecutor,
+        capabilitiesProvider: () -> AgentToolCapabilities = { AgentToolCapabilities(rootAvailable = false) },
+    ): List<AgentModelClient.ConversationMessage>? {
+        val historyStart = systemCount.coerceIn(0, messages.length())
+        val history = AgentConversationCodec.transcript(messages, historyStart)
+        val estimated = estimatedTokens ?: AgentContextBudget.estimate(messages)
+        if (!shouldCompress(history, contextWindow, config.keepRecentMessages, estimatedTokens = estimated)) {
+            return null
+        }
+        val compressed = compress(history, config, toolExecutor, capabilitiesProvider)
+        if (compressed == history) return null
+        rebuildConversation(messages, historyStart, compressed)
+        return compressed
+    }
+
+    internal fun rebuildConversation(
+        messages: org.json.JSONArray,
+        systemCount: Int,
+        history: List<AgentModelClient.ConversationMessage>,
+    ) {
+        val prefix = (0 until systemCount.coerceIn(0, messages.length())).map { index ->
+            messages.getJSONObject(index)
+        }
+        while (messages.length() > 0) {
+            messages.remove(messages.length() - 1)
+        }
+        prefix.forEach { messages.put(it) }
+        history.forEach { message ->
+            messages.put(AgentConversationCodec.toJsonObject(message))
+        }
+    }
+
     fun compress(
         history: List<AgentModelClient.ConversationMessage>,
         config: Config,

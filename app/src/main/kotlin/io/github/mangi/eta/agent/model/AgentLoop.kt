@@ -24,7 +24,31 @@ internal class AgentLoop(
     private val toolsForRound: (() -> JSONArray)? = null,
     private val modelRetry: AgentModelRetry = AgentModelRetry(),
     private val sessionId: String = java.util.UUID.randomUUID().toString(),
+    private val compactPolicy: CompactPolicy = CompactPolicy.Disabled,
+    private val systemCount: Int = 0,
+    private val onHistoryCompacted: () -> Unit = {},
+    private val compactHistory: ((
+        List<AgentModelClient.ConversationMessage>,
+        CompactPolicy,
+    ) -> List<AgentModelClient.ConversationMessage>)? = null,
 ) {
+    data class CompactPolicy(
+        val enabled: Boolean,
+        val contextWindow: Int,
+        val keepRecentMessages: Int,
+        val targetTokens: Int,
+        val compressModelConfig: AgentModelClient.ModelConfig?,
+    ) {
+        companion object {
+            val Disabled = CompactPolicy(
+                enabled = false,
+                contextWindow = 128_000,
+                keepRecentMessages = AgentContextCompactor.DEFAULT_KEEP_RECENT,
+                targetTokens = AgentContextCompactor.DEFAULT_TARGET_TOKENS,
+                compressModelConfig = null,
+            )
+        }
+    }
     data class Result(
         val content: String,
         val reasoningContent: String,
@@ -51,6 +75,7 @@ internal class AgentLoop(
         while (true) {
             runController.throwIfCancelled()
             appendPendingSteeringMessage()
+            maybeCompactBeforeRound(round)
 
             val roundTools = toolsForRound?.invoke() ?: tools
             toolCallValidator = AgentToolCallValidator(roundTools)
@@ -174,6 +199,88 @@ internal class AgentLoop(
                 reasoningContent = reasoningSnapshot(),
                 sensitiveToolCallIds = sensitiveToolCallIds.toSet(),
             )
+        }
+    }
+
+    /**
+     * 从第二轮开始，在下一次模型请求前压缩已完成的历史。
+     * 第一轮由 UI 在发送前压缩；工具批次会在上一轮跑完后才进入这里。
+     */
+    private fun maybeCompactBeforeRound(round: Int) {
+        if (round <= 1 || !compactPolicy.enabled) return
+        val compressConfig = compactPolicy.compressModelConfig ?: return
+        val originalCount = messages.length()
+        val estimated = AgentContextBudget.estimate(messages)
+        val history = AgentConversationCodec.transcript(messages, systemCount.coerceIn(0, originalCount))
+        if (!AgentContextCompactor.shouldCompress(
+                history = history,
+                contextWindow = compactPolicy.contextWindow,
+                keepRecentMessages = compactPolicy.keepRecentMessages,
+                estimatedTokens = estimated,
+            )
+        ) {
+            return
+        }
+        onEvent(AgentEvent.ContextCompactionStarted(round = round))
+        val compressed = runCatching {
+            if (compactHistory != null) {
+                val rewritten = compactHistory.invoke(history, compactPolicy)
+                if (rewritten != history) {
+                    AgentContextCompactor.rebuildConversation(
+                        messages,
+                        systemCount.coerceIn(0, messages.length()),
+                        rewritten,
+                    )
+                    rewritten
+                } else {
+                    null
+                }
+            } else {
+                AgentContextCompactor.compactMessages(
+                    messages = messages,
+                    systemCount = systemCount,
+                    contextWindow = compactPolicy.contextWindow,
+                    config = AgentContextCompactor.Config(
+                        targetTokens = compactPolicy.targetTokens,
+                        keepRecentMessages = compactPolicy.keepRecentMessages,
+                        compressModelConfig = compressConfig,
+                    ),
+                    estimatedTokens = estimated,
+                    toolExecutor = toolExecutor,
+                )
+            }
+        }.getOrNull()
+        if (compressed != null) {
+            onHistoryCompacted()
+            onEvent(
+                AgentEvent.ContextCompacted(
+                    round = round,
+                    applied = true,
+                    originalCount = originalCount,
+                    compactedCount = messages.length(),
+                    history = compressed,
+                    compressorLabel = compressorLabel(compressConfig),
+                )
+            )
+        } else {
+            onEvent(
+                AgentEvent.ContextCompacted(
+                    round = round,
+                    applied = false,
+                    originalCount = originalCount,
+                    compactedCount = originalCount,
+                )
+            )
+        }
+    }
+
+    private fun compressorLabel(config: AgentModelClient.ModelConfig): String {
+        val provider = config.providerName.trim()
+        val model = config.modelDisplayName.trim().ifBlank { config.model.trim() }
+        return when {
+            provider.isNotBlank() && model.isNotBlank() -> "$provider · $model"
+            model.isNotBlank() -> model
+            else -> provider
         }
     }
 

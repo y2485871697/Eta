@@ -477,6 +477,21 @@ class AgentRuntimeWireTest {
                 imageCount = 0,
                 imageBytes = 0,
             ),
+            AgentEvent.ContextCompactionStarted(round = 2),
+            AgentEvent.ContextCompacted(
+                round = 2,
+                applied = true,
+                originalCount = 12,
+                compactedCount = 5,
+                history = listOf(
+                    AgentModelClient.ConversationMessage(
+                        role = "system",
+                        content = "[对话摘要]\n旧上下文",
+                    ),
+                    AgentModelClient.ConversationMessage(role = "user", content = "继续"),
+                ),
+                compressorLabel = "魚 · grok",
+            ),
         )
 
         events.forEach { event ->
