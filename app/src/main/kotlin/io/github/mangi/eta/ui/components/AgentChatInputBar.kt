@@ -586,7 +586,7 @@ private fun ThinkingEffortPickerDialog(
                 imageVector = ImageVector.vectorResource(R.drawable.ic_atom),
                 contentDescription = null,
                 modifier = Modifier
-                    .padding(top = 18.dp)
+                    .padding(top = 6.dp)
                     .size(32.dp),
                 tint = if (preview != ReasoningEffort.OFF) {
                     MiuixTheme.colorScheme.primary
@@ -598,7 +598,7 @@ private fun ThinkingEffortPickerDialog(
                 text = preview.displayName,
                 style = MiuixTheme.textStyles.title3,
                 color = MiuixTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
+                modifier = Modifier.padding(top = 6.dp, bottom = 16.dp),
             )
             if (options.size > 1) {
                 Box(modifier = Modifier.fillMaxWidth()) {
