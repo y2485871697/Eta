@@ -1574,19 +1574,24 @@ internal class AgentAppState(
     /**
      * 判断是否应自动压缩对话历史。
      */
+    private fun compressionContextWindow(fallback: Int? = null): Int? =
+        modelPickerState.selectedModel?.contextWindow?.takeIf { it > 0 }
+            ?: fallback?.takeIf { it > 0 }
+
     private fun shouldAutoCompress(
         history: List<AgentModelClient.ConversationMessage>,
-        contextWindow: Int,
+        contextWindow: Int?,
         estimatedTokens: Int?,
     ): Boolean {
         if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return false
+        val window = contextWindow?.takeIf { it > 0 } ?: return false
         val keepRecent = Prefs.getInt(
             Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
             AgentContextCompactor.DEFAULT_KEEP_RECENT,
         )
         return AgentContextCompactor.shouldCompress(
             history = history,
-            contextWindow = contextWindow,
+            contextWindow = window,
             keepRecentMessages = keepRecent,
             estimatedTokens = estimatedTokens,
         )
@@ -1661,7 +1666,7 @@ internal class AgentAppState(
 
         val willCompress = shouldAutoCompress(
             history = history,
-            contextWindow = modelPickerState.selectedModel?.contextWindow ?: 128_000,
+            contextWindow = compressionContextWindow(),
             estimatedTokens = liveContextUsage(
                 history = history,
                 currentInput = prompt,
@@ -1754,7 +1759,7 @@ internal class AgentAppState(
             ).contextTokens
             val shouldCompress = shouldAutoCompress(
                 history,
-                config.contextWindow ?: 128_000,
+                compressionContextWindow(config.contextWindow),
                 estimatedTokens,
             )
             if (shouldCompress != willCompress) {
@@ -2841,7 +2846,7 @@ internal class AgentAppState(
         if (!allowRepeat && runId != null && runId in runCompressedDuringRun) return
         val state = conversationsById[conversationId] ?: return
         if (state.isStreaming) return
-        val contextWindow = modelPickerState.selectedModel?.contextWindow ?: 128_000
+        val contextWindow = compressionContextWindow()
         val estimatedTokens = liveContextUsage(
             history = state.history,
             currentInput = "",

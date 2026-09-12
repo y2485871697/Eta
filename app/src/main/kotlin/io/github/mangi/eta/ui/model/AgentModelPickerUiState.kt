@@ -255,9 +255,10 @@ internal fun messageRoundFromId(id: String): Int? {
 
 internal fun windowTokensFromUsage(usage: TokenUsageUi?): Int? {
     if (usage == null || usage.isEmpty) return null
-    usage.contextTokens?.takeIf { it > 0 }?.let { return it }
-    val combined = (usage.inputTokens ?: 0) + (usage.outputTokens ?: 0)
-    return combined.takeIf { it > 0 }
+    val input = usage.inputTokens ?: 0
+    val output = usage.outputTokens ?: 0
+    if (input > 0 || output > 0) return input + output
+    return usage.contextTokens?.takeIf { it > 0 }
 }
 
 internal fun liveContextUsage(

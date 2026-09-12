@@ -627,16 +627,20 @@ class AgentModelPickerProjectorTest {
     }
 
     @Test
-    fun windowTokensFromUsageFallsBackToInputPlusOutput() {
+    fun windowTokensFromUsagePrefersInputPlusOutputOverTotal() {
         assertEquals(
             262_556,
             windowTokensFromUsage(TokenUsageUi(inputTokens = 262_295, outputTokens = 261)),
         )
         assertEquals(
-            262_556,
+            98_728,
             windowTokensFromUsage(
-                TokenUsageUi(contextTokens = 262_556, inputTokens = 1, outputTokens = 1),
+                TokenUsageUi(contextTokens = 96_030, inputTokens = 98_263, outputTokens = 465),
             ),
+        )
+        assertEquals(
+            96_030,
+            windowTokensFromUsage(TokenUsageUi(contextTokens = 96_030)),
         )
     }
 

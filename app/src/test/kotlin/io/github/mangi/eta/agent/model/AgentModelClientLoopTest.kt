@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.runtime.AgentEvent
+import io.github.mangi.eta.agent.runtime.AgentTokenUsage
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.tool.AgentToolCapabilities
 import java.util.concurrent.CountDownLatch
@@ -738,7 +739,20 @@ class AgentModelClientLoopTest {
             val response = responses.getOrNull(index)
                 ?: error("缺少第 ${index + 1} 个 scripted response")
             index += 1
-            return ProviderResponse(response(request, runController))
+            val payload = response(request, runController)
+            val usageJson = payload.optJSONObject("usage")
+            if (usageJson != null) {
+                onEvent(
+                    ProviderEvent.Usage(
+                        AgentTokenUsage(
+                            contextTokens = usageJson.optInt("total_tokens").takeIf { usageJson.has("total_tokens") },
+                            inputTokens = usageJson.optInt("prompt_tokens").takeIf { usageJson.has("prompt_tokens") },
+                            outputTokens = usageJson.optInt("completion_tokens").takeIf { usageJson.has("completion_tokens") },
+                        ),
+                    ),
+                )
+            }
+            return ProviderResponse(payload)
         }
     }
 
@@ -752,9 +766,10 @@ class AgentModelClientLoopTest {
                     assistant(
                         finishReason = "tool_calls",
                         toolCalls = listOf(toolCall("call-1", "get_current_context", "{}")),
+                        promptTokens = 100,
                     )
                 },
-                { _, _ -> assistant(content = "完成", finishReason = "stop") },
+                { _, _ -> assistant(content = "完成", finishReason = "stop", promptTokens = 20) },
             )
         )
         val history = (1..6).flatMap { n ->
@@ -811,6 +826,63 @@ class AgentModelClientLoopTest {
         assertTrue(secondContents.contains("现在") || secondContents.any { it.contains("现在") })
     }
 
+    @Test
+    fun compactSkipsWhenBilledOccupancyIsBelowThreshold() {
+        var compactCalls = 0
+        val provider = ScriptedProvider(
+            responses = listOf(
+                { _, _ ->
+                    assistant(
+                        finishReason = "tool_calls",
+                        toolCalls = listOf(toolCall("call-1", "get_current_context", "{}")),
+                        promptTokens = 98_263,
+                    )
+                },
+                { _, _ -> assistant(content = "完成", finishReason = "stop", promptTokens = 98_263) },
+            )
+        )
+        val history = (1..6).flatMap { n ->
+            listOf(
+                AgentConversationCodec.userTextMessage("u$n"),
+                AgentConversationCodec.assistantHistoryMessage(
+                    assistant(content = "a$n", finishReason = "stop"),
+                    emptyList(),
+                ),
+            )
+        }
+        val messages = org.json.JSONArray()
+        history.forEach { messages.put(it) }
+        messages.put(AgentConversationCodec.userTextMessage("现在"))
+
+        val result = AgentLoop(
+            config = modelConfig(),
+            messages = messages,
+            tools = AgentToolCatalog.build(terminalTools = false, browserTools = false),
+            provider = provider,
+            toolExecutor = AgentModelClient.ToolExecutor {
+                AgentModelClient.ToolResult(org.json.JSONObject().put("ok", true).toString())
+            },
+            runController = AgentRunController(),
+            traceFormatter = AgentTraceFormatter(),
+            onEvent = {},
+            compactPolicy = AgentLoop.CompactPolicy(
+                enabled = true,
+                contextWindow = 500_000,
+                keepRecentMessages = 2,
+                targetTokens = 2000,
+                compressModelConfig = modelConfig(),
+            ),
+            compactHistory = { source, _ ->
+                compactCalls += 1
+                source
+            },
+        ).run()
+
+        assertEquals("完成", result.content)
+        assertEquals(0, compactCalls)
+        assertEquals(2, provider.requests.size)
+    }
+
     private fun modelConfig(): AgentModelClient.ModelConfig =
         AgentModelClient.ModelConfig(
             baseUrl = "https://example.invalid/v1",
@@ -825,6 +897,7 @@ class AgentModelClientLoopTest {
         finishReason: String,
         toolCalls: List<JSONObject> = emptyList(),
         reasoning: String = "",
+        promptTokens: Int? = null,
     ): JSONObject =
         JSONObject()
             .put("role", "assistant")
@@ -834,6 +907,15 @@ class AgentModelClientLoopTest {
             .also { message ->
                 if (toolCalls.isNotEmpty()) {
                     message.put("tool_calls", JSONArray(toolCalls))
+                }
+                if (promptTokens != null) {
+                    message.put(
+                        "usage",
+                        JSONObject()
+                            .put("prompt_tokens", promptTokens)
+                            .put("completion_tokens", 1)
+                            .put("total_tokens", promptTokens + 1),
+                    )
                 }
             }
 

@@ -364,9 +364,10 @@ internal class AgentRuntimeRunExecutor(
         }
         val compressModelConfig = resolveCompressModelConfig(config)
         if (compressModelConfig == null) return AgentLoop.CompactPolicy.Disabled
+        val contextWindow = config.contextWindow?.takeIf { it > 0 } ?: return AgentLoop.CompactPolicy.Disabled
         return AgentLoop.CompactPolicy(
             enabled = true,
-            contextWindow = config.contextWindow ?: 128_000,
+            contextWindow = contextWindow,
             keepRecentMessages = Prefs.getInt(
                 Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
                 AgentContextCompactor.DEFAULT_KEEP_RECENT,

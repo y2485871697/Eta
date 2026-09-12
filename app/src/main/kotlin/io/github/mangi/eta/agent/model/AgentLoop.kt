@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentRunController
+import io.github.mangi.eta.agent.runtime.AgentTokenUsage
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -64,6 +65,7 @@ internal class AgentLoop(
     private val accumulatedReasoning = StringBuilder()
     private val sensitiveToolCallIds = linkedSetOf<String>()
     private var pendingToolImageMessage: JSONObject? = null
+    private var lastUsage: AgentTokenUsage? = null
 
     fun reasoningSnapshot(): String = accumulatedReasoning.toString().trim()
 
@@ -88,6 +90,9 @@ internal class AgentLoop(
                     controller = runController,
                     onEvent = onEvent,
                     onProviderEvent = { attemptRound, providerEvent ->
+                        if (providerEvent is ProviderEvent.Usage) {
+                            lastUsage = providerEvent.usage
+                        }
                         if (providerEvent is ProviderEvent.BlockDelta &&
                             providerEvent.kind == AssistantBlockKind.THINKING
                         ) {
@@ -210,7 +215,9 @@ internal class AgentLoop(
         if (round <= 1 || !compactPolicy.enabled) return
         val compressConfig = compactPolicy.compressModelConfig ?: return
         val originalCount = messages.length()
-        val estimated = AgentContextBudget.estimate(messages)
+        // 只用接口账单判断是否该压。本地 JSON/CJK 估算会把系统提示和工具结果算到
+        // 窗口的 80% 以上，圆环还在 20%–30% 时就会提前压缩。
+        val estimated = lastUsage?.occupancyTokens() ?: return
         val history = AgentConversationCodec.transcript(messages, systemCount.coerceIn(0, originalCount))
         if (!AgentContextCompactor.shouldCompress(
                 history = history,
