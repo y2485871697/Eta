@@ -462,6 +462,74 @@ class AgentModelPickerProjectorTest {
         assertTrue((idle.contextTokens ?: 0) < history.sumOf { AgentContextBudget.countMessage(it) })
     }
 
+    @Test
+    fun liveContextUsage_addsRequestOverheadWhenThereIsNoBill() {
+        val selected = AgentModelOptionUi(
+            id = "model",
+            providerId = "provider",
+            providerName = "Provider",
+            providerSourceType = ProviderSourceTypes.CUSTOM,
+            modelId = "model",
+            displayName = "Model",
+            contextWindow = 128_000,
+        )
+        val history = listOf(
+            AgentModelClient.ConversationMessage(role = "user", content = "hello"),
+        )
+        val local = history.sumOf { AgentContextBudget.countMessage(it) }
+        val usage = liveContextUsage(
+            history = history,
+            currentInput = "",
+            pendingImages = emptyList(),
+            selectedModel = selected,
+            requestOverheadTokens = 12_000,
+        )
+        assertEquals(local + 12_000, usage.contextTokens)
+    }
+
+    @Test
+    fun liveContextUsage_appliesOverheadDeltaOnTopOfBill() {
+        val selected = AgentModelOptionUi(
+            id = "model",
+            providerId = "provider",
+            providerName = "Provider",
+            providerSourceType = ProviderSourceTypes.CUSTOM,
+            modelId = "model",
+            displayName = "Model",
+            contextWindow = 500_000,
+        )
+        val unchanged = liveContextUsage(
+            history = emptyList(),
+            currentInput = "",
+            pendingImages = emptyList(),
+            selectedModel = selected,
+            billedContextTokens = 262_556,
+            requestOverheadTokens = 12_000,
+            billedOverheadTokens = 12_000,
+        )
+        assertEquals(262_556, unchanged.contextTokens)
+        val increased = liveContextUsage(
+            history = emptyList(),
+            currentInput = "",
+            pendingImages = emptyList(),
+            selectedModel = selected,
+            billedContextTokens = 262_556,
+            requestOverheadTokens = 14_500,
+            billedOverheadTokens = 12_000,
+        )
+        assertEquals(265_056, increased.contextTokens)
+        val decreased = liveContextUsage(
+            history = emptyList(),
+            currentInput = "",
+            pendingImages = emptyList(),
+            selectedModel = selected,
+            billedContextTokens = 262_556,
+            requestOverheadTokens = 10_000,
+            billedOverheadTokens = 12_000,
+        )
+        assertEquals(260_556, decreased.contextTokens)
+    }
+
 
     @Test
     fun latestBilledContextTokensUsesTotalThenAddsUnbilledUserTail() {

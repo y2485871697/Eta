@@ -62,7 +62,7 @@
   <string name="haptics_touch_feedback">觸控回饋</string>
   <string name="haptics_touch_feedback_summary">點擊按鈕、開關和選單時震動</string>
   <string name="haptics_message_generation">訊息生成觸控回饋</string>
-  <string name="haptics_message_generation_summary">模型輸出內容時提供輕觸回饋</string>
+  <string name="haptics_message_generation_summary">模型輸出內容或出現工具步驟時提供輕觸回饋</string>
   <string name="route_skills">Skills</string>
   <string name="route_permissions">權限</string>
   <string name="route_system_enhancements">系統增強</string>
@@ -602,7 +602,6 @@
   <string name="page_installed_eb88ff">已安裝</string>
   <string name="page_ready_f2afde">已就緒</string>
   <string name="page_covered_model_automatic_capabilities_3fa7d4">已覆蓋模型自動能力</string>
-  <string name="page_overwritten_will_take_precedence_over_remote_metadat_59934d">已覆寫，將優先於遠端中繼資料</string>
   <string name="page_exceeded_the_1_mib_limit_please_delete_120a63">已超過 1 MiB 上限，請刪減</string>
   <string name="page_the_installation_of_common_tools_has_not_been_comple_d7f7c2">常用工具安裝尚未完成，可以從當前進度繼續</string>
   <string name="page_the_current_root_environment_cannot_create_an_isolat_4ca00a">目前 Root 環境無法建立隔離 mount namespace 或 chroot</string>
@@ -631,7 +630,6 @@
   <string name="page_open_with_external_application_ab3d4c">用外部應用程式打開</string>
   <string name="page_continue_installation_62da0c">繼續安裝</string>
   <string name="page_edit_model_29e31e">編輯模型</string>
-  <string name="page_automatic_no_context_cap_was_provided_by_the_remote__db027f">自動：遠端未提供內容長度上限</string>
   <string name="page_custom_model_25be0f">自訂模型</string>
   <string name="page_set_as_current_model_183d7d">設為當前模型</string>
   <string name="page_please_complete_the_linux_basic_tool_installation_fi_2ab81b">請先完成 Linux 基礎工具安裝</string>
@@ -970,7 +968,6 @@
   <plurals name="provider_models_selected">
     <item quantity="other">已選取 %d 個</item>
   </plurals>
-  <string name="provider_auto_context">自動：%1$s tokens</string>
   <string name="provider_auto_reasoning_supported">自動：支援推理</string>
   <string name="provider_auto_reasoning_unknown">自動：不支援或未知</string>
   <string name="provider_context_tag">%1$s 內容脈絡</string>

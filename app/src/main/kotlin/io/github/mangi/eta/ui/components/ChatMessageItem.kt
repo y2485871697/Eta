@@ -371,6 +371,19 @@ internal fun AgentWorkProcess(
         expanded = running
     }
 
+    val view = LocalView.current
+    SideEffect {
+        if (isPaused) return@SideEffect
+        messages.forEach { message ->
+            if (
+                message is ToolActivityMessageUi &&
+                message.status == ToolActivityStatusUi.Running
+            ) {
+                TouchHaptics.onLiveToolActivity(view, message.id)
+            }
+        }
+    }
+
     val pulseAlpha = rememberActivePulse(active = running && !isPaused, label = "work_pulse")
 
     Column(
@@ -953,11 +966,11 @@ private fun StreamingMarkdown(
         }
         val grew = content.length > lastHapticContentLength[0]
         lastHapticContentLength[0] = content.length
-        if (grew && TouchHaptics.isMessageGenerationEnabled()) {
+        if (grew) {
             val now = SystemClock.uptimeMillis()
             if (now - lastGenerationHapticAt >= 16L) {
                 lastGenerationHapticAt = now
-                TouchHaptics.tick(view)
+                TouchHaptics.generationTick(view)
             }
         }
     }

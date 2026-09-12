@@ -22,12 +22,15 @@ import io.github.mangi.eta.agent.device.DeviceLocationProvider
 import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.agent.media.AgentChatImageCache
 import io.github.mangi.eta.agent.media.AgentImageCodec
+import io.github.mangi.eta.agent.mcp.McpRunSnapshot
+import io.github.mangi.eta.agent.memory.AgentMemoryContext
 import io.github.mangi.eta.agent.memory.AgentMemoryContextBuilder
 import io.github.mangi.eta.agent.model.AgentFileReference
 import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.agent.model.AgentFileReferencePolicy
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.model.AgentContextCompactor
+import io.github.mangi.eta.agent.model.AgentRequestOverhead
 import io.github.mangi.eta.agent.model.AgentConversationCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.runtime.AgentEvent
@@ -39,7 +42,10 @@ import io.github.mangi.eta.agent.runtime.AgentRuntimeClient
 import io.github.mangi.eta.agent.runtime.AgentRuntimeWire
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
 import io.github.mangi.eta.agent.runtime.AgentUiHandoffPayload
+import io.github.mangi.eta.agent.skill.SkillCompatibilityChecker
+import io.github.mangi.eta.agent.skill.SkillContext
 import io.github.mangi.eta.agent.skill.SkillRuntime
+import io.github.mangi.eta.agent.tool.AgentToolCapabilities
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
@@ -52,6 +58,7 @@ import io.github.mangi.eta.data.repository.ModelRepository
 import io.github.mangi.eta.data.repository.ProviderBalanceStore
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.AssistantRepository
+import io.github.mangi.eta.data.repository.McpServerRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
@@ -108,6 +115,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import org.json.JSONArray
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
@@ -121,6 +129,7 @@ internal class AgentAppState(
     private val appContext = context.applicationContext
     private val skillZipImportGateway = skillZipImportGateway ?: CoreSkillZipImportGateway(appContext)
     private val runConversationIds = mutableMapOf<String, String>()
+    private val runOverheadTokens = mutableMapOf<String, Int>()
     private val runMessageProjector = AgentRunMessageProjector()
     private val runEventCoalescer = AgentRunEventCoalescer()
     private val runEventFlushJobs = mutableMapOf<String, Job>()
@@ -159,6 +168,14 @@ internal class AgentAppState(
     var autoCompressEnabled by mutableStateOf(agentBooleanForUi(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED))
         private set
 
+    var requestOverheadTokens by mutableStateOf(0)
+        private set
+
+    var billedOverheadTokens by mutableStateOf<Int?>(null)
+        private set
+
+    private var billedOverheadConversationId: String? = null
+
     var modelPickerState by mutableStateOf(AgentModelPickerUiState())
         private set
 
@@ -190,9 +207,13 @@ internal class AgentAppState(
         refreshConversationSummaries()
         observeRuntimeSelection()
         observeAutoCompressEnabled()
+        refreshRequestOverhead()
         ProviderBalanceStore.start(scope)
         scope.launch {
-            RootAccess.state.collectLatest { refreshPermissionHealth() }
+            RootAccess.state.collectLatest {
+                refreshPermissionHealth()
+                refreshRequestOverhead()
+            }
         }
         runtimeRecoveryInProgress.set(true)
         scope.launch(Dispatchers.IO) {
@@ -208,12 +229,93 @@ internal class AgentAppState(
 
     private fun observeAutoCompressEnabled() {
         val prefs = Prefs.localAgentPreferences() ?: return
+        val overheadKeys = setOf(
+            Prefs.Keys.AGENT_TERMINAL_TOOLS,
+            Prefs.Keys.AGENT_BROWSER_TOOLS,
+            Prefs.Keys.AGENT_DEVICE_DIRECT_TOOLS,
+            Prefs.Keys.AGENT_DEVICE_SENSITIVE_READ_TOOLS,
+            Prefs.Keys.AGENT_DEVICE_SENSITIVE_ACTION_TOOLS,
+        )
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED) {
                 autoCompressEnabled = Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)
             }
+            if (key in overheadKeys) {
+                refreshRequestOverhead()
+            }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun refreshRequestOverhead() {
+        scope.launch(Dispatchers.IO) {
+            val tokens = runCatching { estimateRequestOverhead() }.getOrDefault(0)
+            withContext(Dispatchers.Main) {
+                requestOverheadTokens = tokens
+                syncBilledOverhead(selectedConversationId, homeState.messages)
+            }
+        }
+    }
+
+    private suspend fun estimateRequestOverhead(): Int {
+        val config = RuntimeConfigRepository.currentRuntimeConfig()?.copy(
+            terminalTools = agentBooleanForUi(Prefs.Keys.AGENT_TERMINAL_TOOLS),
+            browserTools = agentBooleanForUi(Prefs.Keys.AGENT_BROWSER_TOOLS),
+            deviceDirectTools = agentBooleanForUi(Prefs.Keys.AGENT_DEVICE_DIRECT_TOOLS),
+            deviceSensitiveReadTools = agentBooleanForUi(Prefs.Keys.AGENT_DEVICE_SENSITIVE_READ_TOOLS),
+            deviceSensitiveActionTools = agentBooleanForUi(Prefs.Keys.AGENT_DEVICE_SENSITIVE_ACTION_TOOLS),
+        ) ?: return 0
+        val assistant = AssistantRepository.active()
+        val enabledSkillIds = assistant.enabledSkillIds.toSet()
+        val skillContext = SkillContext(
+            installedSkills = runCatching {
+                SkillRuntime.createIndexService(appContext)
+                    .listSkillsForManagement()
+                    .filter { it.installed && it.id in enabledSkillIds }
+                    .filter { SkillCompatibilityChecker.evaluate(it).available }
+            }.getOrDefault(emptyList()),
+        )
+        val memoryContext = if (assistant.memoryEnabled) {
+            runCatching {
+                AgentMemoryContextBuilder.build(
+                    snapshot = AgentMemoryRepository.snapshot(assistant.id),
+                    contextWindow = config.contextWindow,
+                )
+            }.getOrDefault(AgentMemoryContextBuilder.empty(config.contextWindow))
+        } else {
+            AgentMemoryContext.DISABLED
+        }
+        val additionalTools = JSONArray()
+        runCatching {
+            McpRunSnapshot.appendCachedModelTools(
+                additionalTools,
+                McpServerRepository.enabledServers(),
+            )
+        }
+        return AgentRequestOverhead.estimate(
+            config = config,
+            skillContext = skillContext,
+            memoryContext = memoryContext,
+            capabilities = AgentToolCapabilities.capture(appContext),
+            additionalTools = additionalTools,
+        )
+    }
+
+    private fun syncBilledOverhead(
+        conversationId: String?,
+        messages: List<AgentChatMessageUi>,
+    ) {
+        val hasBilled = latestBilledContextTokens(messages) != null
+        if (!hasBilled) {
+            if (billedOverheadConversationId == conversationId) {
+                billedOverheadTokens = null
+            }
+            return
+        }
+        if (billedOverheadConversationId != conversationId || billedOverheadTokens == null) {
+            billedOverheadConversationId = conversationId
+            billedOverheadTokens = requestOverheadTokens
+        }
     }
 
     private fun observeRuntimeSelection() {
@@ -239,6 +341,7 @@ internal class AgentAppState(
                             isChanging = modelPickerState.isChanging,
                         )
                         applyReasoningCapabilities(capabilities)
+                        refreshRequestOverhead()
                     }
                 }
         }
@@ -370,6 +473,7 @@ internal class AgentAppState(
                             draftBytes = snapshot.byteSize,
                             coreBudgetChars = coreBudget,
                         )
+                        refreshRequestOverhead()
                     }
                 },
                 onFailure = { throwable ->
@@ -402,6 +506,7 @@ internal class AgentAppState(
                     onSuccess = {
                         withContext(Dispatchers.Main) {
                             memoryState = memoryState.copy(enabled = enabled, notice = null)
+                            refreshRequestOverhead()
                         }
                     },
                     onFailure = { throwable ->
@@ -436,6 +541,7 @@ internal class AgentAppState(
                                 draftBytes = memoryState.draft.toByteArray(Charsets.UTF_8).size,
                                 notice = appContext.getString(R.string.state_ui_memory_saved_a2c61c),
                             )
+                            refreshRequestOverhead()
                         }
                     },
                     onFailure = { throwable ->
@@ -702,6 +808,7 @@ internal class AgentAppState(
         setConversationStreaming(runId, false)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
+        runOverheadTokens.remove(runId)
         conversationUpdatedAt = conversationUpdatedAt +
             (conversationId to checkpoint.updatedAt)
         return true
@@ -940,6 +1047,9 @@ internal class AgentAppState(
         val resolvedState = state.withPreferredReasoningEffort()
         conversationsById = conversationsById + (conversationId to resolvedState)
         homeState = resolvedState
+        billedOverheadConversationId = null
+        billedOverheadTokens = null
+        syncBilledOverhead(conversationId, resolvedState.messages)
         conversationPaneState = conversationPaneState.copy(selectedConversationId = conversationId)
         persistConversations()
     }
@@ -950,6 +1060,8 @@ internal class AgentAppState(
         selectedConversationId = null
         pendingNewConversationFolderId = selectedFolderId
         homeState = emptyChatState(false).withPreferredReasoningEffort()
+        billedOverheadConversationId = null
+        billedOverheadTokens = null
         conversationPaneState = conversationPaneState.copy(
             selectedConversationId = null,
             searchQuery = "",
@@ -1419,6 +1531,8 @@ internal class AgentAppState(
             selectedModel = modelPickerState.selectedModel,
             pendingFileReferences = fileReferences,
             billedContextTokens = billed,
+            requestOverheadTokens = requestOverheadTokens,
+            billedOverheadTokens = billedOverheadTokens,
         )
         if (!shouldBlockSendForContextWindow(autoCompressEnabled, usage)) {
             return false
@@ -1513,6 +1627,7 @@ internal class AgentAppState(
         reasoningEffort: ReasoningEffort,
     ) {
         runConversationIds[runId] = conversationId
+        runOverheadTokens[runId] = requestOverheadTokens
         currentRunId = runId
 
         updateConversation(
@@ -1585,13 +1700,15 @@ internal class AgentAppState(
                 )
             }
             val compressModelConfig = resolveCompressModelConfig(config)
-            val estimatedTokens = latestBilledContextTokens(state.messages)
-                ?: liveContextUsage(
-                    history = history,
-                    currentInput = prompt,
-                    pendingImages = images,
-                    selectedModel = modelPickerState.selectedModel,
-                ).contextTokens
+            val estimatedTokens = liveContextUsage(
+                history = history,
+                currentInput = prompt,
+                pendingImages = images,
+                selectedModel = modelPickerState.selectedModel,
+                billedContextTokens = latestBilledContextTokens(state.messages),
+                requestOverheadTokens = requestOverheadTokens,
+                billedOverheadTokens = billedOverheadTokens,
+            ).contextTokens
             val historyToSend = if (shouldAutoCompress(
                     history,
                     config.contextWindow ?: 128_000,
@@ -1708,6 +1825,10 @@ internal class AgentAppState(
                 messages = clearBilledTokenUsage(current.messages),
             ),
         )
+        if (conversationId == selectedConversationId) {
+            billedOverheadConversationId = conversationId
+            billedOverheadTokens = null
+        }
         showCompactedRevisionNotice()
         persistConversations()
     }
@@ -1893,6 +2014,7 @@ internal class AgentAppState(
         setConversationStreaming(runId, false)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
+        runOverheadTokens.remove(runId)
         refreshConversationSummaries()
         persistConversations()
     }
@@ -1925,6 +2047,7 @@ internal class AgentAppState(
         scope.launch(Dispatchers.IO) {
             AssistantRepository.select(id)
             RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+            withContext(Dispatchers.Main) { refreshRequestOverhead() }
         }
     }
 
@@ -1939,6 +2062,7 @@ internal class AgentAppState(
             }
             runMessageProjector.clearRun(runId)
             runConversationIds.remove(runId)
+            runOverheadTokens.remove(runId)
         }
         updateCurrentConversation(
             homeState.copy(
@@ -2069,6 +2193,7 @@ internal class AgentAppState(
             withContext(Dispatchers.Main) {
                 skillsState = skillsState.copy(skills = items, isLoading = false)
             }
+            refreshRequestOverhead()
         }
     }
 
@@ -2613,6 +2738,7 @@ internal class AgentAppState(
         setConversationStreaming(runId, false)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
+        runOverheadTokens.remove(runId)
         refreshConversationSummaries()
         persistConversations(
             onSaved = if (acknowledgeRuntimeResult) {
@@ -2637,6 +2763,8 @@ internal class AgentAppState(
         if (usage.isEmpty) return
         // 只补充 token 用量。不能触碰 isStreaming：Usage 事件紧跟在文本块结束之后，
         // 若把 isStreaming 改回 true，流式渲染会在流式/静态两种视图间反复切换，整段重渲染。
+        val overhead = runOverheadTokens[runId] ?: requestOverheadTokens
+        val conversationId = conversationIdForRun(runId)
         updateMessages(runId) { messages ->
             val targetIndex = messages.indexOfLast { message ->
                 message is AgentMessageUi && isAssistantMessageForRound(message.id, runId, round)
@@ -2649,6 +2777,8 @@ internal class AgentAppState(
                 }
             }
         }
+        billedOverheadConversationId = conversationId
+        billedOverheadTokens = overhead
     }
 
     private fun insertSupplementMessage(

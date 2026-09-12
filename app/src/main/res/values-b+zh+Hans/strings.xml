@@ -62,7 +62,7 @@
   <string name="haptics_touch_feedback">触控反馈</string>
   <string name="haptics_touch_feedback_summary">点击按钮、开关和菜单时震动</string>
   <string name="haptics_message_generation">消息生成触控反馈</string>
-  <string name="haptics_message_generation_summary">模型输出内容时提供轻触反馈</string>
+  <string name="haptics_message_generation_summary">模型输出内容或出现工具步骤时提供轻触反馈</string>
   <string name="route_skills">Skills</string>
   <string name="route_permissions">权限</string>
   <string name="route_system_enhancements">系统增强</string>
@@ -602,7 +602,6 @@
   <string name="page_installed_eb88ff">已安装</string>
   <string name="page_ready_f2afde">已就绪</string>
   <string name="page_covered_model_automatic_capabilities_3fa7d4">已覆盖模型自动能力</string>
-  <string name="page_overwritten_will_take_precedence_over_remote_metadat_59934d">已覆盖，将优先于远端元数据</string>
   <string name="page_exceeded_the_1_mib_limit_please_delete_120a63">已超过 1 MiB 上限，请删减</string>
   <string name="page_the_installation_of_common_tools_has_not_been_comple_d7f7c2">常用工具安装尚未完成，可以从当前进度继续</string>
   <string name="page_the_current_root_environment_cannot_create_an_isolat_4ca00a">当前 Root 环境无法创建隔离 mount namespace 或 chroot</string>
@@ -631,7 +630,6 @@
   <string name="page_open_with_external_application_ab3d4c">用外部应用打开</string>
   <string name="page_continue_installation_62da0c">继续安装</string>
   <string name="page_edit_model_29e31e">编辑模型</string>
-  <string name="page_automatic_no_context_cap_was_provided_by_the_remote__db027f">自动：远端未提供上下文上限</string>
   <string name="page_custom_model_25be0f">自定义模型</string>
   <string name="page_set_as_current_model_183d7d">设为当前模型</string>
   <string name="page_please_complete_the_linux_basic_tool_installation_fi_2ab81b">请先完成 Linux 基础工具安装</string>
@@ -970,7 +968,6 @@
   <plurals name="provider_models_selected">
     <item quantity="other">已选 %d 个</item>
   </plurals>
-  <string name="provider_auto_context">自动：%1$s tokens</string>
   <string name="provider_auto_reasoning_supported">自动：支持推理</string>
   <string name="provider_auto_reasoning_unknown">自动：不支持或未知</string>
   <string name="provider_context_tag">%1$s 上下文</string>

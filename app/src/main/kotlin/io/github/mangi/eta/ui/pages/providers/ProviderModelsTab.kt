@@ -866,36 +866,6 @@ private fun ModelEditDialog(
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = when {
-                            contextWindowOverrideText.isNotBlank() -> context.getString(R.string.page_overwritten_will_take_precedence_over_remote_metadat_59934d)
-                            model.contextWindow != null ->
-                                stringResource(
-                                    R.string.provider_auto_context,
-                                    formatCompactTokenCount(model.contextWindow),
-                                )
-                            else -> context.getString(R.string.page_automatic_no_context_cap_was_provided_by_the_remote__db027f)
-                        },
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (contextWindowOverrideText.isNotBlank()) {
-                        TextButton(
-                            text = stringResource(R.string.ui_restore_automatic_8d4e1e),
-                            onClick = {
-                                TouchHaptics.click(view)
-                                contextWindowOverrideText = ""
-                            },
-                            enabled = !isSaving,
-                            colors = ButtonDefaults.textButtonColorsPrimary(),
-                        )
-                    }
-                }
                 contextError?.let { validationError ->
                     Text(
                         text = validationError,

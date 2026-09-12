@@ -133,7 +133,7 @@ internal fun latestContextUsage(
  * 下一轮即将发出的上下文：上一轮账单占用的窗口 + 账单之后新发出的用户消息 + 当前草稿。
  *
  * 优先用接口的 total_tokens（prompt+completion，下一轮历史里会带上那条回复）。
- * 没有 total 时退回 input+output。都没有时由调用方走本地历史估算。
+ * 没有 total 时退回 input+output。都没有时由调用方走本地历史估算，并加上当前请求开销。
  */
 internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int? {
     val billedIndex = messages.indexOfLast { message ->
@@ -176,6 +176,8 @@ internal fun liveContextUsage(
     pendingFileReferences: List<PendingFileReferenceUi> = emptyList(),
     historyTokenCount: Int? = null,
     billedContextTokens: Int? = null,
+    requestOverheadTokens: Int = 0,
+    billedOverheadTokens: Int? = null,
 ): AgentContextUsageUi {
     val supportsVision = selectedModel?.supportsVision ?: true
     val imageFileReferences = if (supportsVision) {
@@ -199,9 +201,13 @@ internal fun liveContextUsage(
     } else {
         AgentContextBudget.countCurrentTurn(prompt, images)
     }
+    val overhead = requestOverheadTokens.coerceAtLeast(0)
     val historyTokens = when {
-        billedContextTokens != null && billedContextTokens > 0 -> billedContextTokens
-        else -> historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }
+        billedContextTokens != null && billedContextTokens > 0 -> {
+            val billedOverhead = billedOverheadTokens ?: overhead
+            (billedContextTokens + (overhead - billedOverhead)).coerceAtLeast(0)
+        }
+        else -> (historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }) + overhead
     }
     return AgentContextUsageUi(
         contextTokens = historyTokens + currentTurnTokens,

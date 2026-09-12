@@ -55,7 +55,7 @@
   <string name="haptics_touch_feedback">Touch feedback</string>
   <string name="haptics_touch_feedback_summary">Vibrate when tapping buttons, switches and menus</string>
   <string name="haptics_message_generation">Message generation haptic</string>
-  <string name="haptics_message_generation_summary">Light vibration while the model is writing</string>
+  <string name="haptics_message_generation_summary">Light vibration while the model is writing or a tool step appears</string>
   <string name="route_skills">Skills</string>
   <string name="route_permissions">Permissions</string>
   <string name="route_system_enhancements">System enhancements</string>
@@ -616,7 +616,6 @@
   <string name="page_installed_eb88ff">Installed</string>
   <string name="page_ready_f2afde">Ready</string>
   <string name="page_covered_model_automatic_capabilities_3fa7d4">Covered model automatic capabilities</string>
-  <string name="page_overwritten_will_take_precedence_over_remote_metadat_59934d">Overwritten, will take precedence over remote metadata</string>
   <string name="page_exceeded_the_1_mib_limit_please_delete_120a63">Exceeded the 1 MiB limit, please delete</string>
   <string name="page_the_installation_of_common_tools_has_not_been_comple_d7f7c2">The installation of common tools has not been completed, you can continue from the current progress</string>
   <string name="page_the_current_root_environment_cannot_create_an_isolat_4ca00a">The current Root environment cannot create an isolated mount namespace or chroot</string>
@@ -645,7 +644,6 @@
   <string name="page_open_with_external_application_ab3d4c">Open with external application</string>
   <string name="page_continue_installation_62da0c">Continue installation</string>
   <string name="page_edit_model_29e31e">Edit model</string>
-  <string name="page_automatic_no_context_cap_was_provided_by_the_remote__db027f">Automatic: no context cap was provided by the remote end</string>
   <string name="page_custom_model_25be0f">custom model</string>
   <string name="page_set_as_current_model_183d7d">Set as current model</string>
   <string name="page_please_complete_the_linux_basic_tool_installation_fi_2ab81b">Please complete the Linux basic tool installation first</string>
@@ -975,7 +973,6 @@
     <item quantity="one">%d selected</item>
     <item quantity="other">%d selected</item>
   </plurals>
-  <string name="provider_auto_context">Auto: %1$s tokens</string>
   <string name="provider_auto_reasoning_supported">Auto: supports reasoning</string>
   <string name="provider_auto_reasoning_unknown">Auto: unsupported or unknown</string>
   <string name="provider_context_tag">%1$s context</string>

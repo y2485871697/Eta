@@ -26,7 +26,7 @@ class PrefsDefaultsTest {
                 Prefs.Keys.AGENT_THINKING_ENABLED to true,
                 Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED to false,
                 Prefs.Keys.HAPTIC_TOUCH_FEEDBACK to true,
-                Prefs.Keys.HAPTIC_MESSAGE_GENERATION to false,
+                Prefs.Keys.HAPTIC_MESSAGE_GENERATION to true,
             ),
             Prefs.Keys.BOOLEAN_DEFAULTS,
         )

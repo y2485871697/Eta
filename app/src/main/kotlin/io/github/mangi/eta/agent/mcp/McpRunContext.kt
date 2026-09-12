@@ -50,6 +50,38 @@ internal class McpRunSnapshot(
     companion object {
         val EMPTY = McpRunSnapshot(emptyList())
 
+        fun appendCachedModelTools(
+            destination: JSONArray,
+            servers: List<McpServerSetting>,
+        ) {
+            var count = 0
+            servers.forEach { server ->
+                server.activeTools.forEach { tool ->
+                    if (count >= MAX_RUN_TOOLS) return
+                    val description = buildString {
+                        append("MCP 服务器「").append(server.name).append("」提供的工具")
+                        tool.description.trim().takeIf { it.isNotBlank() }?.let {
+                            append("。 ").append(it)
+                        }
+                    }
+                    runCatching {
+                        destination.put(
+                            JSONObject()
+                                .put("type", "function")
+                                .put(
+                                    "function",
+                                    JSONObject()
+                                        .put("name", modelToolName(server.id, tool.name))
+                                        .put("description", description)
+                                        .put("parameters", JSONObject(tool.inputSchemaJson)),
+                                ),
+                        )
+                        count++
+                    }
+                }
+            }
+        }
+
         suspend fun load(): McpRunSnapshot {
             val projected = mutableListOf<McpRunTool>()
             val now = System.currentTimeMillis()

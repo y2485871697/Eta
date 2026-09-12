@@ -75,7 +75,7 @@ internal object Prefs {
             AGENT_THINKING_ENABLED to true,
             AGENT_AUTO_COMPRESS_ENABLED to false,
             HAPTIC_TOUCH_FEEDBACK to true,
-            HAPTIC_MESSAGE_GENERATION to false,
+            HAPTIC_MESSAGE_GENERATION to true,
         )
 
         /** 由 Eta Runtime 最终裁决、不要求 Xposed 框架在线的开关。 */

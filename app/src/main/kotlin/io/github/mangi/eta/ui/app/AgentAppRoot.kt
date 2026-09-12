@@ -136,6 +136,7 @@ fun AgentAppRoot(
                     appViewModel.refreshKimiWeb()
                     agentState.refreshPermissionHealth()
                     agentState.refreshRuntimeResults()
+                    agentState.refreshRequestOverhead()
                 }
                 else -> Unit
             }
@@ -309,6 +310,8 @@ fun AgentAppRoot(
                         state = agentState.homeState,
                         modelPickerState = agentState.modelPickerState,
                         autoCompressEnabled = agentState.autoCompressEnabled,
+                        requestOverheadTokens = agentState.requestOverheadTokens,
+                        billedOverheadTokens = agentState.billedOverheadTokens,
                         conversationKey = agentState.conversationPaneState.selectedConversationId,
                         onAction = { action ->
                             when (action) {
@@ -364,6 +367,8 @@ fun AgentAppRoot(
                         state = agentState.homeState,
                         modelPickerState = agentState.modelPickerState,
                         autoCompressEnabled = agentState.autoCompressEnabled,
+                        requestOverheadTokens = agentState.requestOverheadTokens,
+                        billedOverheadTokens = agentState.billedOverheadTokens,
                         conversationKey = agentState.conversationPaneState.selectedConversationId,
                         onAction = { action ->
                             when (action) {

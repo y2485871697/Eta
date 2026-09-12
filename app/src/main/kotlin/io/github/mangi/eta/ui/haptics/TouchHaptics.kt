@@ -14,14 +14,48 @@ import androidx.compose.ui.platform.LocalView
 import io.github.mangi.eta.config.Prefs
 
 /**
+ * 工作过程里「正在运行」的工具步骤只震动一次，避免 LazyColumn 回收或状态刷新重复触发。
+ */
+internal class LiveToolHapticTracker(
+    private val maxIds: Int = 256,
+) {
+    private val ids = LinkedHashSet<String>()
+
+    fun markIfNew(id: String): Boolean {
+        if (id.isBlank()) return false
+        if (!ids.add(id)) return false
+        while (ids.size > maxIds) {
+            val iterator = ids.iterator()
+            if (!iterator.hasNext()) break
+            iterator.next()
+            iterator.remove()
+        }
+        return true
+    }
+}
+
+/**
  * App 内触控反馈。走系统 [View.performHapticFeedback]，以便 HyperOS / 线性马达按系统主题渲染。
  * 总开关关闭时不再发振；同时也尊重系统「触控反馈」总开关。
  */
 internal object TouchHaptics {
+    private val liveToolTracker = LiveToolHapticTracker()
+
     fun isTouchEnabled(): Boolean = Prefs.isEnabled(Prefs.Keys.HAPTIC_TOUCH_FEEDBACK)
 
     fun isMessageGenerationEnabled(): Boolean =
         isTouchEnabled() && Prefs.isEnabled(Prefs.Keys.HAPTIC_MESSAGE_GENERATION)
+
+    fun generationTick(view: View?) {
+        if (!isMessageGenerationEnabled()) return
+        tick(view)
+    }
+
+    /** 终端、读图、浏览网页等工具标签首次进入运行态时轻触一次。推理走流式 tick，不走这里。 */
+    fun onLiveToolActivity(view: View?, toolId: String) {
+        if (!liveToolTracker.markIfNew(toolId)) return
+        generationTick(view)
+    }
 
     fun click(view: View?) {
         perform(view, HapticFeedbackConstants.CONTEXT_CLICK)
