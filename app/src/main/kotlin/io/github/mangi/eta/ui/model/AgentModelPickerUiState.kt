@@ -207,9 +207,9 @@ internal fun countLiveMessageTokens(message: AgentChatMessageUi): Int =
     }
 
 internal fun messageRoundFromId(id: String): Int? {
-    Regex("-thinking-(\d+)-").find(id)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
-    Regex("-tool-(\d+)-").find(id)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
-    Regex("-hosted-(\d+)-").find(id)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
+    Regex("""-thinking-(\d+)-""").find(id)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
+    Regex("""-tool-(\d+)-""").find(id)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
+    Regex("""-hosted-(\d+)-""").find(id)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
     if (id.startsWith("assistant-run-")) {
         val parts = id.split("-")
         if (parts.size >= 9) return parts[parts.size - 2].toIntOrNull()
