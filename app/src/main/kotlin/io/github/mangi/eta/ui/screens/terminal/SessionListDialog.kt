@@ -1,5 +1,7 @@
 package io.github.mangi.eta.ui.screens.terminal
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 
 import androidx.compose.foundation.clickable
@@ -79,7 +81,11 @@ internal fun SessionListDialog(
         }
         TextButton(
             text = stringResource(R.string.terminal_new_session),
-            onClick = { onNew(); onDismiss() },
+            onClick = {
+                TouchHaptics.click(LocalView.current)
+                onNew()
+                onDismiss()
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp),
@@ -95,10 +101,14 @@ private fun SessionRow(
     onRestart: () -> Unit,
     onClose: () -> Unit,
 ) {
+    val view = LocalView.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onSelect)
+            .clickable(onClick = {
+                TouchHaptics.click(view)
+                onSelect()
+            })
             .padding(vertical = 6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -147,7 +157,10 @@ private fun SessionRow(
             )
             TextButton(
                 text = stringResource(R.string.terminal_restart_session),
-                onClick = onRestart,
+                onClick = {
+                    TouchHaptics.click(view)
+                    onRestart()
+                },
                 minHeight = 28.dp,
                 insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 textStyle = MiuixTheme.textStyles.body2,
@@ -155,7 +168,10 @@ private fun SessionRow(
             )
             TextButton(
                 text = stringResource(R.string.terminal_close_session),
-                onClick = onClose,
+                onClick = {
+                    TouchHaptics.click(view)
+                    onClose()
+                },
                 minHeight = 28.dp,
                 insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 textStyle = MiuixTheme.textStyles.body2,

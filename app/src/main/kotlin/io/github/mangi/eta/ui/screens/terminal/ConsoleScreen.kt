@@ -59,6 +59,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
+import androidx.compose.ui.platform.LocalView
 import io.github.mangi.eta.agent.terminal.TerminalEnvironment
 import io.github.mangi.eta.agent.terminal.label
 import io.github.mangi.eta.agent.terminal.TerminalScreenBuffer
@@ -232,7 +234,11 @@ private fun ConsoleStatusBar(
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onOpenSessions) {
+            val view = LocalView.current
+            IconButton(onClick = {
+                TouchHaptics.click(view)
+                onOpenSessions()
+            }) {
                 Icon(
                     imageVector = Icons.Rounded.Layers,
                     contentDescription = stringResource(R.string.terminal_sessions),
@@ -240,7 +246,10 @@ private fun ConsoleStatusBar(
                     tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
-            IconButton(onClick = onOpenTasks) {
+            IconButton(onClick = {
+                TouchHaptics.click(view)
+                onOpenTasks()
+            }) {
                 Icon(
                     imageVector = Icons.Rounded.Insights,
                     contentDescription = stringResource(R.string.terminal_daemon_tasks),
@@ -250,7 +259,10 @@ private fun ConsoleStatusBar(
             }
             TextButton(
                 text = stringResource(R.string.terminal_block_mode),
-                onClick = onExitConsole,
+                onClick = {
+                    TouchHaptics.click(view)
+                    onExitConsole()
+                },
                 minHeight = 28.dp,
                 insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 textStyle = MiuixTheme.textStyles.body2,
@@ -381,7 +393,10 @@ private fun ColumnScope.ConsoleGrid(
                 )
                 TextButton(
                     text = stringResource(R.string.terminal_reconnect),
-                    onClick = store::reconnect,
+                    onClick = {
+                        TouchHaptics.click(LocalView.current)
+                        store.reconnect()
+                    },
                     modifier = Modifier.padding(top = 12.dp),
                     minHeight = 28.dp,
                     insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -391,7 +406,10 @@ private fun ColumnScope.ConsoleGrid(
                 if (state.failMessage != null) {
                     TextButton(
                         text = stringResource(R.string.terminal_open_environment),
-                        onClick = onOpenEnvironment,
+                        onClick = {
+                            TouchHaptics.click(LocalView.current)
+                            onOpenEnvironment()
+                        },
                         modifier = Modifier.padding(top = 4.dp),
                         minHeight = 28.dp,
                         insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -501,13 +519,17 @@ private fun KeyChip(
     active: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val view = LocalView.current
     Box(
         modifier = modifier
             .background(
                 if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceVariant,
                 RoundedCornerShape(8.dp),
             )
-            .clickable(onClick = onClick)
+            .clickable(onClick = {
+                TouchHaptics.keyboardTap(view)
+                onClick()
+            })
             .padding(vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -530,6 +552,7 @@ private fun EnvironmentTab(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val view = LocalView.current
     Text(
         text = label,
         style = MiuixTheme.textStyles.footnote1,
@@ -540,7 +563,10 @@ private fun EnvironmentTab(
         },
         fontWeight = if (selected) FontWeight.SemiBold else null,
         modifier = Modifier
-            .clickable(onClick = onClick)
+            .clickable(onClick = {
+                TouchHaptics.click(view)
+                onClick()
+            })
             .padding(horizontal = 8.dp, vertical = 6.dp),
     )
 }

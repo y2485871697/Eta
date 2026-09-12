@@ -46,7 +46,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
+import io.github.mangi.eta.ui.haptics.HapticSelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Build
@@ -596,7 +596,7 @@ private fun UserMessageBubble(
                 )
             }
             if (visiblePrompt.request.isNotBlank()) {
-                SelectionContainer {
+                HapticSelectionContainer {
                     Text(
                         text = visiblePrompt.request,
                         style = MiuixTheme.textStyles.body1,
@@ -735,7 +735,7 @@ private fun AgentMessageBlock(
                 modifier = Modifier.padding(top = 4.dp)
             )
         } else {
-            SelectionContainer {
+            HapticSelectionContainer {
                 when {
                     streamingState != null && !streamingRevealComplete -> {
                         StreamingMarkdown(
@@ -1813,7 +1813,7 @@ private fun ChatCodeBlock(
             .let { base ->
                 if (revealState != null) base.smoothTextReveal(revealState) else base
             }
-        SelectionContainer {
+        HapticSelectionContainer {
             Text(
                 text = code,
                 style = if (revealState != null) {
@@ -2243,7 +2243,7 @@ private fun ThinkingRow(
         }
 
         AnimatedVisibility(visible = expanded && message.content.isNotBlank()) {
-            SelectionContainer {
+            HapticSelectionContainer {
                 Column {
                     if (!compact) {
                         Box(
@@ -2485,7 +2485,7 @@ private fun ToolActivityInline(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(bottom = 2.dp)
                     )
-                    SelectionContainer {
+                    HapticSelectionContainer {
                         Text(
                             text = message.resultSummary,
                             style = MiuixTheme.textStyles.footnote2,
@@ -2697,7 +2697,7 @@ private fun ToolCommandBlock(
                 .height(0.5.dp)
                 .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.45f)),
         )
-        SelectionContainer {
+        HapticSelectionContainer {
             Text(
                 text = command,
                 style = MiuixTheme.textStyles.footnote2.copy(fontFamily = FontFamily.Monospace),
@@ -2827,7 +2827,16 @@ private fun ContextCompactedDivider(
                 .background(lineColor),
         )
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                    TouchHaptics.click(view)
+                    showSummary = true
+                }
+                .semantics {
+                    contentDescription = summaryAction
+                }
+                .padding(horizontal = 8.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -2848,29 +2857,6 @@ private fun ContextCompactedDivider(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(modifier = Modifier.width(6.dp))
-            Box(
-                modifier = Modifier
-                    .size(15.dp)
-                    .clip(CircleShape)
-                    .border(0.7.dp, labelColor.copy(alpha = 0.85f), CircleShape)
-                    .clickable {
-                        TouchHaptics.click(view)
-                        showSummary = true
-                    }
-                    .semantics {
-                        contentDescription = summaryAction
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "i",
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = labelColor,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
         }
         Box(
             modifier = Modifier
@@ -2880,10 +2866,9 @@ private fun ContextCompactedDivider(
         )
     }
     if (showSummary) {
-        ItemDescriptionDialog(
-            title = stringResource(R.string.context_compacted_summary_title),
-            summary = message.compressorLabel.takeIf(String::isNotBlank),
-            description = message.summary,
+        ContextCompactedSummarySheet(
+            summary = message.summary,
+            compressorLabel = message.compressorLabel,
             onDismiss = { showSummary = false },
         )
     }

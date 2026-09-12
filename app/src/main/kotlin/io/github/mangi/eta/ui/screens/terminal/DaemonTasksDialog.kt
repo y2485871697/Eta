@@ -1,5 +1,7 @@
 package io.github.mangi.eta.ui.screens.terminal
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 
 import androidx.compose.foundation.background
@@ -75,6 +77,7 @@ private fun DaemonTaskRow(
     onStop: (String) -> Unit,
     onLoadLogs: suspend (String) -> String,
 ) {
+    val view = LocalView.current
     var logsExpanded by remember(task.id) { mutableStateOf(false) }
     var logs by remember(task.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -111,6 +114,7 @@ private fun DaemonTaskRow(
                 insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 textStyle = MiuixTheme.textStyles.body2,
                 onClick = {
+                    TouchHaptics.click(view)
                     logsExpanded = !logsExpanded
                     if (logsExpanded && logs == null) {
                         scope.launch { logs = onLoadLogs(task.id) }
@@ -120,7 +124,10 @@ private fun DaemonTaskRow(
             )
             TextButton(
                 text = stringResource(R.string.terminal_stop),
-                onClick = { onStop(task.id) },
+                onClick = {
+                    TouchHaptics.click(view)
+                    onStop(task.id)
+                },
                 minHeight = 28.dp,
                 insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 textStyle = MiuixTheme.textStyles.body2,

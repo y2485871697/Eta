@@ -56,6 +56,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
+import androidx.compose.ui.platform.LocalView
 import io.github.mangi.eta.agent.terminal.TerminalEnvironment
 import io.github.mangi.eta.agent.terminal.label
 import io.github.mangi.eta.agent.terminal.isLinux
@@ -233,6 +235,7 @@ private fun CommandBlock(
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
+    val view = LocalView.current
     val exitCode = block.exitCode
     val failed = exitCode != null && exitCode != 0
     Box {
@@ -240,7 +243,13 @@ private fun CommandBlock(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(IntrinsicSize.Min)
-                .combinedClickable(onClick = {}, onLongClick = { showMenu = true })
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick = {
+                        TouchHaptics.longPress(view)
+                        showMenu = true
+                    },
+                )
                 .padding(vertical = 6.dp),
         ) {
             if (failed) {
@@ -347,6 +356,7 @@ private fun BlockMenu(
                 isSelected = false,
                 index = 0,
                 onSelectedIndexChange = {
+                    TouchHaptics.click(LocalView.current)
                     onDismiss()
                     clipboard.setText(AnnotatedString(block.command))
                 },
@@ -358,6 +368,7 @@ private fun BlockMenu(
                 index = 1,
                 enabled = block.output.isNotEmpty(),
                 onSelectedIndexChange = {
+                    TouchHaptics.click(LocalView.current)
                     onDismiss()
                     clipboard.setText(AnnotatedString(ansiPlainText(block.output)))
                 },
@@ -368,6 +379,7 @@ private fun BlockMenu(
                 isSelected = false,
                 index = 2,
                 onSelectedIndexChange = {
+                    TouchHaptics.click(LocalView.current)
                     onDismiss()
                     onReinput(block.command)
                 },
@@ -425,7 +437,11 @@ private fun StatusBar(
                 .weight(1f)
                 .padding(horizontal = 8.dp),
         )
-        IconButton(onClick = onOpenSessions) {
+        val view = LocalView.current
+        IconButton(onClick = {
+            TouchHaptics.click(view)
+            onOpenSessions()
+        }) {
             Icon(
                 imageVector = Icons.Rounded.Layers,
                 contentDescription = stringResource(R.string.terminal_sessions),
@@ -433,7 +449,10 @@ private fun StatusBar(
                 tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         }
-        IconButton(onClick = onOpenTasks) {
+        IconButton(onClick = {
+            TouchHaptics.click(view)
+            onOpenTasks()
+        }) {
             Icon(
                 imageVector = Icons.Rounded.Insights,
                 contentDescription = stringResource(R.string.terminal_daemon_tasks),
@@ -442,7 +461,10 @@ private fun StatusBar(
             )
         }
         if (onOpenConsole != null) {
-            IconButton(onClick = onOpenConsole) {
+            IconButton(onClick = {
+                TouchHaptics.click(view)
+                onOpenConsole()
+            }) {
                 Icon(
                     imageVector = Icons.Rounded.Terminal,
                     contentDescription = stringResource(R.string.terminal_console_mode),
@@ -454,7 +476,10 @@ private fun StatusBar(
         if (state.running) {
             TextButton(
                 text = stringResource(R.string.terminal_stop),
-                onClick = onStop,
+                onClick = {
+                    TouchHaptics.click(view)
+                    onStop()
+                },
                 minHeight = 28.dp,
                 insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 textStyle = MiuixTheme.textStyles.body2,
@@ -473,6 +498,7 @@ private fun EnvironmentTab(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val view = LocalView.current
     Text(
         text = label,
         style = MiuixTheme.textStyles.footnote1,
@@ -483,7 +509,10 @@ private fun EnvironmentTab(
         },
         fontWeight = if (selected) FontWeight.SemiBold else null,
         modifier = Modifier
-            .clickable(onClick = onClick)
+            .clickable(onClick = {
+                TouchHaptics.click(view)
+                onClick()
+            })
             .padding(horizontal = 8.dp, vertical = 6.dp),
     )
 }
@@ -510,8 +539,12 @@ private fun InputRow(
         maxLines = 4,
         textStyle = MiuixTheme.textStyles.body2.copy(fontFamily = FontFamily.Monospace),
         trailingIcon = {
+            val view = LocalView.current
             IconButton(
-                onClick = onSubmit,
+                onClick = {
+                    TouchHaptics.click(view)
+                    onSubmit()
+                },
                 enabled = canSend,
                 modifier = Modifier
                     .padding(end = 6.dp)
@@ -545,7 +578,10 @@ private fun LinuxGuide(onOpenEnvironment: () -> Unit) {
         )
         TextButton(
             text = stringResource(R.string.terminal_open_environment),
-            onClick = onOpenEnvironment,
+            onClick = {
+                TouchHaptics.click(LocalView.current)
+                onOpenEnvironment()
+            },
             modifier = Modifier.padding(top = 12.dp),
             colors = ButtonDefaults.textButtonColorsPrimary(),
         )
