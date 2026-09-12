@@ -4,6 +4,7 @@ import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.util.Locale
 import io.github.mangi.eta.agent.model.AgentHttpClient
+import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.agent.model.CustomHeaderFilter
 import kotlinx.coroutines.Dispatchers
@@ -21,21 +22,29 @@ internal object ProviderBalanceFetcher {
     private val json = Json { ignoreUnknownKeys = true }
     private val binaryExpr = Regex("""^(.+?)\s+([+\-*/])\s+(.+)$""")
 
-    suspend fun fetch(provider: ProviderSetting): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun fetch(
+        provider: ProviderSetting,
+        option: BalanceOption = provider.balanceOption,
+    ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val option = provider.balanceOption
             require(option.enabled) { "Balance query not enabled" }
             require(option.apiPath.isNotBlank()) { "Balance API path not set" }
             require(option.resultPath.isNotBlank()) { "Result JSON path not set" }
-            val url = resolveBalanceUrl(provider.baseUrl, option.apiPath)
+            val url = resolveBalanceUrl(provider.baseUrl, option.apiPath, option.preset)
+            val token = option.accessToken.ifBlank { provider.apiKey }
             val request = Request.Builder()
                 .url(url)
                 .headers(
                     okhttp3.Headers.Builder()
                         .add("Accept", "application/json")
                         .apply {
-                            if (provider.apiKey.isNotBlank()) {
-                                add("Authorization", "Bearer ${provider.apiKey}")
+                            if (token.isNotBlank()) {
+                                add("Authorization", "Bearer $token")
+                            }
+                            if (option.preset == BalanceOption.PRESET_NEW_API &&
+                                option.userId.isNotBlank()
+                            ) {
+                                add(BalanceOption.NEW_API_USER_HEADER, option.userId)
                             }
                             CustomHeaderFilter.mergeInto(this, provider.customHeaders)
                         }
@@ -54,10 +63,42 @@ internal object ProviderBalanceFetcher {
         }
     }
 
-    internal fun resolveBalanceUrl(baseUrl: String, apiPath: String): String {
-        val normalizedBase = baseUrl.trim().removeSuffix("/")
-        val normalizedPath = apiPath.trim().removePrefix("/")
+    internal fun resolveBalanceUrl(
+        baseUrl: String,
+        apiPath: String,
+        preset: String = BalanceOption.PRESET_CUSTOM,
+    ): String {
+        val path = apiPath.trim()
+        if (path.startsWith("http://", ignoreCase = true) ||
+            path.startsWith("https://", ignoreCase = true)
+        ) {
+            return path
+        }
+        val normalizedPath = path.removePrefix("/")
+        val normalizedBase = if (
+            preset == BalanceOption.PRESET_NEW_API || isOriginRelativeUserApi(normalizedPath)
+        ) {
+            originFromOpenAiBaseUrl(baseUrl)
+        } else {
+            baseUrl.trim().removeSuffix("/")
+        }
         return "$normalizedBase/$normalizedPath"
+    }
+
+    internal fun originFromOpenAiBaseUrl(baseUrl: String): String {
+        val url = baseUrl.trim().removeSuffix("/")
+        val suffixes = listOf("/compatible-mode/v1", "/openai/v1", "/v1beta", "/v1")
+        for (suffix in suffixes) {
+            if (url.endsWith(suffix, ignoreCase = true)) {
+                return url.dropLast(suffix.length)
+            }
+        }
+        return url
+    }
+
+    private fun isOriginRelativeUserApi(path: String): Boolean {
+        val normalized = path.lowercase()
+        return normalized.startsWith("api/user") || normalized.startsWith("api/token")
     }
 
     internal fun extractValue(body: String, resultPath: String): String {

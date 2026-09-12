@@ -124,8 +124,11 @@ internal val ProviderConfigDraftSaver = mapSaver(
             "hostedWebSearchEnabled" to draft.hostedWebSearchEnabled,
             "anthropicVersion" to draft.anthropicVersion,
             "balanceOptionEnabled" to draft.balanceOption.enabled,
+            "balanceOptionPreset" to draft.balanceOption.preset,
             "balanceOptionApiPath" to draft.balanceOption.apiPath,
             "balanceOptionResultPath" to draft.balanceOption.resultPath,
+            "balanceOptionUserId" to draft.balanceOption.userId,
+            "balanceOptionAccessToken" to draft.balanceOption.accessToken,
         )
     },
     restore = { state ->
@@ -140,8 +143,11 @@ internal val ProviderConfigDraftSaver = mapSaver(
             anthropicVersion = state.getValue("anthropicVersion") as String,
             balanceOption = BalanceOption(
                 enabled = state["balanceOptionEnabled"] as? Boolean ?: false,
+                preset = state["balanceOptionPreset"] as? String ?: BalanceOption.PRESET_CUSTOM,
                 apiPath = state["balanceOptionApiPath"] as? String ?: "",
                 resultPath = state["balanceOptionResultPath"] as? String ?: "",
+                userId = state["balanceOptionUserId"] as? String ?: "",
+                accessToken = state["balanceOptionAccessToken"] as? String ?: "",
             ),
         )
     },

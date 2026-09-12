@@ -1,5 +1,6 @@
 package io.github.mangi.eta.data.repository
 
+import io.github.mangi.eta.data.model.BalanceOption
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,5 +68,53 @@ class ProviderBalanceFetcherTest {
             ProviderBalanceFetcher.extractValue(deepSeekBody, "balance_infos[0].missing")
         }.exceptionOrNull()
         assertTrue(error?.message.orEmpty().contains("JSON path not found: missing"))
+    }
+
+    @Test
+    fun resolveBalanceUrlStripsOpenAiSuffixForNewApi() {
+        assertEquals(
+            "https://api.example.com/api/user/self",
+            ProviderBalanceFetcher.resolveBalanceUrl(
+                "https://api.example.com/v1",
+                "api/user/self",
+                BalanceOption.PRESET_NEW_API,
+            ),
+        )
+        assertEquals(
+            "https://dashscope.aliyuncs.com/api/user/self",
+            ProviderBalanceFetcher.resolveBalanceUrl(
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "/api/user/self",
+            ),
+        )
+        assertEquals(
+            "https://api.example.com/v1/user/balance",
+            ProviderBalanceFetcher.resolveBalanceUrl(
+                "https://api.example.com/v1",
+                "user/balance",
+            ),
+        )
+    }
+
+    @Test
+    fun extractValueConvertsNewApiQuotaUnits() {
+        val body = """{"success":true,"data":{"quota":50000000,"used_quota":250000}}"""
+        val value = ProviderBalanceFetcher.extractValue(
+            body,
+            BalanceOption.NEW_API_RESULT_PATH,
+        )
+        assertEquals("100", value)
+    }
+
+    @Test
+    fun applyNewApiPresetFillsSelfEndpointAndQuotaFormula() {
+        val applied = BalanceOption.applyPreset(
+            BalanceOption.PRESET_NEW_API,
+            BalanceOption(enabled = true, userId = "114514"),
+        )
+        assertEquals(BalanceOption.PRESET_NEW_API, applied.preset)
+        assertEquals(BalanceOption.NEW_API_PATH, applied.apiPath)
+        assertEquals(BalanceOption.NEW_API_RESULT_PATH, applied.resultPath)
+        assertEquals("114514", applied.userId)
     }
 }

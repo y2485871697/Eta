@@ -1222,6 +1222,14 @@
   <string name="ui_balance_result_path">结果 JSON 键</string>
   <string name="ui_test_balance">测试余额查询</string>
   <string name="ui_balance_section_title">余额</string>
+  <string name="ui_balance_preset">预设模板</string>
+  <string name="ui_balance_preset_custom">自定义</string>
+  <string name="ui_balance_preset_new_api">NewAPI</string>
+  <string name="ui_balance_preset_custom_summary">自行填写接口路径和 JSON 结果键</string>
+  <string name="ui_balance_preset_new_api_summary">请求 /api/user/self，并用 data.quota / 500000 换算额度</string>
+  <string name="ui_balance_user_id">用户 ID</string>
+  <string name="ui_balance_access_token">访问令牌</string>
+  <string name="ui_balance_access_token_summary">来自 NewAPI 个人安全设置。留空则使用提供商 API Key</string>
 
     <string name="stats_page_title">用量统计</string>
     <string name="stats_page_heatmap_title">对话热力图</string>
