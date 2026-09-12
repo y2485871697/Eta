@@ -102,6 +102,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -135,6 +136,7 @@ internal fun AgentChatBody(
     input: String,
     isStreaming: Boolean,
     isPaused: Boolean = false,
+    isCompressingContext: Boolean = false,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -233,6 +235,7 @@ internal fun AgentChatBody(
         autoCompressEnabled = autoCompressEnabled,
         isStreaming = isStreaming,
         isPaused = isPaused,
+        isCompressingContext = isCompressingContext,
         reasoningEffort = reasoningEffort,
         availableReasoningEfforts = availableReasoningEfforts,
         pendingImages = pendingImages,
@@ -290,6 +293,7 @@ private fun AgentChatScaffold(
     autoCompressEnabled: Boolean,
     isStreaming: Boolean,
     isPaused: Boolean = false,
+    isCompressingContext: Boolean = false,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -392,6 +396,7 @@ private fun AgentChatScaffold(
                 scrollState = scrollState,
                 isStreaming = isStreaming && !isPaused,
                 isPaused = isPaused,
+                isCompressingContext = isCompressingContext,
                 bottomInset = bottomPadding,
                 keepBottomAnchored = keepBottomAnchored,
                 onBottomAnchorChanged = onBottomAnchorChanged,
@@ -421,6 +426,7 @@ internal fun AgentConversationMessages(
     scrollState: LazyListState,
     isStreaming: Boolean,
     isPaused: Boolean = false,
+    isCompressingContext: Boolean = false,
     bottomInset: Dp,
     keepBottomAnchored: Boolean,
     onBottomAnchorChanged: (Boolean) -> Unit,
@@ -463,7 +469,8 @@ internal fun AgentConversationMessages(
     // 流式消息的渲染会话按 id 提升到列表层持有：item 滚出视口被 LazyColumn 销毁后，
     // 滑回时复用同一解析会话与打字机进度，避免整段内容重新解析并重放显现动画。
     val streamingMarkdownStates = remember { mutableStateMapOf<String, StreamingMarkdownState>() }
-    val bottomItemIndex = timelineEntries.size
+    val compressingItemCount = if (isCompressingContext) 1 else 0
+    val bottomItemIndex = timelineEntries.size + compressingItemCount
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
     val isAtBottom by remember(scrollState) {
         derivedStateOf { !scrollState.canScrollForward }
@@ -717,6 +724,17 @@ internal fun AgentConversationMessages(
                             modifier = itemModifier,
                         )
                     }
+                }
+            }
+            if (isCompressingContext) {
+                item(key = ChatContextCompressingKey) {
+                    ContextCompressingIndicator(
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = tween(durationMillis = 180),
+                            placementSpec = null,
+                            fadeOutSpec = null,
+                        ),
+                    )
                 }
             }
             item(key = ChatBottomSentinelKey) {
@@ -1009,6 +1027,26 @@ private fun AgentChatBottomBar(
 private val ChatBottomFrostHeight = 24.dp
 
 private const val ChatBottomSentinelKey = "agent-chat-bottom-sentinel"
+private const val ChatContextCompressingKey = "agent-chat-context-compressing"
+
+@Composable
+private fun ContextCompressingIndicator(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+        Text(
+            text = stringResource(R.string.compress_conversation_in_progress),
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}
+
 private const val BOTTOM_FOLLOW_RESPONSE_SECONDS = 0.085f
 private const val BOTTOM_FOLLOW_MAX_FRAME_SECONDS = 0.05f
 private const val BOTTOM_FOLLOW_MAX_SPEED_DP_PER_SECOND = 720f

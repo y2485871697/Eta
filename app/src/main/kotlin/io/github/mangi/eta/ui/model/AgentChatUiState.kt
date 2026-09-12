@@ -12,6 +12,7 @@ internal data class AgentChatUiState(
     val input: String,
     val isStreaming: Boolean,
     val isPaused: Boolean = false,
+    val isCompressingContext: Boolean = false,
     val thinkingEnabled: Boolean,
     val reasoningEffort: ReasoningEffort = ReasoningEffort.fromLegacy(thinkingEnabled),
     val availableReasoningEfforts: List<ReasoningEffort> = emptyList(),

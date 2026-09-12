@@ -41,6 +41,7 @@ internal fun AgentHomeScreen(
             input = state.input,
             isStreaming = state.isStreaming,
             isPaused = state.isPaused,
+            isCompressingContext = state.isCompressingContext,
             reasoningEffort = state.reasoningEffort,
             availableReasoningEfforts = state.availableReasoningEfforts,
             pendingImages = state.pendingImages,

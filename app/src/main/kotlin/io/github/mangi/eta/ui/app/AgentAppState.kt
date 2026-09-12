@@ -1651,11 +1651,25 @@ internal class AgentAppState(
         runOverheadTokens[runId] = requestOverheadTokens
         currentRunId = runId
 
+        val willCompress = shouldAutoCompress(
+            history = history,
+            contextWindow = modelPickerState.selectedModel?.contextWindow ?: 128_000,
+            estimatedTokens = liveContextUsage(
+                history = history,
+                currentInput = prompt,
+                pendingImages = images,
+                selectedModel = modelPickerState.selectedModel,
+                billedContextTokens = latestBilledContextTokens(state.messages),
+                requestOverheadTokens = requestOverheadTokens,
+                billedOverheadTokens = billedOverheadTokens,
+            ).contextTokens,
+        )
         updateConversation(
             conversationId,
             state.copy(
                 isStreaming = true,
                 isPaused = false,
+                isCompressingContext = willCompress,
                 history = history + userHistoryMessage,
                 messages = messages,
                 messageEdit = null,
@@ -1730,12 +1744,17 @@ internal class AgentAppState(
                 requestOverheadTokens = requestOverheadTokens,
                 billedOverheadTokens = billedOverheadTokens,
             ).contextTokens
-            val historyToSend = if (shouldAutoCompress(
-                    history,
-                    config.contextWindow ?: 128_000,
-                    estimatedTokens,
-                )
-            ) {
+            val shouldCompress = shouldAutoCompress(
+                history,
+                config.contextWindow ?: 128_000,
+                estimatedTokens,
+            )
+            if (shouldCompress != willCompress) {
+                withContext(Dispatchers.Main) {
+                    setConversationCompressing(conversationId, shouldCompress)
+                }
+            }
+            val historyToSend = if (shouldCompress) {
                 val compressed = tryCompressHistory(history, compressModelConfig)
                 withContext(Dispatchers.Main) {
                     applyCompressedHistoryToConversation(
@@ -1745,6 +1764,7 @@ internal class AgentAppState(
                         userHistoryMessage = userHistoryMessage,
                         compressorLabel = compressorLabel(compressModelConfig),
                     )
+                    setConversationCompressing(conversationId, false)
                 }
                 compressed
             } else {
@@ -1856,6 +1876,7 @@ internal class AgentAppState(
         updateConversation(
             conversationId,
             current.copy(
+                isCompressingContext = false,
                 history = compressedHistory + userHistoryMessage,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = clearBilledTokenUsage(current.messages),
@@ -2109,6 +2130,7 @@ internal class AgentAppState(
             homeState.copy(
                 isStreaming = false,
                 isPaused = false,
+                isCompressingContext = false,
                 messages = freezeStreamingMessages(homeState.messages),
             )
         )
@@ -2998,12 +3020,22 @@ internal class AgentAppState(
         }
     }
 
+    private fun setConversationCompressing(conversationId: String, compressing: Boolean) {
+        val current = conversationsById[conversationId] ?: return
+        if (current.isCompressingContext == compressing) return
+        updateConversation(conversationId, current.copy(isCompressingContext = compressing))
+    }
+
     private fun setConversationStreaming(runId: String, isStreaming: Boolean) {
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return
         updateConversation(
             conversationId,
-            state.copy(isStreaming = isStreaming, isPaused = if (isStreaming) state.isPaused else false),
+            state.copy(
+                isStreaming = isStreaming,
+                isPaused = if (isStreaming) state.isPaused else false,
+                isCompressingContext = if (isStreaming) state.isCompressingContext else false,
+            ),
         )
     }
 
