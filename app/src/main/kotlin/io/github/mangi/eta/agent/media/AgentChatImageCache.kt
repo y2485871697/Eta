@@ -68,6 +68,16 @@ internal class AgentChatImageCache(context: Context) {
             }.getOrNull()
         }
 
+        fun readBytes(value: String): ByteArray? {
+            decodeImageBytes(value)?.let { return it }
+            val path = value.trim().removePrefix("file://")
+            if (!path.startsWith("/")) return null
+            val file = File(path)
+            if (!file.isFile || file.length() !in 1L..MAX_AGENT_IMAGE_BYTES.toLong()) return null
+            return runCatching { file.readBytes() }.getOrNull()
+                ?.takeIf { it.isNotEmpty() && it.size <= MAX_AGENT_IMAGE_BYTES }
+        }
+
         private fun sanitize(conversationId: String): String =
             AgentFileReferenceGateway.safeImportName(conversationId)
     }

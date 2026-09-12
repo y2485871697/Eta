@@ -156,6 +156,7 @@ import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityStatusUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
+import io.github.mangi.eta.ui.model.fullImageSourceAt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -567,11 +568,11 @@ private fun UserMessageBubble(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.padding(bottom = 8.dp)
                 ) {
-                    message.images.forEach { dataUrl ->
+                    message.images.forEachIndexed { index, dataUrl ->
                         val bitmap = rememberDataUrlBitmap(dataUrl)
                         if (bitmap != null) {
                             ChatClickableImage(
-                                source = dataUrl,
+                                source = message.fullImageSourceAt(index),
                                 bitmap = bitmap,
                                 contentDescription = stringResource(R.string.chat_image_preview),
                                 modifier = Modifier

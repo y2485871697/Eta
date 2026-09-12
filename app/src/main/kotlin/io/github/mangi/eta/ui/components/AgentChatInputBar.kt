@@ -696,7 +696,7 @@ private fun PendingImageStrip(
             ) {
                 rememberDataUrlBitmap(image.dataUrl)?.let { bitmap ->
                     ChatClickableImage(
-                        source = image.dataUrl,
+                        source = image.uri,
                         bitmap = bitmap,
                         contentDescription = stringResource(R.string.chat_image_preview),
                         modifier = Modifier.fillMaxSize(),

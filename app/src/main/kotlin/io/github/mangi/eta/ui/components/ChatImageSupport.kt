@@ -2,6 +2,7 @@ package io.github.mangi.eta.ui.components
 
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.MediaStore
@@ -248,8 +249,13 @@ internal fun decodeDisplayBitmap(
         bytes,
         0,
         bytes.size,
-        BitmapFactory.Options().apply { inSampleSize = sample },
+        BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+            inScaled = false
+        },
     ) ?: return null
+    bitmap.density = Bitmap.DENSITY_NONE
     return bitmap.asImageBitmap()
 }
 

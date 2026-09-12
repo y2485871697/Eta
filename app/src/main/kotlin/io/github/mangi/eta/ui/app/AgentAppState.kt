@@ -103,6 +103,7 @@ import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolGroupUi
 import io.github.mangi.eta.ui.model.ToolItemUi
 import io.github.mangi.eta.ui.model.UserMessageUi
+import io.github.mangi.eta.ui.model.fullImageSourceAt
 import io.github.mangi.eta.ui.model.canDeleteUserSkill
 import java.io.InputStream
 import java.io.OutputStream
@@ -1313,6 +1314,10 @@ internal class AgentAppState(
             content = runtimePrompt,
             images = uiImages.map { it.dataUrl },
             isEdited = editBoundary != null,
+            imageSources = when {
+                persistedImages.size == uiImages.size -> persistedImages.map { it.absolutePath }
+                else -> uiImages.map { it.uri }
+            },
         )
         val messages = if (editBoundary == null) {
             homeState.messages + userMessage
@@ -1371,8 +1376,8 @@ internal class AgentAppState(
         images: List<PendingImageUi>,
     ): List<AgentFileReference> =
         images.mapIndexedNotNull { index, image ->
-            val bytes = AgentChatImageCache.decodeImageBytes(image.uri)
-                ?: AgentChatImageCache.decodeImageBytes(image.dataUrl)
+            val bytes = AgentChatImageCache.readBytes(image.uri)
+                ?: AgentChatImageCache.readBytes(image.dataUrl)
                 ?: return@mapIndexedNotNull null
             chatImageCache.stage(conversationId, bytes, image.cacheDisplayName(index))
         }
@@ -1384,7 +1389,7 @@ internal class AgentAppState(
         val images = boundary.userMessage.images.mapIndexed { index, dataUrl ->
             PendingImageUi(
                 id = "edit-${boundary.userMessage.id}-$index",
-                uri = dataUrl,
+                uri = boundary.userMessage.fullImageSourceAt(index),
                 dataUrl = dataUrl,
                 mimeType = dataUrl.imageMimeType(),
             )
@@ -1463,7 +1468,7 @@ internal class AgentAppState(
         val images = boundary.userMessage.images.mapIndexed { index, dataUrl ->
             PendingImageUi(
                 id = "regenerate-${boundary.userMessage.id}-$index",
-                uri = dataUrl,
+                uri = boundary.userMessage.fullImageSourceAt(index),
                 dataUrl = dataUrl,
                 mimeType = dataUrl.imageMimeType(),
             )

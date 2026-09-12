@@ -158,6 +158,39 @@ internal object AgentConversationCodec {
             .put("content", content)
     }
 
+    fun persistedImageSources(message: AgentModelClient.ConversationMessage): List<String> {
+        if (!message.role.equals("user", ignoreCase = true) || message.contentJson.isBlank()) {
+            return emptyList()
+        }
+        val content = runCatching { JSONTokener(message.contentJson).nextValue() }.getOrNull() as? JSONArray
+            ?: return emptyList()
+        return buildList {
+            for (index in 0 until content.length()) {
+                val item = content.optJSONObject(index) ?: continue
+                when (item.optString("type")) {
+                    IMAGE_FILE_TYPE -> {
+                        item.optString("path").trim()
+                            .takeIf { it.startsWith("/") }
+                            ?.let(::add)
+                    }
+                    "image_url" -> {
+                        item.optJSONObject("image_url")
+                            ?.optString("url")
+                            ?.trim()
+                            ?.takeIf { it.isNotBlank() && it.isDirectPreviewSource() }
+                            ?.let(::add)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun String.isDirectPreviewSource(): Boolean =
+        startsWith("https://", ignoreCase = true) ||
+            startsWith("http://", ignoreCase = true) ||
+            startsWith("data:image/", ignoreCase = true) ||
+            startsWith("/")
+
     private fun String.isProviderImageReference(): Boolean =
         startsWith("https://", ignoreCase = true) ||
             startsWith("http://", ignoreCase = true) ||

@@ -24,6 +24,9 @@ import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityStatusUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
+import io.github.mangi.eta.ui.model.attachUserImageSources
+import io.github.mangi.eta.ui.model.decodeUserMessageImages
+import io.github.mangi.eta.ui.model.encodeUserMessageImages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -156,20 +159,24 @@ internal object AgentConversationStore {
         val updatedAt = mutableMapOf<String, Long>()
 
         conversations.forEach { conversation ->
-            states[conversation.id] = AgentChatHomeUiState(
+            val history = AgentConversationCodec.decodeTranscript(
+                dao.contextCheckpoint(conversation.id)?.historyJson
+            ).ifEmpty {
+                messagesByConversation[conversation.id]
+                    .orEmpty()
+                    .sortedBy { it.sortIndex }
+                    .toLegacyHistory()
+            }
+            val messages = attachUserImageSources(
                 messages = messagesByConversation[conversation.id]
                     .orEmpty()
                     .sortedBy { it.sortIndex }
                     .mapNotNull { it.toMessageOrNull() },
-                history = AgentConversationCodec.decodeTranscript(
-                    dao.contextCheckpoint(conversation.id)?.historyJson
-                )
-                    .ifEmpty {
-                        messagesByConversation[conversation.id]
-                            .orEmpty()
-                            .sortedBy { it.sortIndex }
-                            .toLegacyHistory()
-                    },
+                history = history,
+            )
+            states[conversation.id] = AgentChatHomeUiState(
+                messages = messages,
+                history = history,
                 appliedRuntimeRunIds = conversation.appliedRuntimeRunIdsJson.toStringList(),
                 input = "",
                 isStreaming = false,
@@ -223,7 +230,7 @@ internal object AgentConversationStore {
                 sortIndex = sortIndex,
                 type = TYPE_USER,
                 content = content,
-                imagesJson = images.toJsonArrayString(),
+                imagesJson = encodeUserMessageImages(images, imageSources),
                 isEdited = isEdited,
             )
 
@@ -305,12 +312,16 @@ internal object AgentConversationStore {
 
     private fun ConversationMessageEntity.toMessageOrNull(): AgentChatMessageUi? =
         when (type) {
-            TYPE_USER -> UserMessageUi(
-                id = id,
-                content = content,
-                images = imagesJson.toStringList(),
-                isEdited = isEdited,
-            )
+            TYPE_USER -> {
+                val (previews, sources) = decodeUserMessageImages(imagesJson)
+                UserMessageUi(
+                    id = id,
+                    content = content,
+                    images = previews,
+                    isEdited = isEdited,
+                    imageSources = sources,
+                )
+            }
 
             TYPE_ASSISTANT -> AgentMessageUi(
                 id = id,

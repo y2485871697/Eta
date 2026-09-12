@@ -76,6 +76,26 @@ class AgentConversationCodecTest {
     }
 
     @Test
+    fun persistedImageSourcesReadsImageFilePaths() {
+        val message = AgentConversationCodec.durableMessage(
+            AgentConversationCodec.userPersistedImageMessage(
+                text = "看这张图",
+                images = listOf(
+                    AgentConversationCodec.PersistedImage(
+                        path = "/data/user/0/io.github.mangi.eta/cache/eta-chat-images/c1/a.jpg",
+                        mimeType = "image/jpeg",
+                        displayName = "chat-image-1.jpg",
+                    ),
+                ),
+            ),
+        )
+        assertEquals(
+            listOf("/data/user/0/io.github.mangi.eta/cache/eta-chat-images/c1/a.jpg"),
+            AgentConversationCodec.persistedImageSources(message),
+        )
+    }
+
+    @Test
     fun ipcTranscriptHasHardBudgetAndNeverStartsWithOrphanToolResult() {
         val messages = buildList {
             repeat(30) { index ->

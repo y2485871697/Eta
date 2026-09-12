@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.media
 
 import android.app.Application
+import android.util.Base64
 import io.github.mangi.eta.agent.model.AgentConversationCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
 import java.io.File
@@ -36,6 +37,17 @@ class AgentChatImageCacheTest {
 
         cache.deleteConversation("conv-keep")
         assertFalse(File(kept.absolutePath).exists())
+    }
+
+    @Test
+    fun readBytesLoadsStagedFileAndDataUrl() {
+        val context = RuntimeEnvironment.getApplication()
+        val cache = AgentChatImageCache(context)
+        val bytes = byteArrayOf(9, 8, 7, 6)
+        val staged = cache.stage("conv-read", bytes, "photo.jpg")!!
+        assertEquals(bytes.toList(), AgentChatImageCache.readBytes(staged.absolutePath)!!.toList())
+        val dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+        assertEquals(bytes.toList(), AgentChatImageCache.readBytes(dataUrl)!!.toList())
     }
 }
 

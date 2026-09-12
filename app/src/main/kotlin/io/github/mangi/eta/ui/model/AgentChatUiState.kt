@@ -33,6 +33,7 @@ data class UserMessageUi(
     val content: String,
     val images: List<String> = emptyList(),
     val isEdited: Boolean = false,
+    val imageSources: List<String> = emptyList(),
 ) : AgentChatMessageUi
 
 @Immutable
