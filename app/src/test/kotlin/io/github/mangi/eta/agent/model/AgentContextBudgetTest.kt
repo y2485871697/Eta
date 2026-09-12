@@ -9,14 +9,14 @@ class AgentContextBudgetTest {
     @Test
     fun countTokensEnglish() {
         assertEquals(1, AgentContextBudget.countTokens("abc"))
-        assertTrue(AgentContextBudget.countTokens("a".repeat(100)) >= 30)
+        assertEquals(25, AgentContextBudget.countTokens("a".repeat(100)))
     }
 
     @Test
-    fun countTokensChinese() {
-        // 中文 codepoint / 3
+    fun countTokensChineseUsesOperitStyleEstimate() {
         val text = "一二三四五六七八九十"
-        assertEquals(4, AgentContextBudget.countTokens(text))
+        assertEquals(15, AgentContextBudget.countTokens(text))
+        assertTrue(AgentContextBudget.countTokens(text) > text.length / 3)
     }
 
     @Test

@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.model
 
 import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 internal object AgentContextBudget {
     private const val RESERVED_TOKENS = 8_000
@@ -9,16 +10,39 @@ internal object AgentContextBudget {
     private const val IMAGE_GRID = 32
     private const val IMAGE_MAX_EDGE = 2048
     private const val IMAGE_MIN_TOKENS = 85
+    // 对齐 Operit：中文约 1.5 token/字，拉丁约 4 字符/token。
+    // 原先统一 codepoint/3，中文会少算 4～6 倍，界面用量就会远低于接口账单。
+    private const val CJK_TOKENS_PER_CHAR = 1.5
+    private const val LATIN_TOKENS_PER_CHAR = 0.25
 
     fun countTokens(text: String): Int {
         if (text.isEmpty()) return 0
-        var cp = 0
-        var i = 0
-        while (i < text.length) {
-            cp++
-            i += if (text[i].isHighSurrogate() && i + 1 < text.length) 2 else 1
+        var cjk = 0
+        var other = 0
+        var index = 0
+        while (index < text.length) {
+            val extra = if (text[index].isHighSurrogate() && index + 1 < text.length) 2 else 1
+            val codePoint = if (extra == 2) {
+                Character.toCodePoint(text[index], text[index + 1])
+            } else {
+                text[index].code
+            }
+            if (isCjkCodePoint(codePoint)) cjk++ else other++
+            index += extra
         }
-        return max(1, cp / 3)
+        return max(1, (cjk * CJK_TOKENS_PER_CHAR + other * LATIN_TOKENS_PER_CHAR).roundToInt())
+    }
+
+    private fun isCjkCodePoint(codePoint: Int): Boolean = when (codePoint) {
+        in 0x3400..0x4DBF -> true
+        in 0x4E00..0x9FFF -> true
+        in 0xF900..0xFAFF -> true
+        in 0x3040..0x30FF -> true
+        in 0xAC00..0xD7AF -> true
+        in 0x3000..0x303F -> true
+        in 0xFF00..0xFFEF -> true
+        in 0x20000..0x2A6DF -> true
+        else -> false
     }
 
     fun countStoredImages(count: Int): Int = count.coerceAtLeast(0) * IMAGE_MIN_TOKENS

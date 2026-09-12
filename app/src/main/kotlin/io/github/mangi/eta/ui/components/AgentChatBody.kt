@@ -81,6 +81,7 @@ import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
 import io.github.mangi.eta.ui.app.LocalBlurEnabled
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
+import io.github.mangi.eta.ui.model.countUncommittedLiveTokens
 import io.github.mangi.eta.ui.model.latestBilledContextTokens
 import io.github.mangi.eta.ui.model.isRetryableFailure
 import io.github.mangi.eta.ui.model.AgentMessageUi
@@ -222,6 +223,10 @@ internal fun AgentChatBody(
     val billedContextTokens = remember(visibleMessages, messageEdit) {
         if (messageEdit != null) null else latestBilledContextTokens(visibleMessages)
     }
+    val uncommittedLiveTokens = remember(visibleMessages, billedContextTokens, messageEdit) {
+        if (messageEdit != null || billedContextTokens != null) 0
+        else countUncommittedLiveTokens(visibleMessages)
+    }
     ChatImagePreviewHost {
         AgentChatScaffold(
             visibleMessages = visibleMessages,
@@ -233,6 +238,7 @@ internal fun AgentChatBody(
             billedContextTokens = billedContextTokens,
             requestOverheadTokens = requestOverheadTokens,
             billedOverheadTokens = billedOverheadTokens,
+            uncommittedLiveTokens = uncommittedLiveTokens,
             autoCompressEnabled = autoCompressEnabled,
             isStreaming = isStreaming,
             isPaused = isPaused,
@@ -292,6 +298,7 @@ private fun AgentChatScaffold(
     billedContextTokens: Int? = null,
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
+    uncommittedLiveTokens: Int = 0,
     autoCompressEnabled: Boolean,
     isStreaming: Boolean,
     isPaused: Boolean = false,
@@ -356,6 +363,7 @@ private fun AgentChatScaffold(
                 billedContextTokens = billedContextTokens,
                 requestOverheadTokens = requestOverheadTokens,
                 billedOverheadTokens = billedOverheadTokens,
+                uncommittedLiveTokens = uncommittedLiveTokens,
                 autoCompressEnabled = autoCompressEnabled,
                 showContextUsage = hasMessages,
                 isStreaming = isStreaming,
@@ -905,6 +913,7 @@ private fun AgentChatBottomBar(
     billedContextTokens: Int? = null,
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
+    uncommittedLiveTokens: Int = 0,
     autoCompressEnabled: Boolean,
     showContextUsage: Boolean,
     isStreaming: Boolean,
@@ -995,6 +1004,7 @@ private fun AgentChatBottomBar(
                 billedContextTokens = billedContextTokens,
                 requestOverheadTokens = requestOverheadTokens,
                 billedOverheadTokens = billedOverheadTokens,
+                uncommittedLiveTokens = uncommittedLiveTokens,
                 autoCompressEnabled = autoCompressEnabled,
                 showContextUsage = showContextUsage,
                 isStreaming = isStreaming,

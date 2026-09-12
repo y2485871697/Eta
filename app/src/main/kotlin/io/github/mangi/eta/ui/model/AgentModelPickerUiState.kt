@@ -147,8 +147,15 @@ internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int?
             (resumeRound <= 0 || (messageRoundFromId(message.id) ?: 0) >= resumeRound)
     } ?: -1
     if (billedIndex >= 0) {
-        val billed = windowTokensFromUsage((messages[billedIndex] as AgentMessageUi).usage) ?: return null
-        return billed + countUnbilledTail(messages, billedIndex + 1)
+        val billedMessage = messages[billedIndex] as AgentMessageUi
+        val billed = windowTokensFromUsage(billedMessage.usage) ?: return null
+        val tailStart = liveTailStartIndex(messages, billedIndex, billedMessage)
+        return billed + countUnbilledTail(
+            messages = messages,
+            startIndex = tailStart,
+            resumeRound = resumeRound,
+            billedIndex = billedIndex,
+        )
     }
     val baseline = marker?.baselineTokens ?: 0
     if (compactIndex >= 0 && baseline > 0 && resumeRound > 0) {
@@ -157,10 +164,33 @@ internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int?
     return null
 }
 
+/**
+ * 账单之后还在生成时，继续把本轮推理/工具/增量输出加进去。
+ * 有些网关会先回 prompt 用量、输出仍在流，这时不能把带 usage 的助手消息直接当成终态。
+ */
+private fun liveTailStartIndex(
+    messages: List<AgentChatMessageUi>,
+    billedIndex: Int,
+    billedMessage: AgentMessageUi,
+): Int {
+    if (!billedMessage.isStreaming) return billedIndex + 1
+    val output = billedMessage.usage?.outputTokens ?: 0
+    val reasoning = billedMessage.usage?.reasoningTokens ?: 0
+    val promptOnly = output <= 0 && reasoning <= 0
+    if (!promptOnly) return billedIndex
+    val previousBilled = messages.indices.lastOrNull { index ->
+        index < billedIndex &&
+            messages[index] is AgentMessageUi &&
+            windowTokensFromUsage((messages[index] as AgentMessageUi).usage) != null
+    } ?: -1
+    return (previousBilled + 1).coerceAtLeast(0)
+}
+
 internal fun countUnbilledTail(
     messages: List<AgentChatMessageUi>,
     startIndex: Int,
     resumeRound: Int = 0,
+    billedIndex: Int = -1,
 ): Int {
     var tail = 0
     for (index in startIndex until messages.size) {
@@ -169,6 +199,25 @@ internal fun countUnbilledTail(
             val round = messageRoundFromId(message.id)
             if (round == null || round < resumeRound) continue
         }
+        if (index == billedIndex && message is AgentMessageUi) {
+            tail += countAssistantLiveTokens(message)
+            continue
+        }
+        if (index < billedIndex && message is UserMessageUi) continue
+        tail += countLiveMessageTokens(message)
+    }
+    return tail
+}
+
+internal fun countUncommittedLiveTokens(messages: List<AgentChatMessageUi>): Int {
+    val lastCompletedAssistant = messages.indices.lastOrNull { index ->
+        val message = messages[index]
+        message is AgentMessageUi && !message.isStreaming
+    } ?: -1
+    var tail = 0
+    for (index in lastCompletedAssistant + 1 until messages.size) {
+        val message = messages[index]
+        if (message is UserMessageUi) continue
         tail += countLiveMessageTokens(message)
     }
     return tail
@@ -184,13 +233,7 @@ internal fun countLiveMessageTokens(message: AgentChatMessageUi): Int =
                     AgentContextBudget.countStoredImages(message.images.size)
             }
         }
-        is AgentMessageUi -> {
-            if (message.content.isBlank() || windowTokensFromUsage(message.usage) != null) {
-                0
-            } else {
-                AgentContextBudget.countCurrentTurn(message.content, emptyList())
-            }
-        }
+        is AgentMessageUi -> countAssistantLiveTokens(message)
         is ThinkingMessageUi -> {
             if (message.content.isBlank()) 0
             else AgentContextBudget.countCurrentTurn(message.content, emptyList())
@@ -205,6 +248,17 @@ internal fun countLiveMessageTokens(message: AgentChatMessageUi): Int =
         }
         else -> 0
     }
+
+internal fun countAssistantLiveTokens(message: AgentMessageUi): Int {
+    if (message.content.isBlank()) return 0
+    val estimated = AgentContextBudget.countCurrentTurn(message.content, emptyList())
+    val billedOutput = message.usage?.outputTokens ?: 0
+    return when {
+        windowTokensFromUsage(message.usage) == null -> estimated
+        message.isStreaming -> (estimated - billedOutput).coerceAtLeast(0)
+        else -> 0
+    }
+}
 
 internal fun messageRoundFromId(id: String): Int? {
     Regex("""-thinking-(\d+)-""").find(id)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
@@ -234,6 +288,7 @@ internal fun liveContextUsage(
     billedContextTokens: Int? = null,
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
+    uncommittedLiveTokens: Int = 0,
 ): AgentContextUsageUi {
     val supportsVision = selectedModel?.supportsVision ?: true
     val imageFileReferences = if (supportsVision) {
@@ -263,7 +318,9 @@ internal fun liveContextUsage(
             val billedOverhead = billedOverheadTokens ?: overhead
             (billedContextTokens + (overhead - billedOverhead)).coerceAtLeast(0)
         }
-        else -> (historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }) + overhead
+        else -> (historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }) +
+            overhead +
+            uncommittedLiveTokens.coerceAtLeast(0)
     }
     return AgentContextUsageUi(
         contextTokens = historyTokens + currentTurnTokens,

@@ -656,4 +656,67 @@ class AgentModelPickerProjectorTest {
         assertEquals("hi", (cleared[0] as UserMessageUi).content)
     }
 
+    @Test
+    fun latestBilledContextTokensKeepsStreamingOutputAfterPromptOnlyUsage() {
+        val billed = AgentMessageUi(
+            id = "a1",
+            content = "partial reply that is still growing",
+            isStreaming = true,
+            usage = TokenUsageUi(contextTokens = 119_910, inputTokens = 119_910),
+        )
+        val live = listOf(
+            UserMessageUi(id = "u1", content = "hi"),
+            ThinkingMessageUi(id = "t1", content = "still reasoning", isStreaming = true),
+            billed,
+        )
+        val expected = 119_910 +
+            AgentContextBudget.countCurrentTurn("still reasoning", emptyList()) +
+            AgentContextBudget.countCurrentTurn(billed.content, emptyList())
+        assertEquals(expected, latestBilledContextTokens(live))
+    }
+
+    @Test
+    fun liveContextUsageAddsUncommittedStreamingWhenThereIsNoBill() {
+        val selected = AgentModelOptionUi(
+            id = "model",
+            providerId = "provider",
+            providerName = "Provider",
+            providerSourceType = ProviderSourceTypes.CUSTOM,
+            modelId = "model",
+            displayName = "Model",
+            contextWindow = 150_000,
+        )
+        val history = listOf(
+            AgentModelClient.ConversationMessage(role = "user", content = "hello"),
+        )
+        val streaming = AgentContextBudget.countCurrentTurn("long chinese answer 中文回复", emptyList())
+        val usage = liveContextUsage(
+            history = history,
+            currentInput = "",
+            pendingImages = emptyList(),
+            selectedModel = selected,
+            uncommittedLiveTokens = streaming,
+        )
+        assertEquals(
+            history.sumOf { AgentContextBudget.countMessage(it) } + streaming,
+            usage.contextTokens,
+        )
+    }
+
+    @Test
+    fun countUncommittedLiveTokensIgnoresCompletedTurns() {
+        val messages = listOf(
+            UserMessageUi(id = "u1", content = "old"),
+            AgentMessageUi(id = "a1", content = "done", isStreaming = false),
+            UserMessageUi(id = "u2", content = "now"),
+            ThinkingMessageUi(id = "t2", content = "thinking now", isStreaming = true),
+            AgentMessageUi(id = "a2", content = "partial", isStreaming = true),
+        )
+        assertEquals(
+            AgentContextBudget.countCurrentTurn("thinking now", emptyList()) +
+                AgentContextBudget.countCurrentTurn("partial", emptyList()),
+            countUncommittedLiveTokens(messages),
+        )
+    }
 }
+

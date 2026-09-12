@@ -126,6 +126,7 @@ internal fun AgentChatInputBar(
     billedContextTokens: Int? = null,
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
+    uncommittedLiveTokens: Int = 0,
     autoCompressEnabled: Boolean,
     showContextUsage: Boolean,
     isStreaming: Boolean,
@@ -165,6 +166,7 @@ internal fun AgentChatInputBar(
         billedContextTokens,
         requestOverheadTokens,
         billedOverheadTokens,
+        uncommittedLiveTokens,
         draftText,
         pendingImages,
         pendingFileReferences,
@@ -181,6 +183,7 @@ internal fun AgentChatInputBar(
             billedContextTokens = billedContextTokens,
             requestOverheadTokens = requestOverheadTokens,
             billedOverheadTokens = billedOverheadTokens,
+            uncommittedLiveTokens = uncommittedLiveTokens,
         )
     }
     val contextSendBlocked = shouldBlockSendForContextWindow(autoCompressEnabled, liveUsage)
