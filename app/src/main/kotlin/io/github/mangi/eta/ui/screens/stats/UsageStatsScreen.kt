@@ -3,6 +3,7 @@ package io.github.mangi.eta.ui.screens.stats
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,13 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import android.text.format.DateFormat
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.TimePickerDefaults
-import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -48,6 +42,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
@@ -60,17 +55,12 @@ import io.github.mangi.eta.data.repository.formatStatCount
 import io.github.mangi.eta.data.repository.formatTokenCount
 import io.github.mangi.eta.data.repository.heatmapAlpha
 import io.github.mangi.eta.data.repository.heatmapQuartiles
-import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.pages.providers.ProviderBalanceAmount
 import java.time.DayOfWeek
-import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
-import java.time.ZoneId
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.format.TextStyle
@@ -82,7 +72,6 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.window.WindowDialog
 
 private enum class UsageStatsTab { Overview, Models }
 
@@ -212,7 +201,7 @@ private fun RowScope.UsageTabButton(
             .height(44.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) colors.primary else colors.primaryContainer)
-            .clickable {
+            .clickableNoRipple {
                 TouchHaptics.click(view)
                 onClick()
             },
@@ -226,26 +215,14 @@ private fun RowScope.UsageTabButton(
     }
 }
 
-private data class UsageTimeBound(
-    val date: LocalDate? = null,
-    val hour: Int? = null,
-    val minute: Int? = null,
-) {
-    val isSet: Boolean get() = date != null
 
-    fun toMillis(endOfBound: Boolean): Long? {
-        val selectedDate = date ?: return null
-        val time = when {
-            hour == null || minute == null -> if (endOfBound) LocalTime.of(23, 59, 59, 999_000_000) else LocalTime.MIN
-            endOfBound -> LocalTime.of(hour, minute, 59, 999_000_000)
-            else -> LocalTime.of(hour, minute)
-        }
-        return LocalDateTime.of(selectedDate, time)
-            .atZone(ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
-    }
-}
+@Composable
+private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
+    clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+        onClick = onClick,
+    )
 
 @Composable
 private fun ModelUsagePane(
@@ -358,86 +335,108 @@ private fun ModelUsageFilterCard(
     val context = LocalContext.current
     val view = LocalView.current
     val use24Hour = DateFormat.is24HourFormat(context)
-    var dateSide by remember { mutableStateOf<UsageBoundSide?>(null) }
-    var timeSide by remember { mutableStateOf<UsageBoundSide?>(null) }
+    var expanded by remember { mutableStateOf(false) }
+    var pickerSide by remember { mutableStateOf<UsageBoundSide?>(null) }
+    val selectedPreset = remember(start, end) {
+        matchingUsageFilterPreset(start, end, LocalDate.now())
+    }
+    val summary = filterSummaryText(start, end, selectedPreset, use24Hour)
+        ?: stringResource(R.string.stats_model_filter_collapsed)
     Card {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = stringResource(R.string.stats_model_filter_title),
-                style = MiuixTheme.textStyles.headline1,
-            )
-            UsageBoundRow(
-                label = stringResource(R.string.stats_model_filter_start),
-                bound = start,
-                use24Hour = use24Hour,
-                onPickDate = {
-                    TouchHaptics.click(view)
-                    dateSide = UsageBoundSide.Start
-                },
-                onPickTime = {
-                    TouchHaptics.click(view)
-                    timeSide = UsageBoundSide.Start
-                },
-            )
-            UsageBoundRow(
-                label = stringResource(R.string.stats_model_filter_end),
-                bound = end,
-                use24Hour = use24Hour,
-                onPickDate = {
-                    TouchHaptics.click(view)
-                    dateSide = UsageBoundSide.End
-                },
-                onPickTime = {
-                    TouchHaptics.click(view)
-                    timeSide = UsageBoundSide.End
-                },
-            )
-            if (start.isSet || end.isSet) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickableNoRipple {
+                        TouchHaptics.click(view)
+                        expanded = !expanded
+                    }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = stringResource(R.string.stats_model_filter_clear),
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clickable {
-                            TouchHaptics.click(view)
-                            onClear()
-                        }
-                        .padding(top = 2.dp),
+                    text = stringResource(R.string.stats_model_filter_title),
+                    style = MiuixTheme.textStyles.headline1,
                 )
+                Text(
+                    text = summary,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp, end = 4.dp),
+                )
+                androidx.compose.material3.Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    UsageBoundRow(
+                        label = stringResource(R.string.stats_model_filter_start),
+                        bound = start,
+                        use24Hour = use24Hour,
+                        onClick = {
+                            TouchHaptics.click(view)
+                            pickerSide = UsageBoundSide.Start
+                        },
+                    )
+                    UsageBoundRow(
+                        label = stringResource(R.string.stats_model_filter_end),
+                        bound = end,
+                        use24Hour = use24Hour,
+                        onClick = {
+                            TouchHaptics.click(view)
+                            pickerSide = UsageBoundSide.End
+                        },
+                    )
+                    UsageFilterPresetRow(
+                        selected = selectedPreset,
+                        onSelect = { preset ->
+                            TouchHaptics.click(view)
+                            val (from, to) = usageFilterPresetRange(preset, LocalDate.now())
+                            onStartChange(UsageTimeBound.from(from))
+                            onEndChange(UsageTimeBound.from(to))
+                        },
+                    )
+                    if (start.isSet || end.isSet) {
+                        Text(
+                            text = stringResource(R.string.stats_model_filter_clear),
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickableNoRipple {
+                                    TouchHaptics.click(view)
+                                    onClear()
+                                }
+                                .padding(top = 2.dp),
+                        )
+                    }
+                }
             }
         }
     }
-    UsageDatePickerDialog(
-        show = dateSide != null,
-        title = stringResource(
-            if (dateSide == UsageBoundSide.End) {
-                R.string.stats_model_filter_end
-            } else {
-                R.string.stats_model_filter_start
-            },
-        ),
-        current = if (dateSide == UsageBoundSide.End) end else start,
-        onDismiss = { dateSide = null },
+    UsageDateTimePickerDialog(
+        show = pickerSide != null,
+        title = stringResource(R.string.stats_model_filter_datetime_title),
+        current = if (pickerSide == UsageBoundSide.End) end else start,
+        endOfBound = pickerSide == UsageBoundSide.End,
+        onDismiss = { pickerSide = null },
         onConfirm = { picked ->
-            if (dateSide == UsageBoundSide.End) onEndChange(picked) else onStartChange(picked)
-            dateSide = null
+            if (pickerSide == UsageBoundSide.End) onEndChange(picked) else onStartChange(picked)
+            pickerSide = null
         },
-    )
-    UsageTimePickerDialog(
-        show = timeSide != null,
-        title = stringResource(
-            if (timeSide == UsageBoundSide.End) {
-                R.string.stats_model_filter_end
-            } else {
-                R.string.stats_model_filter_start
-            },
-        ),
-        current = if (timeSide == UsageBoundSide.End) end else start,
-        use24Hour = use24Hour,
-        onDismiss = { timeSide = null },
-        onConfirm = { picked ->
-            if (timeSide == UsageBoundSide.End) onEndChange(picked) else onStartChange(picked)
-            timeSide = null
+        onClear = {
+            if (pickerSide == UsageBoundSide.End) onEndChange(UsageTimeBound()) else onStartChange(UsageTimeBound())
+            pickerSide = null
         },
     )
 }
@@ -447,8 +446,7 @@ private fun UsageBoundRow(
     label: String,
     bound: UsageTimeBound,
     use24Hour: Boolean,
-    onPickDate: () -> Unit,
-    onPickTime: () -> Unit,
+    onClick: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
@@ -456,18 +454,38 @@ private fun UsageBoundRow(
             style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        UsageBoundChip(
+            text = formatUsageDateTime(bound, use24Hour)
+                ?: stringResource(R.string.stats_model_filter_datetime_placeholder),
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.CenterStart,
+            onClick = onClick,
+        )
+    }
+}
+
+@Composable
+private fun UsageFilterPresetRow(
+    selected: UsageFilterPreset?,
+    onSelect: (UsageFilterPreset) -> Unit,
+) {
+    val items = listOf(
+        UsageFilterPreset.Today to R.string.stats_model_filter_preset_today,
+        UsageFilterPreset.Last7Days to R.string.stats_model_filter_preset_7d,
+        UsageFilterPreset.ThisWeek to R.string.stats_model_filter_preset_week,
+        UsageFilterPreset.Last30Days to R.string.stats_model_filter_preset_30d,
+        UsageFilterPreset.ThisMonth to R.string.stats_model_filter_preset_month,
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        items.forEach { (preset, labelRes) ->
             UsageBoundChip(
-                text = bound.date?.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
-                    ?: stringResource(R.string.stats_model_filter_date_placeholder),
+                text = stringResource(labelRes),
                 modifier = Modifier.weight(1f),
-                onClick = onPickDate,
-            )
-            UsageBoundChip(
-                text = formatUsageTime(bound, use24Hour)
-                    ?: stringResource(R.string.stats_model_filter_time_placeholder),
-                modifier = Modifier.weight(1f),
-                onClick = onPickTime,
+                selected = selected == preset,
+                onClick = { onSelect(preset) },
             )
         }
     }
@@ -477,149 +495,63 @@ private fun UsageBoundRow(
 private fun UsageBoundChip(
     text: String,
     modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    contentAlignment: Alignment = Alignment.Center,
     onClick: () -> Unit,
 ) {
+    val colors = MiuixTheme.colorScheme
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(MiuixTheme.colorScheme.primaryContainer)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        contentAlignment = Alignment.CenterStart,
+            .background(if (selected) colors.primary else colors.primaryContainer)
+            .clickableNoRipple(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        contentAlignment = contentAlignment,
     ) {
         Text(
             text = text,
             style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onPrimaryContainer,
+            color = if (selected) colors.onPrimary else colors.onPrimaryContainer,
+            maxLines = 1,
         )
     }
 }
 
-private fun formatUsageTime(bound: UsageTimeBound, use24Hour: Boolean): String? {
-    val hour = bound.hour ?: return null
-    val minute = bound.minute ?: return null
-    val pattern = if (use24Hour) "HH:mm" else "h:mm a"
-    return LocalTime.of(hour, minute).format(DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun UsageDatePickerDialog(
-    show: Boolean,
-    title: String,
-    current: UsageTimeBound,
-    onDismiss: () -> Unit,
-    onConfirm: (UsageTimeBound) -> Unit,
-) {
-    if (!show) return
-    val initial = current.date ?: LocalDate.now()
-    val state = rememberDatePickerState(
-        initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
-    )
-    val colors = MiuixTheme.colorScheme
-    WindowDialog(
-        show = true,
-        title = title,
-        onDismissRequest = onDismiss,
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            DatePicker(
-                state = state,
-                title = null,
-                headline = null,
-                showModeToggle = false,
-                colors = DatePickerDefaults.colors(
-                    containerColor = colors.surfaceContainer,
-                    selectedDayContainerColor = colors.primary,
-                    selectedDayContentColor = colors.onPrimary,
-                    selectedYearContainerColor = colors.primary,
-                    selectedYearContentColor = colors.onPrimary,
-                    todayDateBorderColor = colors.primary,
-                    todayContentColor = colors.primary,
-                    dayContentColor = colors.onSurface,
-                    weekdayContentColor = colors.onSurfaceVariantSummary,
-                    navigationContentColor = colors.onSurface,
-                    yearContentColor = colors.onSurface,
-                    currentYearContentColor = colors.primary,
-                    disabledDayContentColor = colors.onSurfaceVariantSummary.copy(alpha = 0.38f),
-                    dividerColor = colors.outline.copy(alpha = 0.35f),
-                ),
-            )
-            MiuixDialogActions(
-                confirmText = stringResource(R.string.action_confirm),
-                onCancel = onDismiss,
-                onConfirm = {
-                    val millis = state.selectedDateMillis ?: return@MiuixDialogActions
-                    val date = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-                    onConfirm(current.copy(date = date))
-                },
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        }
+private fun formatUsageDateTime(bound: UsageTimeBound, use24Hour: Boolean): String? {
+    val date = bound.date ?: return null
+    val hour = bound.hour
+    val minute = bound.minute
+    if (hour == null || minute == null) {
+        return date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
     }
+    val pattern = if (use24Hour) "yyyy-MM-dd HH:mm" else "yyyy-MM-dd h:mm a"
+    return LocalDateTime.of(date, java.time.LocalTime.of(hour, minute))
+        .format(DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun UsageTimePickerDialog(
-    show: Boolean,
-    title: String,
-    current: UsageTimeBound,
+private fun filterSummaryText(
+    start: UsageTimeBound,
+    end: UsageTimeBound,
+    preset: UsageFilterPreset?,
     use24Hour: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: (UsageTimeBound) -> Unit,
-) {
-    if (!show) return
-    val now = LocalTime.now()
-    val state = rememberTimePickerState(
-        initialHour = current.hour ?: now.hour,
-        initialMinute = current.minute ?: now.minute,
-        is24Hour = use24Hour,
-    )
-    val colors = MiuixTheme.colorScheme
-    WindowDialog(
-        show = true,
-        title = title,
-        onDismissRequest = onDismiss,
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            TimePicker(
-                state = state,
-                colors = TimePickerDefaults.colors(
-                    clockDialColor = colors.primaryContainer,
-                    clockDialSelectedContentColor = colors.onPrimary,
-                    clockDialUnselectedContentColor = colors.onPrimaryContainer,
-                    selectorColor = colors.primary,
-                    containerColor = colors.surfaceContainer,
-                    periodSelectorBorderColor = colors.outline,
-                    periodSelectorSelectedContainerColor = colors.primaryContainer,
-                    periodSelectorUnselectedContainerColor = colors.surfaceContainer,
-                    periodSelectorSelectedContentColor = colors.onPrimaryContainer,
-                    periodSelectorUnselectedContentColor = colors.onSurfaceVariantSummary,
-                    timeSelectorSelectedContainerColor = colors.primaryContainer,
-                    timeSelectorUnselectedContainerColor = colors.surfaceContainer,
-                    timeSelectorSelectedContentColor = colors.onPrimaryContainer,
-                    timeSelectorUnselectedContentColor = colors.onSurface,
-                ),
-            )
-            MiuixDialogActions(
-                confirmText = stringResource(R.string.action_confirm),
-                onCancel = onDismiss,
-                onConfirm = {
-                    onConfirm(
-                        current.copy(
-                            date = current.date ?: LocalDate.now(),
-                            hour = state.hour,
-                            minute = state.minute,
-                        ),
-                    )
-                },
-                modifier = Modifier.padding(top = 12.dp),
-            )
-        }
+): String? {
+    val presetRes = when (preset) {
+        UsageFilterPreset.Today -> R.string.stats_model_filter_preset_today
+        UsageFilterPreset.Last7Days -> R.string.stats_model_filter_preset_7d
+        UsageFilterPreset.ThisWeek -> R.string.stats_model_filter_preset_week
+        UsageFilterPreset.Last30Days -> R.string.stats_model_filter_preset_30d
+        UsageFilterPreset.ThisMonth -> R.string.stats_model_filter_preset_month
+        null -> null
+    }
+    if (presetRes != null) return stringResource(presetRes)
+    val startText = formatUsageDateTime(start, use24Hour)
+    val endText = formatUsageDateTime(end, use24Hour)
+    return when {
+        startText != null && endText != null -> "$startText – $endText"
+        startText != null -> startText
+        endText != null -> endText
+        else -> null
     }
 }
 
@@ -634,7 +566,7 @@ private fun ModelUsageRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable {
+                .clickableNoRipple {
                     TouchHaptics.click(view)
                     onToggle()
                 }

@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1086,28 +1085,15 @@ private fun DrawerCircleButton(
     onClick: () -> Unit,
 ) {
     val view = LocalView.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val activePresses = remember { mutableListOf<PressInteraction.Press>() }
-    LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> activePresses += interaction
-                is PressInteraction.Release -> activePresses.remove(interaction.press)
-                is PressInteraction.Cancel -> activePresses.remove(interaction.press)
-            }
-        }
-    }
     Box(
         modifier = Modifier
             .clip(CircleShape)
             .background(MiuixTheme.colorScheme.primaryContainer)
-            .clickable(interactionSource = interactionSource) {
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {
                 TouchHaptics.click(view)
-                // 点完立刻合上抽屉，抬手事件到不了按钮，涟漪会停在按压态。
-                activePresses.toList().forEach { press ->
-                    interactionSource.tryEmit(PressInteraction.Cancel(press))
-                }
-                activePresses.clear()
                 onClick()
             }
             .padding(DrawerMetrics.CircleButtonPadding),
