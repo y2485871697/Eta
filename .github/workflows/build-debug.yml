@@ -102,10 +102,10 @@ jobs:
           test -n "$apksigner_path"
           "$apksigner_path" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/apk-signature.txt"
           cat "$RUNNER_TEMP/apk-signature.txt"
-          actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/apk-signature.txt" | tr '[:upper:]' '[:lower:]' | tr -d '\r')"
+          actual="$(sed -n 's/^.*certificate SHA-256 digest: //p' "$RUNNER_TEMP/apk-signature.txt" | tr '[:upper:]' '[:lower:]' | tr -d '\r' | sort -u)"
           expected="1e1c8731bd2a7fab53b941cd9869884e7756bed96fadd10f322e70d760d1d193"
           if [[ "$actual" != "$expected" ]]; then
-            echo "::error::APK 签名与既有代鱼不一致，禁止交付。"
+            echo "::error::APK 证书提取失败或与既有代鱼不一致，禁止交付。"
             exit 1
           fi
 
