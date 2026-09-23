@@ -148,8 +148,14 @@ public final class VirtualDisplayOwner {
         if (packageName == null && component == null && action == null) {
             throw new OwnerException(OwnerProtocol.ERROR_PROTOCOL, "launch target");
         }
-        String[] argv = ShellCommands.amStartArgv(displayId, packageName, component, action,
-                categories, flags);
+        if(component==null)throw new OwnerException("EXPLICIT_COMPONENT_REQUIRED");
+        String targetPackage=component.substring(0,component.indexOf('/'));
+        try {OwnerHandoff.rejectExistingPackage(targetPackage);}catch(Exception e){throw new OwnerException("EXISTING_OR_UNKNOWN_TASKS","target must have no existing task");}
+        String marker="eta-vd://session/"+java.util.UUID.randomUUID().toString();
+        flags=0x10000000|0x00080000|0x08000000; // NEW_TASK, NEW_DOCUMENT, MULTIPLE_TASK
+        String[] initial = ShellCommands.amStartArgv(displayId, packageName, component, action,categories,flags);
+        String[] argv=java.util.Arrays.copyOf(initial,initial.length+2);
+        argv[initial.length]="-d";argv[initial.length+1]=marker;
         OwnerShell.Result result = OwnerShell.run(argv, OwnerShell.DEFAULT_TIMEOUT_MS,
                 OwnerShell.DEFAULT_MAX_OUTPUT_BYTES);
         if (!result.success() || containsError(result.stdout) || containsError(result.stderr)) {
@@ -160,7 +166,11 @@ public final class VirtualDisplayOwner {
             for(Object task:after.values()) if(OwnerHandoff.number(task,"displayId")==displayId) {
                 int id=OwnerHandoff.number(task,"taskId");
                 if(before.containsKey(id) && !owned.containsKey(id)) throw new IllegalStateException("pre-existing task moved");
-                if(!owned.containsKey(id))owned.put(id,new OwnerHandoff.Task(task));
+                if(!owned.containsKey(id)) {
+                    android.content.Intent base=(android.content.Intent)OwnerHandoff.field(task,"baseIntent");
+                    if(!marker.equals(base.getDataString())||!targetPackage.equals(base.getComponent().getPackageName()))throw new IllegalStateException("launch provenance");
+                    owned.put(id,new OwnerHandoff.Task(task));
+                }
             }
         } catch(Exception e) { finishing=true; throw new OwnerException("LAUNCH_IDENTITY_UNCERTAIN"); }
         JSONObject out = new JSONObject();

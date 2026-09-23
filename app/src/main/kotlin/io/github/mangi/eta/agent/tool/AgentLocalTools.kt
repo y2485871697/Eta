@@ -99,6 +99,12 @@ internal class AgentLocalTools(
     private val rootAvailable: () -> Boolean = { RootAccess.isGranted },
 ) : AgentModelClient.ToolExecutor, AutoCloseable {
 
+    private val frozenSurface = runCatching { io.github.mangi.eta.agent.device.AgentTaskSurface.stored() }
+        .getOrDefault(io.github.mangi.eta.agent.device.AgentTaskSurfaceMode.ASK)
+    private val backgroundSurface = frozenSurface == io.github.mangi.eta.agent.device.AgentTaskSurfaceMode.BACKGROUND
+    private val virtualLifecycle = setOf("start_virtual_session", "keep_virtual_result", "finish_virtual_session")
+    private fun virtualRouted(name: String) = backgroundSurface &&
+        (io.github.mangi.eta.agent.device.AgentTaskSurface.isTraditionalScreenGuiTool(name) || name in virtualLifecycle)
     private val closed = AtomicBoolean(false)
     private val deviceController = RootShellDeviceController(logger, screenshotExcludedPackages, rootAvailable)
     private val rootCommandExecutor = BoundedRootCommandExecutor(logger, rootAvailable = rootAvailable)
@@ -152,6 +158,7 @@ internal class AgentLocalTools(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        io.github.mangi.eta.agent.device.VirtualDisplaySession.onRunClosed(browserRunId)
         publishedObservation.set(PublishedObservation())
         AgentBrowserSession.interruptAgentAction(browserRunId)
         terminalController.interruptAll()
@@ -175,12 +182,12 @@ internal class AgentLocalTools(
 
     override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult {
         val handoffBlocksGui = runCatching {
-            io.github.mangi.eta.agent.device.AgentTaskSurface.blocksGuiTool(toolCall.name)
+            io.github.mangi.eta.agent.device.AgentTaskSurface.blocksGuiTool(toolCall.name, frozenSurface) && !backgroundSurface
         }.getOrDefault(true)
         if (handoffBlocksGui) {
             return textResult(errorResult(io.github.mangi.eta.agent.device.VirtualDisplaySession.NOT_READY, "副屏交接未就绪，本次未执行；请在设置改为前台"))
         }
-        if (!ForegroundExclusiveGate.shouldSerialize(toolCall.name)) {
+        if (virtualRouted(toolCall.name) || !ForegroundExclusiveGate.shouldSerialize(toolCall.name)) {
             return executeInternal(toolCall)
         }
         if (!ForegroundExclusiveGate.acquire(browserRunId) { closed.get() }) {
@@ -193,6 +200,7 @@ internal class AgentLocalTools(
 
     private fun executeInternal(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult =
         runCatching {
+            if (closed.get()) return@runCatching textResult(errorResult("RUN_CLOSED", "任务已关闭"))
             if (AssistantRepository.isReady() && AssistantRepository.currentProfile(memoryAssistantId) == null) {
                 terminalController.interruptAll()
                 terminalController.stopOwnedDaemons()
@@ -204,6 +212,16 @@ internal class AgentLocalTools(
             ) {
                 return@runCatching textResult(errorResult("ROOT_REQUIRED", "此操作需要 Root 授权，本次未执行"))
             }
+            if (virtualRouted(toolCall.name)) {
+                if (!rootAvailable()) return@runCatching textResult(errorResult("ROOT_REQUIRED", "后台副屏需要 Root"))
+                return@runCatching when(toolCall.name) {
+                    "start_virtual_session" -> textResult(io.github.mangi.eta.agent.device.VirtualDisplaySession.start(context,browserRunId).toString())
+                    "keep_virtual_result" -> textResult(io.github.mangi.eta.agent.device.VirtualDisplaySession.keep(browserRunId,args).toString())
+                    "finish_virtual_session" -> textResult(io.github.mangi.eta.agent.device.VirtualDisplaySession.finish(browserRunId).toString())
+                    else -> io.github.mangi.eta.agent.device.VirtualDisplaySession.executeGui(context,browserRunId,toolCall.name,args)
+                }
+            }
+            if (toolCall.name in virtualLifecycle) return@runCatching textResult(errorResult("BACKGROUND_MODE_REQUIRED", "当前任务不是后台模式"))
             deviceToolPermissionError(toolCall.name)?.let { return@runCatching it }
             memoryToolPermissionError(toolCall.name)?.let { return@runCatching it }
             when (val decision = beforeToolExecution(toolCall.name)) {

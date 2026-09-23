@@ -71,7 +71,7 @@ internal object AgentTaskSurface {
     fun stored(): AgentTaskSurfaceMode =
         AgentTaskSurfaceMode.fromWire(Prefs.getString(PREF_KEY, AgentTaskSurfaceMode.FOREGROUND.wire))
 
-    fun allowsPersist(mode: AgentTaskSurfaceMode): Boolean = mode == AgentTaskSurfaceMode.FOREGROUND
+    fun allowsPersist(mode: AgentTaskSurfaceMode): Boolean = mode != AgentTaskSurfaceMode.ASK
 
     fun save(mode: AgentTaskSurfaceMode) {
         if (!allowsPersist(mode)) throw VirtualDisplayHandoffNotReadyException()
@@ -83,11 +83,11 @@ internal object AgentTaskSurface {
     fun settingsEntryVisible(): Boolean = settingsEntryVisible(moduleInstalled(), stored())
 
     fun settingsEntryVisible(moduleInstalled: Boolean, stored: AgentTaskSurfaceMode): Boolean =
-        moduleInstalled || stored != AgentTaskSurfaceMode.FOREGROUND
+        true
 
     fun settingsSummaryRes(stored: AgentTaskSurfaceMode): Int = when (stored) {
         AgentTaskSurfaceMode.FOREGROUND -> stored.labelRes
-        AgentTaskSurfaceMode.BACKGROUND -> R.string.agent_task_surface_background_not_ready
+        AgentTaskSurfaceMode.BACKGROUND -> R.string.agent_task_surface_background_summary
         AgentTaskSurfaceMode.ASK -> R.string.agent_task_surface_ask_not_ready
     }
 
@@ -102,16 +102,17 @@ internal object AgentTaskSurface {
         stored: AgentTaskSurfaceMode,
     ): String = when (stored) {
         AgentTaskSurfaceMode.FOREGROUND -> ""
-        AgentTaskSurfaceMode.BACKGROUND, AgentTaskSurfaceMode.ASK ->
-            "虚拟副屏交接尚未就绪。不要调用 keep_virtual_result，不要声称任务在后台副屏执行，也不会保留或关闭任何应用。"
+        AgentTaskSurfaceMode.BACKGROUND ->
+            "本次选择实验性后台副屏。GUI 不得回退主屏；先 launch_app 精确包名、observe_screen 截图再坐标操作。节点、系统面板及不支持的工具会明确拒绝。任务完成前必须 keep_virtual_result 标记交付任务，再 finish_virtual_session，只有返回 handedOff=true 且 released=true 才可声称交付完成。失败保留副屏，禁止杀进程或用终端绕过关闭。提示用户期间不要从桌面启动或清理正在操作的应用。"
+        AgentTaskSurfaceMode.ASK -> "每次询问尚未支持，请明确选择前台或后台。"
     }
 
     fun useVirtualDisplay(): Boolean = useVirtualDisplay(stored())
 
     fun useVirtualDisplay(stored: AgentTaskSurfaceMode): Boolean = when (stored) {
         AgentTaskSurfaceMode.FOREGROUND -> false
-        AgentTaskSurfaceMode.BACKGROUND, AgentTaskSurfaceMode.ASK ->
-            throw VirtualDisplayHandoffNotReadyException()
+        AgentTaskSurfaceMode.BACKGROUND -> true
+        AgentTaskSurfaceMode.ASK -> throw VirtualDisplayHandoffNotReadyException()
     }
 
     /**
@@ -129,7 +130,7 @@ internal object AgentTaskSurface {
         return blocksGuiTool(toolName, mode)
     }
 
-    private fun isTraditionalScreenGuiTool(toolName: String): Boolean =
+    fun isTraditionalScreenGuiTool(toolName: String): Boolean =
         toolName.trim() in traditionalScreenGuiTools
 }
 

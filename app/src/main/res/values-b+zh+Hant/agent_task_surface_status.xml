@@ -2,5 +2,5 @@
 <resources>
     <string name="agent_task_surface_background_not_ready">後台副屏尚未就緒，請改回前台</string>
     <string name="agent_task_surface_ask_not_ready">詢問模式尚未就緒，請改回前台</string>
-    <string name="agent_task_surface_not_ready_hint">虛擬副屏交接尚未就緒。現在不能啟用後台或詢問；如果之前選過，請改回前台。缺少可用交接時不會靜默改走前台執行。</string>
+    <string name="agent_task_surface_not_ready_hint">实验性后台模式：执行期间不要从桌面打开或清理目标应用。交付失败保留副屏；每次询问暂不支持。</string>
 </resources>

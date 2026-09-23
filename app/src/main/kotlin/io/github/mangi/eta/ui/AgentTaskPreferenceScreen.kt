@@ -63,5 +63,5 @@ internal fun AgentTaskPreferenceScreen() {
 private fun AgentTaskSurfaceMode.summaryRes(): Int = when (this) {
     AgentTaskSurfaceMode.ASK -> R.string.agent_task_surface_ask_not_ready
     AgentTaskSurfaceMode.FOREGROUND -> R.string.agent_task_surface_foreground_summary
-    AgentTaskSurfaceMode.BACKGROUND -> R.string.agent_task_surface_background_not_ready
+    AgentTaskSurfaceMode.BACKGROUND -> R.string.agent_task_surface_background_summary
 }

@@ -38,7 +38,7 @@ class AgentTaskSurfaceModeTest {
 
     @Test
     fun backgroundAndAskRefuseInsteadOfUsingForeground() {
-        listOf(AgentTaskSurfaceMode.BACKGROUND, AgentTaskSurfaceMode.ASK).forEach { mode ->
+        listOf(AgentTaskSurfaceMode.ASK).forEach { mode ->
             val error = assertThrows(VirtualDisplayHandoffNotReadyException::class.java) {
                 AgentTaskSurface.useVirtualDisplay(mode)
             }
@@ -63,20 +63,20 @@ class AgentTaskSurfaceModeTest {
         assertTrue(AgentTaskSurface.settingsEntryVisible(moduleInstalled = false, stored = AgentTaskSurfaceMode.BACKGROUND))
         assertTrue(AgentTaskSurface.settingsEntryVisible(moduleInstalled = false, stored = AgentTaskSurfaceMode.ASK))
         assertTrue(AgentTaskSurface.settingsEntryVisible(moduleInstalled = true, stored = AgentTaskSurfaceMode.FOREGROUND))
-        assertFalse(AgentTaskSurface.settingsEntryVisible(moduleInstalled = false, stored = AgentTaskSurfaceMode.FOREGROUND))
+        assertTrue(AgentTaskSurface.settingsEntryVisible(moduleInstalled = false, stored = AgentTaskSurfaceMode.FOREGROUND))
     }
 
     @Test
     fun onlyForegroundCanBeSavedAndNonForegroundSummariesAreNotReady() {
         assertTrue(AgentTaskSurface.allowsPersist(AgentTaskSurfaceMode.FOREGROUND))
-        assertFalse(AgentTaskSurface.allowsPersist(AgentTaskSurfaceMode.BACKGROUND))
+        assertTrue(AgentTaskSurface.allowsPersist(AgentTaskSurfaceMode.BACKGROUND))
         assertFalse(AgentTaskSurface.allowsPersist(AgentTaskSurfaceMode.ASK))
         assertEquals(
             AgentTaskSurfaceMode.FOREGROUND.labelRes,
             AgentTaskSurface.settingsSummaryRes(AgentTaskSurfaceMode.FOREGROUND),
         )
         assertEquals(
-            io.github.mangi.eta.R.string.agent_task_surface_background_not_ready,
+            io.github.mangi.eta.R.string.agent_task_surface_background_summary,
             AgentTaskSurface.settingsSummaryRes(AgentTaskSurfaceMode.BACKGROUND),
         )
         assertEquals(
@@ -86,36 +86,14 @@ class AgentTaskSurfaceModeTest {
     }
 
     @Test
-    fun handoffPromptDoesNotPromiseKeepingOrKillingApps() {
-        val text = AgentTaskSurface.handoffPromptClause(
-            moduleInstalled = true,
-            stored = AgentTaskSurfaceMode.BACKGROUND,
-        )
-        assertTrue(text.contains("尚未就绪"))
-        assertTrue(text.contains("不要调用 keep_virtual_result"))
-        assertFalse(text.contains("关掉"))
-        assertFalse(text.contains("关闭副屏"))
-        assertFalse(text.contains("都要留"))
-        assertEquals(
-            text,
-            AgentTaskSurface.handoffPromptClause(moduleInstalled = false, stored = AgentTaskSurfaceMode.BACKGROUND),
-        )
-        assertEquals(
-            text,
-            AgentTaskSurface.handoffPromptClause(moduleInstalled = false, stored = AgentTaskSurfaceMode.ASK),
-        )
-        assertEquals(
-            "",
-            AgentTaskSurface.handoffPromptClause(moduleInstalled = true, stored = AgentTaskSurfaceMode.FOREGROUND),
-        )
-        assertEquals(
-            "",
-            AgentTaskSurface.handoffPromptClause(moduleInstalled = false, stored = AgentTaskSurfaceMode.FOREGROUND),
-        )
-        assertEquals(
-            text,
-            AgentTaskSurface.handoffPromptClause(moduleInstalled = true, stored = AgentTaskSurfaceMode.ASK),
-        )
+    fun backgroundPromptRequiresVerifiedExplicitFinish() {
+        assertTrue(AgentTaskSurface.useVirtualDisplay(AgentTaskSurfaceMode.BACKGROUND))
+        val text=AgentTaskSurface.handoffPromptClause(true,AgentTaskSurfaceMode.BACKGROUND)
+        assertTrue(text.contains("keep_virtual_result"))
+        assertTrue(text.contains("finish_virtual_session"))
+        assertTrue(text.contains("失败保留副屏"))
+        assertTrue(text.contains("不得回退主屏"))
+        assertFalse(text.contains("进程退出后自动关闭"))
     }
 
     @Test

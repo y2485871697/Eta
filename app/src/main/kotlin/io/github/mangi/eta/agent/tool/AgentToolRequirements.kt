@@ -45,7 +45,7 @@ internal object AgentToolRequirements {
         )
         register(
             RootRequirement.REQUIRED,
-            "inspect_virtual_backend", "top_memory_apps", "top_storage_apps", "wifi_credentials", "read_sms_code",
+            "start_virtual_session", "finish_virtual_session", "inspect_virtual_backend", "top_memory_apps", "top_storage_apps", "wifi_credentials", "read_sms_code",
             "get_logcat", "set_setting", "set_device_state", "app_state_control",
             "list_alarms", "list_active_timers", "get_health_summary", "search_clipboard_history",
             "search_media", "search_audio", "search_recordings", "search_files",

@@ -74,3 +74,6 @@
 -keep class vd.close.TaskHandle { *; }
 -keep class vd.close.ActionResult { *; }
 -keep class vd.close.CloseSurface { *; }
+
+# Root app_process entrypoints packaged in the app APK.
+-keep class vd.runtime.** { *; }

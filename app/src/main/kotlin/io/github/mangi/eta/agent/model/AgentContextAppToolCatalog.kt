@@ -6,6 +6,10 @@ import org.json.JSONObject
 /** 上下文、应用入口与屏幕观察工具 schema。 */
 internal object AgentContextAppToolCatalog {
     fun appendTo(tools: JSONArray) {
+        for ((name,description) in listOf(
+            "start_virtual_session" to "启动本次后台副屏会话，重复调用不重复创建；失败不会回退主屏。",
+            "finish_virtual_session" to "移交已标记的交付任务到主屏后台，清理本次中间任务并关闭空副屏。必须检查 handedOff 和 released；失败时不杀进程，不声称交付成功。"
+        )) tools.put(AgentToolSchema.function(name=name,description=description,parameters=JSONObject().put("type","object").put("properties",JSONObject())))
         tools
             .put(
                 AgentToolSchema.function(
@@ -83,12 +87,13 @@ internal object AgentContextAppToolCatalog {
             .put(
                 AgentToolSchema.function(
                     name = "keep_virtual_result",
-                    description = "兼容旧调用的保留结果入口。虚拟副屏交接尚未就绪，当前明确返回 VIRTUAL_DISPLAY_HANDOFF_NOT_READY，不保留、恢复或关闭任何应用。",
+                    description = "标记本次副屏会话要交付的任务。优先 task_ids；也可按本次已启动包名选择。这里只标记，必须再调用 finish_virtual_session 验证迁移及关闭。",
                     parameters = JSONObject()
                         .put("type", "object")
                         .put(
                             "properties",
                             JSONObject()
+                                .put("task_ids", JSONObject().put("type","array").put("items",JSONObject().put("type","integer")).put("description","本次启动工具返回的精确任务编号"))
                                 .put(
                                     "package_name",
                                     JSONObject()

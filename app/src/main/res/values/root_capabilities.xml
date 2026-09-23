@@ -95,8 +95,8 @@
     <string name="agent_task_surface_background">后台执行</string>
     <string name="agent_task_surface_ask_summary">每次操作手机前询问前台还是后台</string>
     <string name="agent_task_surface_foreground_summary">在主屏上操作，和现在一样</string>
-    <string name="agent_task_surface_background_summary">后台交接尚未接通，当前不可选</string>
+    <string name="agent_task_surface_background_summary">实验性：副屏执行，标记交付任务后迁回后台并关闭副屏</string>
     <string name="agent_task_surface_hint">安装模块不代表交接可用。后台功能未就绪时不会自动改用主屏；可手动选择前台执行。</string>
     <string name="agent_task_surface_prompt_title">这次任务在哪里执行</string>
-    <string name="agent_task_surface_prompt_body">后台交接尚未接通。完成接入后，仅在交付任务移交成功并确认源屏为空时关闭副屏；失败时保留副屏。</string>
+    <string name="agent_task_surface_prompt_body">实验性后台执行，仅在交付任务移交成功并确认源屏为空时关闭副屏；失败时保留副屏。</string>
 </resources>

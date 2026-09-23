@@ -37,6 +37,16 @@ final class OwnerHandoff {
         if(i==null||i.getComponent()==null) throw new IllegalStateException("base intent");
         return i.getComponent().flattenToString();
     }
+    static void rejectExistingPackage(String pkg)throws Exception {
+        for(Object t:roots().values()) if(base(t).startsWith(pkg+"/"))throw new IllegalStateException("existing active task");
+        Object slice=invokeAtm("getRecentTasks",new Class<?>[]{int.class,int.class,int.class},256,2,0);
+        Object list=slice.getClass().getMethod("getList").invoke(slice);
+        if(!(list instanceof List))throw new IllegalStateException("recent inventory unknown");
+        for(Object t:(List<?>)list) {
+            Intent intent=(Intent)field(t,"baseIntent");
+            if(intent!=null&&intent.getComponent()!=null&&pkg.equals(intent.getComponent().getPackageName()))throw new IllegalStateException("existing recent task");
+        }
+    }
     static void verifyDisplay(int id,String unique)throws Exception {
         Class<?> c=Class.forName("android.hardware.display.DisplayManagerGlobal");
         Object g=c.getMethod("getInstance").invoke(null);
@@ -44,10 +54,10 @@ final class OwnerHandoff {
         if(info==null||!unique.equals(field(info,"uniqueId"))) throw new IllegalStateException("display identity changed");
     }
     static final class Task {
-        final int id; final Object binder; final String base;
-        Task(Object t)throws Exception { id=number(t,"taskId");binder=binder(t);base=base(t); }
+        final int id; final Object binder; final String base; final String data;
+        Task(Object t)throws Exception { id=number(t,"taskId");binder=binder(t);base=base(t);data=((Intent)field(t,"baseIntent")).getDataString(); }
         void check(Object t,int display)throws Exception {
-            if(t==null||number(t,"taskId")!=id||number(t,"displayId")!=display||!binder.equals(binder(t))||!base.equals(base(t))) throw new IllegalStateException("task identity changed");
+            if(t==null||!Objects.equals(data,((Intent)field(t,"baseIntent")).getDataString())||number(t,"taskId")!=id||number(t,"displayId")!=display||!binder.equals(binder(t))||!base.equals(base(t))) throw new IllegalStateException("task identity changed");
             if(number(t,"userId")!=0||number(t,"parentTaskId")!=-1) throw new IllegalStateException("unsupported task shape");
             int[] kids=(int[])field(t,"childTaskIds");
             if(kids==null||kids.length!=1||kids[0]!=id) throw new IllegalStateException("unsupported nested task");
