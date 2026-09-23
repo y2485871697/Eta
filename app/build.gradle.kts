@@ -67,11 +67,9 @@ android {
             }
         }
         release {
-            signingConfig = when {
-                System.getenv("ETA_DISABLE_RELEASE_SIGNING") == "true" -> signingConfigs.getByName("debug")
-                hasReleaseSigning -> signingConfigs.getByName("release")
-                else -> signingConfigs.getByName("debug")
-            }
+            signingConfig = if (hasReleaseSigning && System.getenv("ETA_DISABLE_RELEASE_SIGNING") != "true") {
+                signingConfigs.getByName("release")
+            } else null
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -178,3 +176,13 @@ val prepareSpeechRuntime by tasks.registering(Exec::class) {
 }
 android.sourceSets.getByName("main").jniLibs.srcDir(speechJniDir.get().asFile)
 tasks.named("preBuild").configure { dependsOn(prepareSpeechRuntime) }
+
+// Release artifacts must never silently fall back to a runner-generated debug certificate.
+tasks.matching { it.name in setOf("packageRelease", "bundleRelease", "assembleRelease") }.configureEach {
+    doFirst {
+        check(hasReleaseSigning && System.getenv("ETA_DISABLE_RELEASE_SIGNING") != "true") {
+            "Original release signing configuration is required; debug fallback is forbidden."
+        }
+        check(file(requireNotNull(releaseStoreFile)).isFile) { "Release keystore is missing." }
+    }
+}

@@ -6,6 +6,8 @@ import io.github.mangi.eta.data.model.ProviderSetting
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.ContinuationInterceptor
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -172,7 +174,7 @@ class ProviderBalanceCoordinatorTest {
 
     @Test
     fun pollerRestartsAfterScopeCancellation() = runBlocking {
-        val dispatcher = coroutineContext[ContinuationInterceptor] ?: Dispatchers.Default
+        val dispatcher = (coroutineContext[ContinuationInterceptor] as? CoroutineDispatcher) ?: Dispatchers.Default
         val counter = AtomicInteger(0)
         val providers = MutableStateFlow(listOf(provider("p")))
         val poller = ProviderBalancePoller(
@@ -195,7 +197,7 @@ class ProviderBalanceCoordinatorTest {
 
     @Test
     fun startingTwiceOnActiveScopeKeepsSinglePoller() = runBlocking {
-        val dispatcher = coroutineContext[ContinuationInterceptor] ?: Dispatchers.Default
+        val dispatcher = (coroutineContext[ContinuationInterceptor] as? CoroutineDispatcher) ?: Dispatchers.Default
         val counter = AtomicInteger(0)
         val providers = MutableStateFlow(listOf(provider("p")))
         val poller = ProviderBalancePoller(
@@ -212,4 +214,44 @@ class ProviderBalanceCoordinatorTest {
         assertEquals(1, counter.get())
         scope.cancel()
     }
+    @Test
+    fun cancelledOwnerDoesNotLeaveRefreshingOrPreventRestart() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val never = CompletableDeferred<Unit>()
+        var first = true
+        val coordinator = ProviderBalanceCoordinator(fetch = {
+            if (first) { first = false; entered.complete(Unit); never.await() }
+            Result.success("12")
+        }, clock = { 0L }, format = { it })
+        val oldScope = CoroutineScope(coroutineContext + Job())
+        coordinator.refresh(oldScope, listOf(provider("p")))
+        entered.await()
+        oldScope.cancel()
+        withTimeout(2000) { coordinator.states.first { it["p"]?.refreshing == false } }
+        coordinator.refresh(this, listOf(provider("p")))
+        withTimeout(2000) { coordinator.states.first { it["p"]?.amount == "12" } }
+    }
+
+    @Test
+    fun alreadyCancelledScopeDoesNotCreateZombieRequest() = runBlocking {
+        val oldScope = CoroutineScope(coroutineContext + Job())
+        oldScope.cancel()
+        val coordinator = ProviderBalanceCoordinator(fetch = { Result.success("1") }, clock = { 0L }, format = { it })
+        coordinator.refresh(oldScope, listOf(provider("p")))
+        assertTrue(coordinator.states.value.isEmpty())
+        coordinator.refresh(this, listOf(provider("p")))
+        withTimeout(2000) { coordinator.states.first { it["p"]?.amount == "1" } }
+    }
+
+    @Test
+    fun failureDoesNotExposeExceptionSecrets() = runBlocking {
+        val coordinator = ProviderBalanceCoordinator(
+            fetch = { Result.failure(IOException("Authorization: Bearer secret-value")) },
+            clock = { 0L }, format = { it },
+        )
+        coordinator.refresh(this, listOf(provider("p")))
+        val result = withTimeout(2000) { coordinator.states.first { it["p"]?.error != null } }
+        assertFalse(result.getValue("p").error!!.contains("secret-value"))
+    }
+
 }

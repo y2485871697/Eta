@@ -14,6 +14,7 @@ import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -22,6 +23,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import okio.Buffer
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -104,13 +106,8 @@ internal object ProviderBalanceFetcher {
             .get()
             .build()
         val body = try {
-            client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) {
-                    // 只保留状态码，绝不回传响应正文。
-                    throw BalanceQueryException("Balance request failed (HTTP ${response.code})")
-                }
-                response.body.string()
-            }
+            withTimeoutOrNull(TOTAL_TIMEOUT_MS) { client.newCall(request).awaitBody() }
+                ?: throw BalanceQueryException("Balance request timed out")
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (queryFailure: BalanceQueryException) {
@@ -123,17 +120,32 @@ internal object ProviderBalanceFetcher {
         return extractValue(body, resolved.resultPath)
     }
 
-    /** 以可取消的方式执行 OkHttp call：协程取消时同步 cancel 底层请求。 */
-    private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
+    /** Cancellation remains attached until the bounded response body has been consumed. */
+    private suspend fun Call.awaitBody(): String = suspendCancellableCoroutine { continuation ->
         continuation.invokeOnCancellation { cancel() }
         enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                if (continuation.isCancelled) return
-                continuation.resumeWithException(e)
+                if (!continuation.isCancelled) continuation.resumeWithException(e)
             }
-
             override fun onResponse(call: Call, response: Response) {
-                continuation.resume(response) { _, value, _ -> value.close() }
+                try {
+                    val text = response.use {
+                        if (!it.isSuccessful) throw BalanceQueryException("Balance request failed (HTTP ${it.code})")
+                        val limit = 256L * 1024L
+                        if (it.body.contentLength() > limit) throw BalanceQueryException("Balance response too large")
+                        val buffer = Buffer()
+                        val source = it.body.source()
+                        while (true) {
+                            val count = source.read(buffer, minOf(8192L, limit + 1L - buffer.size))
+                            if (count == -1L) break
+                            if (buffer.size > limit) throw BalanceQueryException("Balance response too large")
+                        }
+                        buffer.readUtf8()
+                    }
+                    continuation.resumeWith(Result.success(text))
+                } catch (failure: Exception) {
+                    if (!continuation.isCancelled) continuation.resumeWithException(failure)
+                }
             }
         })
     }

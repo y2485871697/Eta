@@ -1,4 +1,4 @@
-name: Eta Build Debug
+name: Eta Build (Original Signing)
 
 on:
   push:
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build-debug-signed-release:
-    name: 构建 Debug 签名 Release APK
+    name: 构建原签名 Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
@@ -43,7 +43,7 @@ jobs:
             exit 1
           fi
           yes | "$sdkmanager" --licenses >/dev/null || true
-          "$sdkmanager" --channel=3 "platforms;android-37.0" || true
+          "$sdkmanager" --channel=3 "platforms;android-37.0"
 
       - name: 还原发布证书
         env:
@@ -52,6 +52,7 @@ jobs:
           ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
           ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           if [[ -z "$ETA_RELEASE_KEYSTORE_BASE64" ||
                 -z "$ETA_RELEASE_STORE_PASSWORD" ||
                 -z "$ETA_RELEASE_KEY_ALIAS" ||
@@ -62,6 +63,7 @@ jobs:
           printf '%s' "$ETA_RELEASE_KEYSTORE_BASE64" \
             | base64 --decode \
             > "$RUNNER_TEMP/eta-release.p12"
+          test -s "$RUNNER_TEMP/eta-release.p12"
 
       - name: 验证子代理工作区
         run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s app/src/test/python -v
@@ -93,10 +95,24 @@ jobs:
           ./gradlew --no-daemon --no-configuration-cache
           :app:assembleRelease
 
+      - name: 校验 APK 原签名
+        run: |
+          set -euo pipefail
+          apksigner_path="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$apksigner_path"
+          "$apksigner_path" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/apk-signature.txt"
+          cat "$RUNNER_TEMP/apk-signature.txt"
+          actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/apk-signature.txt" | tr '[:upper:]' '[:lower:]' | tr -d '\r')"
+          expected="1e1c8731bd2a7fab53b941cd9869884e7756bed96fadd10f322e70d760d1d193"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::APK 签名与既有代鱼不一致，禁止交付。"
+            exit 1
+          fi
+
       - name: 上传 Release APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: eta-debug-signed-release
+          name: eta-signed-release
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14

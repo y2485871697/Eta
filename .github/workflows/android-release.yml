@@ -47,6 +47,7 @@ jobs:
           ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
           ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           if [[ -z "$ETA_RELEASE_KEYSTORE_BASE64" ||
                 -z "$ETA_RELEASE_STORE_PASSWORD" ||
                 -z "$ETA_RELEASE_KEY_ALIAS" ||
@@ -57,6 +58,7 @@ jobs:
           printf '%s' "$ETA_RELEASE_KEYSTORE_BASE64" \
             | base64 --decode \
             > "$RUNNER_TEMP/eta-release.p12"
+          test -s "$RUNNER_TEMP/eta-release.p12"
 
       - name: 构建 Release APK
         env:
@@ -89,6 +91,20 @@ jobs:
           mkdir -p "$output_dir"
           cp "$release_apk" "$output_dir/app-release.apk"
           echo "release_path=$output_dir/app-release.apk" >> "$GITHUB_OUTPUT"
+
+      - name: 校验 APK 原签名
+        run: |
+          set -euo pipefail
+          apksigner_path="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$apksigner_path"
+          "$apksigner_path" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/apk-signature.txt"
+          cat "$RUNNER_TEMP/apk-signature.txt"
+          actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/apk-signature.txt" | tr '[:upper:]' '[:lower:]' | tr -d '\r')"
+          expected="1e1c8731bd2a7fab53b941cd9869884e7756bed96fadd10f322e70d760d1d193"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::APK 签名与既有代鱼不一致，禁止交付。"
+            exit 1
+          fi
 
       - name: 上传 Release APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
