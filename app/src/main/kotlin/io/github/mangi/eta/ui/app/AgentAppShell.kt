@@ -14,19 +14,26 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.data.repository.ProviderBalanceStore
-import io.github.mangi.eta.ui.pages.providers.ProviderBalanceAmount
+import io.github.mangi.eta.ui.pages.providers.ProviderBalanceIndicator
+import io.github.mangi.eta.ui.pages.providers.activityLifecycleOwnerOrNull
+import io.github.mangi.eta.ui.pages.providers.hasBalanceIndicatorContent
 import io.github.mangi.eta.ui.components.AdaptiveTopAppBar
 import io.github.mangi.eta.ui.components.ConversationSidePaneScaffold
 import io.github.mangi.eta.ui.components.MiuixBackButton
@@ -109,6 +116,34 @@ internal fun AgentAppShell(
     modifier: Modifier = Modifier,
     content: @Composable (PaddingValues) -> Unit,
 ) {
+    // App 回到前台时补刷一次余额，并调用 start 以恢复可能已停止的轮询。
+    // 这里挂在壳层的 Activity 生命周期上（壳层在每个路由都会组合），
+    // 用去抖避免导航导致的观察者重建触发多余请求。
+    val balanceContext = LocalContext.current
+    val balanceLifecycleOwner = remember(balanceContext) { balanceContext.activityLifecycleOwnerOrNull() }
+    val balanceScope = balanceLifecycleOwner?.lifecycleScope
+    DisposableEffect(balanceLifecycleOwner) {
+        val owner = balanceLifecycleOwner
+        val scope = balanceScope
+        if (owner == null || scope == null) {
+            onDispose { }
+        } else {
+            ProviderBalanceStore.start(scope)
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastBalanceForegroundRefreshAtMs >= BalanceForegroundRefreshDebounceMs) {
+                        lastBalanceForegroundRefreshAtMs = now
+                        ProviderBalanceStore.start(scope)
+                        ProviderBalanceStore.requestRefresh(scope)
+                    }
+                }
+            }
+            owner.lifecycle.addObserver(observer)
+            onDispose { owner.lifecycle.removeObserver(observer) }
+        }
+    }
+
     val scrollBehavior = MiuixScrollBehavior()
     val backdrop = rememberTopBarBackdrop()
     val topBarColor = topBarContainerColor(backdrop)
@@ -247,13 +282,13 @@ private fun AgentTopBar(
             MiuixBackButton(onClick = onBack)
         }
     }
-    val balances by ProviderBalanceStore.balances.collectAsState()
-    val selectedBalance = selectedProviderId?.let(balances::get)
+    val balanceStates by ProviderBalanceStore.states.collectAsState()
+    val selectedBalanceState = selectedProviderId?.let(balanceStates::get)
     val actions: @Composable RowScope.() -> Unit = {
         if (isHome) {
-            if (!selectedBalance.isNullOrBlank()) {
-                ProviderBalanceAmount(
-                    amount = selectedBalance,
+            if (hasBalanceIndicatorContent(selectedBalanceState)) {
+                ProviderBalanceIndicator(
+                    state = selectedBalanceState,
                     modifier = Modifier.padding(end = 6.dp),
                 )
             }
@@ -297,6 +332,7 @@ private fun AgentTopBar(
         )
     }
 }
+
 @Composable
 private fun titleForRoute(route: AppRoute?, currentConversationTitle: String? = null): String = when (route) {
     is AppRoute.Home -> currentConversationTitle ?: stringResource(R.string.app_name)
@@ -336,3 +372,7 @@ private fun titleForRoute(route: AppRoute?, currentConversationTitle: String? = 
     is AppRoute.AssistantEdit -> stringResource(R.string.assistant_edit_title)
     null -> stringResource(R.string.app_name)
 }
+
+private const val BalanceForegroundRefreshDebounceMs = 15_000L
+
+private var lastBalanceForegroundRefreshAtMs = 0L

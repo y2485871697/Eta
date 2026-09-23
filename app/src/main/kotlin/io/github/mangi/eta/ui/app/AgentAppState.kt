@@ -4280,15 +4280,11 @@ internal class AgentAppState(
     }
 
     private fun updateCurrentConversation(state: AgentChatHomeUiState) {
-        val wasStreaming = homeState.isStreaming
         val conversationId = selectedConversationId
         if (conversationId == null) {
             homeState = state
         } else {
             updateConversation(conversationId, state)
-        }
-        if (wasStreaming && !state.isStreaming) {
-            ProviderBalanceStore.requestRefresh(scope)
         }
     }
 
@@ -4350,6 +4346,9 @@ internal class AgentAppState(
     private fun setConversationStreaming(runId: String, isStreaming: Boolean) {
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return
+        if (state.isStreaming && !isStreaming) {
+            ProviderBalanceStore.requestRefresh(scope)
+        }
         updateConversation(
             conversationId,
             state.copy(

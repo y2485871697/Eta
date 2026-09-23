@@ -17,9 +17,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.lifecycleScope
+import io.github.mangi.eta.data.repository.ProviderBalanceState
+import io.github.mangi.eta.ui.pages.providers.ProviderBalanceIndicator
+import io.github.mangi.eta.ui.pages.providers.hasBalanceIndicatorContent
+import io.github.mangi.eta.ui.pages.providers.activityLifecycleOwnerOrNull
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -140,7 +146,14 @@ private fun ModelPickerPopupContent(
     onProviderExpandedChange: (String, Boolean) -> Unit,
     onModelSelected: (String, String) -> Unit,
 ) {
-    val balances by ProviderBalanceStore.balances.collectAsState()
+    val balanceStates by ProviderBalanceStore.states.collectAsState()
+    val balanceContext = LocalContext.current
+    LaunchedEffect(Unit) {
+        balanceContext.activityLifecycleOwnerOrNull()?.lifecycleScope?.let { scope ->
+            ProviderBalanceStore.start(scope)
+            ProviderBalanceStore.requestRefresh(scope)
+        }
+    }
     state.providerGroups.forEachIndexed { groupIndex, group ->
             if (groupIndex > 0) {
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
@@ -149,7 +162,7 @@ private fun ModelPickerPopupContent(
             ModelProviderGroupHeader(
                 name = group.providerName,
                 expanded = expanded,
-                balance = balances[group.providerId],
+                balance = balanceStates[group.providerId],
                 onClick = {
                     onProviderExpandedChange(group.providerId, !expanded)
                 },
@@ -170,7 +183,7 @@ private fun ModelPickerPopupContent(
 private fun ModelProviderGroupHeader(
     name: String,
     expanded: Boolean,
-    balance: String? = null,
+    balance: ProviderBalanceState? = null,
     onClick: () -> Unit,
 ) {
     val view = LocalView.current
@@ -197,9 +210,9 @@ private fun ModelProviderGroupHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (!balance.isNullOrBlank()) {
+        if (hasBalanceIndicatorContent(balance)) {
             Spacer(modifier = Modifier.width(8.dp))
-            ProviderBalanceAmount(amount = balance)
+            ProviderBalanceIndicator(state = balance)
         }
         Spacer(modifier = Modifier.width(8.dp))
         Icon(
