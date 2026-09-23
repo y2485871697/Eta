@@ -19,6 +19,11 @@ import android.os.Process;
  * supplied on the command line and is checked against the kernel's peer credentials on every
  * connection.
  *
+ * <p>The main looper prepared by {@link Looper#prepareMainLooper()} cannot be quit, so
+ * {@link Looper#loop()} never returns. The process is ended only from the IPC stop callback, and
+ * only after the owner reports the display released; a session that still has tasks is never
+ * exited.
+ *
  * <pre>
  * app_process /system/bin vd.runtime.VirtualDisplayOwner \
  *     --socket &lt;abstract-name&gt; --allow-uid &lt;app-uid&gt; \
@@ -80,7 +85,18 @@ public final class VirtualDisplayOwnerMain {
                     new Runnable() {
                         @Override
                         public void run() {
-                            // the IPC connection quits the owner looper right after this
+                            // The IPC server posts this on the owner looper only after the release
+                            // reply has been flushed to the peer, so the peer already has its
+                            // answer. Only a verified release may end the process: exiting while
+                            // tasks remain would tear the display down with them.
+                            if (!owner.isReleased()) {
+                                print(STOPPED_PREFIX + " displayId=" + owner.displayId()
+                                        + " released=false");
+                                return;
+                            }
+                            print(STOPPED_PREFIX + " displayId=" + owner.displayId()
+                                    + " released=true");
+                            System.exit(0);
                         }
                     });
         } catch (OwnerException ex) {
@@ -99,10 +115,10 @@ public final class VirtualDisplayOwnerMain {
                 + " uniqueId=" + owner.uniqueId());
         server.start();
 
+        // The main looper prepared above cannot be quit, so this never returns. The session ends
+        // from the stop callback, which calls System.exit(0) once the release has been verified.
         Looper.loop();
-        server.stop();
-        print(STOPPED_PREFIX + " displayId=" + owner.displayId()
-                + " released=" + owner.isReleased());
+        // Not reached: the stop callback exits the process.
         return 0;
     }
 

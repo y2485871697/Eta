@@ -1,7 +1,7 @@
 package vd.runtime;
 
 /** Malformed request framing. The connection answers with {@code ok=false} and this code. */
-public final class OwnerProtocolException extends Exception {
+public final class OwnerProtocolException extends OwnerException {
     public final String code;
 
     public OwnerProtocolException(String code, String message) {

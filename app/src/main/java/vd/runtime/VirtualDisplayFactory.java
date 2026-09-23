@@ -1,39 +1,35 @@
 package vd.runtime;
 
 import java.lang.reflect.AccessibleObject;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 
+import android.content.Context;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.ImageReader;
-import android.os.Binder;
-import android.os.Parcel;
 import android.view.Display;
 import android.view.Surface;
 
 /**
- * Creates one virtual display through reflection so this source still compiles against the public
- * SDK.
+ * Creates one virtual display through the public {@link DisplayManager} API.
+ *
+ * <p>The owner runs as root, but {@code DisplayManager.createVirtualDisplay} only accepts a package
+ * name that belongs to the calling uid. Reaching the framework's system {@link Context} through
+ * {@code ActivityThread.systemMain()} / {@code getSystemContext()} yields a {@code DisplayManager}
+ * whose op package is {@code android}, which is what uid 0 owns. That is the same route the
+ * platform's own display clients use; no hidden {@code DisplayManagerGlobal.createVirtualDisplay}
+ * signature is guessed and no {@code IVirtualDisplayCallback} is fabricated.
  *
  * <p>The retained owner is an {@link ImageReader}: its {@link Surface} is the display's output
  * surface and it stays alive for the whole owner session, so the display is never released while
- * frames can still arrive.
+ * frames can still arrive. The framework owns the virtual-display callback.
  *
- * <p>{@code DisplayManagerGlobal.createVirtualDisplay} is hidden and its signature has changed
- * across releases. Three shapes are tried explicitly (with a {@code VirtualDisplayConfig}, with a
- * {@code String uniqueId}, and the legacy listener-only form). If nothing matches, creation fails
- * with {@link OwnerProtocol#ERROR_DISPLAY_NOT_READY}); a missing signature is never reported as a
- * created display.
- *
- * <p>{@code IVirtualDisplayCallback} is an AIDL interface, so a plain {@link Proxy} is not a
- * binder. The proxy's {@code asBinder()} returns a real {@link Binder} that acknowledges every
- * transaction. That is enough for the display service to hold the callback token; lifecycle
- * callbacks are treated as best-effort notifications.
+ * <p>The public API does not let a caller choose the display's unique id, so the value reported by
+ * the created display's {@code DisplayInfo} is read back instead of echoing the requested string. A
+ * display whose unique id cannot be read is never reported as created.
  */
 final class VirtualDisplayFactory {
     /** uid 0 owns this package, which satisfies the display service's package-vs-uid check. */
@@ -41,17 +37,14 @@ final class VirtualDisplayFactory {
 
     static final int DEFAULT_FLAGS = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC;
 
-    private static final String DMG_CLASS = "android.hardware.display.DisplayManagerGlobal";
-    private static final String CALLBACK_CLASS = "android.hardware.display.IVirtualDisplayCallback";
-    private static final String CONFIG_CLASS = "android.hardware.display.VirtualDisplayConfig";
-    private static final String CONFIG_BUILDER_CLASS =
-            "android.hardware.display.VirtualDisplayConfig$Builder";
+    private static final String ACTIVITY_THREAD_CLASS = "android.app.ActivityThread";
+    private static final String DISPLAY_MANAGER_GLOBAL_CLASS =
+            "android.hardware.display.DisplayManagerGlobal";
 
     static final class Created {
         final VirtualDisplay display;
         final ImageReader reader;
         final Surface surface;
-        final Object callback;
         final int displayId;
         final String uniqueId;
         final String name;
@@ -60,13 +53,11 @@ final class VirtualDisplayFactory {
         final int densityDpi;
         final int flags;
 
-        Created(VirtualDisplay display, ImageReader reader, Surface surface, Object callback,
-                int displayId, String uniqueId, String name, int width, int height, int densityDpi,
-                int flags) {
+        Created(VirtualDisplay display, ImageReader reader, Surface surface, int displayId,
+                String uniqueId, String name, int width, int height, int densityDpi, int flags) {
             this.display = display;
             this.reader = reader;
             this.surface = surface;
-            this.callback = callback;
             this.displayId = displayId;
             this.uniqueId = uniqueId;
             this.name = name;
@@ -85,6 +76,8 @@ final class VirtualDisplayFactory {
         if (name == null || name.isEmpty()) {
             throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "name");
         }
+        // The public createVirtualDisplay overload has no caller-supplied unique id; the argument is
+        // validated for callers but the actual id is read back from the created display below.
         if (uniqueId == null || uniqueId.isEmpty()) {
             throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "uniqueId");
         }
@@ -92,8 +85,7 @@ final class VirtualDisplayFactory {
             throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "geometry");
         }
 
-        Class<?> dmgClass = load(DMG_CLASS);
-        Class<?> callbackClass = load(CALLBACK_CLASS);
+        DisplayManager displayManager = systemDisplayManager();
 
         ImageReader reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888,
                 Math.max(1, maxImages));
@@ -103,55 +95,20 @@ final class VirtualDisplayFactory {
             throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "no surface");
         }
 
-        Object callback = newCallback(callbackClass);
-
-        Class<?> configClass = optionalClass(CONFIG_CLASS);
-        Object config = buildConfig(configClass, name, width, height, densityDpi, flags, surface,
-                uniqueId);
-
-        Object global;
+        VirtualDisplay display;
         try {
-            Method getInstance = dmgClass.getMethod("getInstance");
-            access(getInstance);
-            global = getInstance.invoke(null);
-        } catch (Exception ex) {
-            reader.close();
-            throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "display manager");
-        }
-        if (global == null) {
-            reader.close();
-            throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "display manager null");
-        }
-
-        Method method = findCreateMethod(dmgClass, configClass);
-        if (method == null) {
-            reader.close();
-            throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "create signature");
-        }
-
-        Object[] args = buildArgs(method, callback, config, name, width, height, densityDpi,
-                surface, flags, uniqueId, configClass);
-
-        Object result;
-        try {
-            access(method);
-            result = method.invoke(global, args);
-        } catch (InvocationTargetException ex) {
-            reader.close();
-            Throwable cause = ex.getCause() == null ? ex : ex.getCause();
-            throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY,
-                    "create:" + cause.getClass().getSimpleName());
-        } catch (Exception ex) {
+            display = displayManager.createVirtualDisplay(name, width, height, densityDpi, surface,
+                    flags);
+        } catch (Throwable ex) {
             reader.close();
             throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY,
                     "create:" + ex.getClass().getSimpleName());
         }
-
-        if (!(result instanceof VirtualDisplay)) {
+        if (display == null) {
             reader.close();
             throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "create result");
         }
-        VirtualDisplay display = (VirtualDisplay) result;
+
         Display bound = display.getDisplay();
         if (bound == null) {
             releaseQuietly(display);
@@ -164,8 +121,14 @@ final class VirtualDisplayFactory {
             reader.close();
             throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "main display id");
         }
-        return new Created(display, reader, surface, callback, displayId, uniqueId, name, width,
-                height, densityDpi, flags);
+        String actualUniqueId = readBackUniqueId(displayId);
+        if (actualUniqueId == null || actualUniqueId.isEmpty()) {
+            releaseQuietly(display);
+            reader.close();
+            throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "unique id");
+        }
+        return new Created(display, reader, surface, displayId, actualUniqueId, name, width, height,
+                densityDpi, flags);
     }
 
     static void releaseQuietly(VirtualDisplay display) {
@@ -179,105 +142,90 @@ final class VirtualDisplayFactory {
         }
     }
 
-    private static Object newCallback(Class<?> callbackClass) throws OwnerException {
+    /**
+     * The framework's system {@link DisplayManager}, reached the way the platform's own clients
+     * reach it: {@code ActivityThread.systemMain()} creates the system thread and
+     * {@code getSystemContext()} hands back the context whose op package is {@code android}.
+     */
+    private static DisplayManager systemDisplayManager() throws OwnerException {
         try {
-            return Proxy.newProxyInstance(VirtualDisplayFactory.class.getClassLoader(),
-                    new Class<?>[] {callbackClass}, new CallbackHandler());
-        } catch (Throwable ex) {
+            Class<?> activityThreadClass = Class.forName(ACTIVITY_THREAD_CLASS);
+            Method systemMain = activityThreadClass.getMethod("systemMain");
+            access(systemMain);
+            Object activityThread = systemMain.invoke(null);
+            if (activityThread == null) {
+                throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "system thread");
+            }
+            Method getSystemContext = activityThreadClass.getMethod("getSystemContext");
+            access(getSystemContext);
+            Object context = getSystemContext.invoke(activityThread);
+            if (!(context instanceof Context)) {
+                throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "system context");
+            }
+            Object service = ((Context) context).getSystemService(Context.DISPLAY_SERVICE);
+            if (!(service instanceof DisplayManager)) {
+                throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, "display manager");
+            }
+            return (DisplayManager) service;
+        } catch (OwnerException ex) {
+            throw ex;
+        } catch (InvocationTargetException ex) {
+            Throwable cause = ex.getCause() == null ? ex : ex.getCause();
             throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY,
-                    "callback:" + ex.getClass().getSimpleName());
+                    "system context:" + cause.getClass().getSimpleName());
+        } catch (Exception ex) {
+            throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY,
+                    "system context:" + ex.getClass().getSimpleName());
         }
     }
 
-    private static Object[] buildArgs(Method method, Object callback, Object config, String name,
-            int width, int height, int densityDpi, Surface surface, int flags, String uniqueId,
-            Class<?> configClass) {
-        Class<?>[] params = method.getParameterTypes();
-        if (params.length == 11 && configClass != null && params[9] == configClass) {
-            return new Object[] {callback, null, OWNER_PACKAGE, name, Integer.valueOf(width),
-                    Integer.valueOf(height), Integer.valueOf(densityDpi), surface,
-                    Integer.valueOf(flags), config, null};
-        }
-        if (params.length == 11 && params[9] == String.class) {
-            return new Object[] {callback, null, OWNER_PACKAGE, name, Integer.valueOf(width),
-                    Integer.valueOf(height), Integer.valueOf(densityDpi), surface,
-                    Integer.valueOf(flags), uniqueId, null};
-        }
-        // legacy listener-only form
-        return new Object[] {callback, null, OWNER_PACKAGE, name, Integer.valueOf(width),
-                Integer.valueOf(height), Integer.valueOf(densityDpi), surface,
-                Integer.valueOf(flags), null};
-    }
-
-    private static Method findCreateMethod(Class<?> dmgClass, Class<?> configClass) {
-        Method legacy = null;
-        for (Method candidate : dmgClass.getDeclaredMethods()) {
-            if (!"createVirtualDisplay".equals(candidate.getName())) {
-                continue;
-            }
-            Class<?>[] params = candidate.getParameterTypes();
-            if (params.length == 11 && configClass != null && params[9] == configClass) {
-                return candidate;
-            }
-            if (params.length == 11 && params[9] == String.class) {
-                return candidate;
-            }
-            if (params.length == 10 && legacy == null) {
-                legacy = candidate;
-            }
-        }
-        return legacy;
-    }
-
-    private static Object buildConfig(Class<?> configClass, String name, int width, int height,
-            int densityDpi, int flags, Surface surface, String uniqueId) {
-        if (configClass == null) {
-            return null;
-        }
-        Class<?> builderClass = optionalClass(CONFIG_BUILDER_CLASS);
-        if (builderClass == null) {
-            return null;
-        }
+    /** Reads the unique id the display service actually assigned to {@code displayId}. */
+    private static String readBackUniqueId(int displayId) {
         try {
-            Constructor<?> ctor = builderClass.getConstructor(String.class, int.class, int.class,
-                    int.class);
-            Object builder = ctor.newInstance(name, Integer.valueOf(width), Integer.valueOf(height),
-                    Integer.valueOf(densityDpi));
-            invokeIfPresent(builder, "setFlags", int.class, Integer.valueOf(flags));
-            invokeIfPresent(builder, "setSurface", Surface.class, surface);
-            invokeIfPresent(builder, "setUniqueId", String.class, uniqueId);
-            Method build = builderClass.getMethod("build");
-            access(build);
-            return build.invoke(builder);
+            Class<?> globalClass = Class.forName(DISPLAY_MANAGER_GLOBAL_CLASS);
+            Method getInstance = globalClass.getMethod("getInstance");
+            access(getInstance);
+            Object global = getInstance.invoke(null);
+            if (global == null) {
+                return null;
+            }
+            Method getInfo = globalClass.getMethod("getDisplayInfo", int.class);
+            access(getInfo);
+            Object info = getInfo.invoke(global, Integer.valueOf(displayId));
+            if (info == null) {
+                return null;
+            }
+            Object fromField = readField(info, "uniqueId");
+            if (fromField instanceof String && !((String) fromField).isEmpty()) {
+                return (String) fromField;
+            }
+            try {
+                Method method = info.getClass().getMethod("getUniqueId");
+                access(method);
+                Object value = method.invoke(info);
+                if (value instanceof String && !((String) value).isEmpty()) {
+                    return (String) value;
+                }
+            } catch (Throwable ignored) {
+                // older DisplayInfo exposes the value as a field only
+            }
         } catch (Throwable ignored) {
-            return null;
+            // fall through to null; the caller refuses to report a requested id as real
         }
+        return null;
     }
 
-    private static void invokeIfPresent(Object target, String name, Class<?> param, Object value) {
-        try {
-            Method method = target.getClass().getMethod(name, param);
-            access(method);
-            method.invoke(target, value);
-        } catch (Throwable ignored) {
-            // older builders simply lack this setter
+    private static Object readField(Object target, String name) {
+        for (Class<?> type = target.getClass(); type != null; type = type.getSuperclass()) {
+            try {
+                Field field = type.getDeclaredField(name);
+                access(field);
+                return field.get(target);
+            } catch (Throwable ignored) {
+                // parent
+            }
         }
-    }
-
-    private static Class<?> load(String name) throws OwnerException {
-        try {
-            return Class.forName(name);
-        } catch (ClassNotFoundException ex) {
-            throw new OwnerException(OwnerProtocol.ERROR_DISPLAY_NOT_READY, name);
-        }
-    }
-
-    private static Class<?> optionalClass(String name) {
-        try {
-            return Class.forName(name);
-        } catch (Throwable ignored) {
-            return null;
-        }
+        return null;
     }
 
     private static void access(AccessibleObject member) {
@@ -285,53 +233,6 @@ final class VirtualDisplayFactory {
             member.setAccessible(true);
         } catch (Throwable ignored) {
             // public members stay callable
-        }
-    }
-
-    /** Local stand-in for the hidden callback. Only {@code asBinder} carries a real binder. */
-    private static final class CallbackHandler implements InvocationHandler {
-        private final Binder binder = new AckBinder();
-
-        @Override
-        public Object invoke(Object proxy, Method method, Object[] args) {
-            String name = method.getName();
-            if ("asBinder".equals(name)) {
-                return binder;
-            }
-            if ("equals".equals(name)) {
-                return Boolean.valueOf(proxy == (args == null ? null : args[0]));
-            }
-            if ("hashCode".equals(name)) {
-                return Integer.valueOf(System.identityHashCode(proxy));
-            }
-            if ("toString".equals(name)) {
-                return "VdOwnerCallback";
-            }
-            // onPaused / onResumed / onStopped / onFirstFrame / setSurface etc.
-            Class<?> returnType = method.getReturnType();
-            if (returnType == void.class) {
-                return null;
-            }
-            if (returnType == boolean.class) {
-                return Boolean.FALSE;
-            }
-            if (returnType == int.class) {
-                return Integer.valueOf(0);
-            }
-            if (returnType == long.class) {
-                return Long.valueOf(0L);
-            }
-            return null;
-        }
-    }
-
-    private static final class AckBinder extends Binder {
-        @Override
-        protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) {
-            // The hidden IVirtualDisplayCallback.Stub cannot be compiled against the public SDK.
-            // Acknowledging keeps the display service from treating the token as dead; no reply
-            // body is required because the protocol only notifies.
-            return true;
         }
     }
 }

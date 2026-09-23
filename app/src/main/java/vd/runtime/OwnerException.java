@@ -7,7 +7,7 @@ package vd.runtime;
  * The IPC layer turns a thrown exception into an {@code ok=false} response line.
  * Operations never return a successful response to hide a failure.
  */
-public final class OwnerException extends Exception {
+public class OwnerException extends Exception {
     public final String code;
 
     public OwnerException(String code, String message) {

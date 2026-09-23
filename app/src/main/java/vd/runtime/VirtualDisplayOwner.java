@@ -36,6 +36,10 @@ public final class VirtualDisplayOwner {
     private final OwnerTaskRegistry registry = new OwnerTaskRegistry();
     private final Handler handler;
     private volatile boolean released;
+    private boolean finishing;
+    private boolean handoffComplete;
+    private boolean releaseAttempted;
+    private final java.util.Map<Integer,OwnerHandoff.Task> owned = new java.util.LinkedHashMap<Integer,OwnerHandoff.Task>();
 
     private VirtualDisplayOwner(VirtualDisplayFactory.Created created, OwnerFrameStore frames,
             Handler handler) {
@@ -109,7 +113,8 @@ public final class VirtualDisplayOwner {
             } else {
                 out.put("sourceError", source.errorCode);
             }
-            out.put("retainedTaskIds", intArray(registry.retainedTaskIds()));
+            out.put("retainedTaskIds",new JSONArray(owned.keySet()));
+            out.put("finishing",finishing);
             out.put("supported", stringArray(OwnerProtocol.SUPPORTED_OPS));
             out.put("missing", stringArray(OwnerProtocol.MISSING_OPS));
         } catch (JSONException ex) {
@@ -120,6 +125,9 @@ public final class VirtualDisplayOwner {
 
     public JSONObject launch(JSONObject request) throws OwnerException {
         requireLive();
+        if(finishing) throw new OwnerException("SESSION_FINISHING");
+        java.util.Map<Integer,Object> before;
+        try { before=OwnerHandoff.roots(); } catch(Exception e) {throw new OwnerException("INVENTORY_FAILED");}
         OwnerProtocol.Request parsed = wrap(request);
         int displayId = optionalDisplay(parsed);
         String packageName = parsed.optionalString("package");
@@ -147,8 +155,17 @@ public final class VirtualDisplayOwner {
         if (!result.success() || containsError(result.stdout) || containsError(result.stderr)) {
             throw new OwnerException(OwnerProtocol.ERROR_LAUNCH_FAILED, result.summary());
         }
+        try {
+            java.util.Map<Integer,Object> after=OwnerHandoff.roots();
+            for(Object task:after.values()) if(OwnerHandoff.number(task,"displayId")==displayId) {
+                int id=OwnerHandoff.number(task,"taskId");
+                if(before.containsKey(id) && !owned.containsKey(id)) throw new IllegalStateException("pre-existing task moved");
+                if(!owned.containsKey(id))owned.put(id,new OwnerHandoff.Task(task));
+            }
+        } catch(Exception e) { finishing=true; throw new OwnerException("LAUNCH_IDENTITY_UNCERTAIN"); }
         JSONObject out = new JSONObject();
         try {
+            out.put("taskIds",new JSONArray(owned.keySet()));
             out.put("launched", true);
             out.put("displayId", displayId);
             out.put("exitCode", result.exitCode);
@@ -161,6 +178,7 @@ public final class VirtualDisplayOwner {
 
     public JSONObject input(JSONObject request) throws OwnerException {
         requireLive();
+        if(finishing) throw new OwnerException("SESSION_FINISHING");
         OwnerProtocol.Request parsed = wrap(request);
         int displayId = optionalDisplay(parsed);
         String kind = parsed.requireString("kind");
@@ -206,7 +224,7 @@ public final class VirtualDisplayOwner {
     }
 
     public JSONObject snapshot(JSONObject request) throws OwnerException {
-        requireLive();
+        requireLive(); optionalDisplay(wrap(request));
         OwnerProtocol.Request parsed = wrap(request);
         boolean include = parsed.optionalBoolean("include", true);
         int maxBytes = parsed.optionalInt("maxBytes", MAX_SNAPSHOT_BYTES);
@@ -242,15 +260,18 @@ public final class VirtualDisplayOwner {
         return out;
     }
 
-    /** Not implemented. Reported as a failure so callers never treat it as a completed handoff. */
     public JSONObject handoff(JSONObject request) throws OwnerException {
-        requireLive();
-        throw new OwnerException(OwnerProtocol.ERROR_NOT_IMPLEMENTED_HANDOFF,
-                "handoff is not implemented; move tasks with platform tooling before release");
+        requireLive(); optionalDisplay(wrap(request));
+        if(finishing)throw new OwnerException("HANDOFF_ALREADY_ATTEMPTED");
+        finishing=true;
+        JSONObject out=OwnerHandoff.move(created.displayId,created.uniqueId,owned,request.optJSONArray("taskIds"));
+        handoffComplete=true;return out;
     }
 
     public JSONObject release(JSONObject request) throws OwnerException {
-        requireLive();
+        requireLive(); optionalDisplay(wrap(request));
+        if(releaseAttempted)throw new OwnerException("RELEASE_ALREADY_ATTEMPTED");
+        if(!owned.isEmpty()&&!handoffComplete)throw new OwnerException("HANDOFF_REQUIRED");
         SourceProbe source = probeSource();
         if (!source.known()) {
             throw new OwnerException(OwnerProtocol.ERROR_SOURCE_STATE_UNKNOWN, source.errorCode);
@@ -259,13 +280,14 @@ public final class VirtualDisplayOwner {
             throw new OwnerException(OwnerProtocol.ERROR_SOURCE_NOT_EMPTY,
                     "tasks on source=" + source.taskCount);
         }
-        frames.clear();
+        releaseAttempted=true;
         try {
-            created.reader.close();
-        } catch (Throwable ignored) {
-            // closing an already closed reader is not a release failure
-        }
-        VirtualDisplayFactory.releaseQuietly(created.display);
+            created.display.getClass().getMethod("release").invoke(created.display);
+            Class<?> c=Class.forName("android.hardware.display.DisplayManagerGlobal");
+            Object g=c.getMethod("getInstance").invoke(null);
+            if(c.getMethod("getDisplayInfo",int.class).invoke(g,created.displayId)!=null)throw new IllegalStateException("display remains");
+        } catch(Exception e) {throw new OwnerException("RELEASE_UNCERTAIN",e.getClass().getSimpleName());}
+        frames.clear(); created.reader.close();
         released = true;
         JSONObject out = new JSONObject();
         try {
@@ -279,6 +301,8 @@ public final class VirtualDisplayOwner {
     }
 
     private void requireLive() throws OwnerException {
+        try { OwnerHandoff.verifyDisplay(created.displayId,created.uniqueId); }
+        catch(Exception e) {throw new OwnerException("DISPLAY_REBOUND");}
         if (released) {
             throw new OwnerException(OwnerProtocol.ERROR_ALREADY_RELEASED, "released");
         }

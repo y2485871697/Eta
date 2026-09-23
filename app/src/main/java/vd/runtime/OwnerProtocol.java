@@ -35,13 +35,11 @@ public final class OwnerProtocol {
 
     /** Operations this build answers successfully. */
     public static final String[] SUPPORTED_OPS = {
-            OP_STATUS, OP_LAUNCH, OP_INPUT, OP_SNAPSHOT, OP_RELEASE,
+            OP_STATUS, OP_LAUNCH, OP_INPUT, OP_SNAPSHOT, OP_HANDOFF, OP_RELEASE,
     };
 
     /** Operations that are named in the protocol but deliberately not implemented yet. */
-    public static final String[] MISSING_OPS = {
-            OP_HANDOFF,
-    };
+    public static final String[] MISSING_OPS = {};
 
     public static final String FIELD_VERSION = "v";
     public static final String FIELD_OP = "op";
