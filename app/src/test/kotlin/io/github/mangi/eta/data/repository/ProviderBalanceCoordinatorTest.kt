@@ -38,7 +38,7 @@ class ProviderBalanceCoordinatorTest {
         )
 
     @Test
-    fun slowProviderDoesNotBlockFastProvider() = runBlocking {
+    fun slowProviderDoesNotBlockFastProvider() = runBlocking<Unit> {
         val slowGate = CompletableDeferred<Unit>()
         val coordinator = ProviderBalanceCoordinator(
             fetch = { provider ->
@@ -70,7 +70,7 @@ class ProviderBalanceCoordinatorTest {
     }
 
     @Test
-    fun repeatedRefreshWhileInFlightIsCoalesced() = runBlocking {
+    fun repeatedRefreshWhileInFlightIsCoalesced() = runBlocking<Unit> {
         val calls = AtomicInteger(0)
         val gate = CompletableDeferred<Unit>()
         val coordinator = ProviderBalanceCoordinator(
@@ -98,7 +98,7 @@ class ProviderBalanceCoordinatorTest {
     }
 
     @Test
-    fun failureKeepsLastAmountAndOnlySuccessAdvancesTimestamp() = runBlocking {
+    fun failureKeepsLastAmountAndOnlySuccessAdvancesTimestamp() = runBlocking<Unit> {
         var failing = false
         var now = 100L
         val coordinator = ProviderBalanceCoordinator(
@@ -134,7 +134,7 @@ class ProviderBalanceCoordinatorTest {
     }
 
     @Test
-    fun staleResultFromPreviousConfigurationIsDiscarded() = runBlocking {
+    fun staleResultFromPreviousConfigurationIsDiscarded() = runBlocking<Unit> {
         val firstGate = CompletableDeferred<Unit>()
         val coordinator = ProviderBalanceCoordinator(
             fetch = { provider ->
@@ -160,7 +160,7 @@ class ProviderBalanceCoordinatorTest {
     }
 
     @Test
-    fun balancesMirrorSuccessfulAmountsOnly() = runBlocking {
+    fun balancesMirrorSuccessfulAmountsOnly() = runBlocking<Unit> {
         val coordinator = ProviderBalanceCoordinator(
             fetch = { Result.success("42") },
             clock = { 0L },
@@ -173,7 +173,7 @@ class ProviderBalanceCoordinatorTest {
     }
 
     @Test
-    fun pollerRestartsAfterScopeCancellation() = runBlocking {
+    fun pollerRestartsAfterScopeCancellation() = runBlocking<Unit> {
         val dispatcher = (coroutineContext[ContinuationInterceptor] as? CoroutineDispatcher) ?: Dispatchers.Default
         val counter = AtomicInteger(0)
         val providers = MutableStateFlow(listOf(provider("p")))
@@ -196,7 +196,7 @@ class ProviderBalanceCoordinatorTest {
     }
 
     @Test
-    fun startingTwiceOnActiveScopeKeepsSinglePoller() = runBlocking {
+    fun startingTwiceOnActiveScopeKeepsSinglePoller() = runBlocking<Unit> {
         val dispatcher = (coroutineContext[ContinuationInterceptor] as? CoroutineDispatcher) ?: Dispatchers.Default
         val counter = AtomicInteger(0)
         val providers = MutableStateFlow(listOf(provider("p")))
@@ -215,7 +215,7 @@ class ProviderBalanceCoordinatorTest {
         scope.cancel()
     }
     @Test
-    fun cancelledOwnerDoesNotLeaveRefreshingOrPreventRestart() = runBlocking {
+    fun cancelledOwnerDoesNotLeaveRefreshingOrPreventRestart() = runBlocking<Unit> {
         val entered = CompletableDeferred<Unit>()
         val never = CompletableDeferred<Unit>()
         var first = true
@@ -233,7 +233,7 @@ class ProviderBalanceCoordinatorTest {
     }
 
     @Test
-    fun alreadyCancelledScopeDoesNotCreateZombieRequest() = runBlocking {
+    fun alreadyCancelledScopeDoesNotCreateZombieRequest() = runBlocking<Unit> {
         val oldScope = CoroutineScope(coroutineContext + Job())
         oldScope.cancel()
         val coordinator = ProviderBalanceCoordinator(fetch = { Result.success("1") }, clock = { 0L }, format = { it })
@@ -244,7 +244,7 @@ class ProviderBalanceCoordinatorTest {
     }
 
     @Test
-    fun failureDoesNotExposeExceptionSecrets() = runBlocking {
+    fun failureDoesNotExposeExceptionSecrets() = runBlocking<Unit> {
         val coordinator = ProviderBalanceCoordinator(
             fetch = { Result.failure(IOException("Authorization: Bearer secret-value")) },
             clock = { 0L }, format = { it },
