@@ -1,6 +1,8 @@
 name: Eta VD Integration Check
 
 on:
+  push:
+    branches: [vd-integration-candidate]
   workflow_dispatch:
 
 permissions:
