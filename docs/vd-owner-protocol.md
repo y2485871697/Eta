@@ -1,3 +1,5 @@
+> 历史 owner 初稿协议说明；当前接线、handoff 与安全限制以 `vd-integration-candidate.md` 和实际源码为准。旧文中“handoff 未实现”不再代表当前候选。
+
 # VirtualDisplay owner 协议（vd.runtime）
 
 本次只落地 root `app_process` 侧 owner 的源码，位于 `app/src/main/java/vd/runtime/`。

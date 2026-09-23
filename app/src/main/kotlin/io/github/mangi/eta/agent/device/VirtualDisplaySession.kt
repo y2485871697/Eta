@@ -28,7 +28,10 @@ internal object VirtualDisplaySession {
         if(sessions.values.any { it.phase != "finished" })return reply(false,"VIRTUAL_SESSION_BUSY")
         val session=Session();sessions[runId]=session // claim before external side effects
         return when(val started=VirtualDisplayOwnerClient.start(context,AndroidAgentLogger)) {
-            is OwnerStartResult.Failed -> { session.phase="uncertain";reply(false,started.errorCode) }
+            is OwnerStartResult.Failed -> {
+                session.phase=if(started.errorCode in setOf(VirtualDisplayOwnerError.CLASSPATH_UNAVAILABLE,VirtualDisplayOwnerError.CLASSPATH_INVALID,VirtualDisplayOwnerError.PROCESS_START_FAILED))"finished" else "uncertain"
+                reply(false,started.errorCode)
+            }
             is OwnerStartResult.Ready -> {
                 session.client=started.client
                 val state=started.client.status()
@@ -62,7 +65,14 @@ internal object VirtualDisplaySession {
         val s=sessions[runId]?:return reply(false,"NO_VIRTUAL_SESSION")
         if(s.phase=="finished")return reply(true).put("already_finished",true)
         if(s.phase!="active")return reply(false,"SESSION_NOT_ACTIVE")
-        if(s.kept.isEmpty())return reply(false,"NO_DELIVERY_TASKS","先明确标记交付任务；不会自动删除所有任务")
+        if(s.kept.isEmpty()) {
+            val status=s.client!!.status()
+            if(!status.ok || body(status).opt("sourceEmpty") != true)return reply(false,"NO_DELIVERY_TASKS","先明确标记交付任务；不会自动删除所有任务")
+            val released=s.client!!.release()
+            if(!released.ok || !body(released).optBoolean("released")) {s.phase="uncertain";return body(released).put("ok",false)}
+            s.phase="finished";s.client!!.close()
+            return reply(true).put("released",true).put("empty_session",true)
+        }
         s.phase="finishing"
         val client=s.client!!
         val handoff=client.handoff(mapOf("taskIds" to JSONArray(s.kept)))
@@ -74,16 +84,27 @@ internal object VirtualDisplaySession {
     }
     /** Cancellation cannot destroy or migrate applications without a verified explicit finish. */
     @Synchronized fun onRunClosed(runId: String) {
-        sessions[runId]?.let { if(it.phase=="active")it.phase="held" }
+        sessions[runId]?.let {
+            if(it.phase=="active") {
+                // Only a provably empty owner may be released without a delivery selection.
+                if(it.kept.isEmpty())runCatching { finish(runId) }
+                if(it.phase=="active")it.phase="held"
+            }
+        }
     }
-    @Synchronized fun executeGui(context: Context,runId: String,tool: String,args: JSONObject): AgentModelClient.ToolResult {
+    @Synchronized fun executeGui(context: Context,runId: String,tool: String,args: JSONObject, excludedPackages: Set<String> = emptySet()): AgentModelClient.ToolResult {
         fun text(obj: JSONObject)=AgentModelClient.ToolResult(obj.put("tool",tool).put("display","virtual").toString())
+        if(tool !in setOf("observe_screen","launch_app","wait","tap","tap_area","swipe","long_press","press_key","paste_text","input_text"))return text(reply(false,"UNSUPPORTED_ON_VIRTUAL_DISPLAY"))
         if(sessions[runId]==null){val created=start(context,runId);if(!created.optBoolean("ok"))return text(created)}
         val s=sessions[runId]?:return text(reply(false,"NO_VIRTUAL_SESSION"))
         if(s.phase!="active")return text(reply(false,"SESSION_NOT_ACTIVE"))
         val c=s.client!!
         try {
             if(tool=="observe_screen") {
+                val visible=c.status()
+                val packages=body(visible).optJSONArray("sourcePackages")
+                if(!visible.ok || packages==null)return text(reply(false,"SCREEN_CONTENT_UNKNOWN"))
+                if((0 until packages.length()).any { packages.getString(it) in excludedPackages })return text(reply(false,"SCREENSHOT_EXCLUDED_PACKAGE"))
                 val shot=c.snapshot();if(!shot.ok)return text(body(shot))
                 val data=body(shot);val encoded=data.optString("data")
                 if(encoded.isBlank())return text(reply(false,"NO_FRAME"))
@@ -94,6 +115,7 @@ internal object VirtualDisplaySession {
             }
             if(tool=="launch_app") {
                 val pkg=args.optString("package_name")
+                if(pkg in excludedPackages)return text(reply(false,"SCREENSHOT_EXCLUDED_PACKAGE"))
                 if(pkg.isBlank())return text(reply(false,"PACKAGE_NAME_REQUIRED","先 search_apps 获取精确包名"))
                 val component=context.packageManager.getLaunchIntentForPackage(pkg)?.component?.flattenToString()
                     ?:return text(reply(false,"APP_NOT_LAUNCHABLE"))

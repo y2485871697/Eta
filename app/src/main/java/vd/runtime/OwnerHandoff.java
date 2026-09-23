@@ -39,7 +39,7 @@ final class OwnerHandoff {
     }
     static void rejectExistingPackage(String pkg)throws Exception {
         for(Object t:roots().values()) if(base(t).startsWith(pkg+"/"))throw new IllegalStateException("existing active task");
-        Object slice=invokeAtm("getRecentTasks",new Class<?>[]{int.class,int.class,int.class},256,2,0);
+        Object slice=invokeAtm("getRecentTasks",new Class<?>[]{int.class,int.class,int.class},256,1,0);
         Object list=slice.getClass().getMethod("getList").invoke(slice);
         if(!(list instanceof List))throw new IllegalStateException("recent inventory unknown");
         for(Object t:(List<?>)list) {

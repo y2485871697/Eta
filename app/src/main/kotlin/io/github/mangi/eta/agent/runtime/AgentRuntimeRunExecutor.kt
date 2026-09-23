@@ -130,11 +130,15 @@ internal class AgentRuntimeRunExecutor(
                     McpRunSnapshot.EMPTY
                 }
             }
+            val runSurface = runCatching { io.github.mangi.eta.agent.device.AgentTaskSurface.stored() }
+                .getOrDefault(io.github.mangi.eta.agent.device.AgentTaskSurfaceMode.ASK)
+            val runVirtualDisplay = runSurface == io.github.mangi.eta.agent.device.AgentTaskSurfaceMode.BACKGROUND
             val mcpTools = JSONArray().also(mcpSnapshot::appendModelTools)
             val executor = AgentLocalTools(
                 context = appContext,
                 logger = AndroidAgentLogger,
                 browserRunId = request.runId,
+                frozenSurface = runSurface,
                 browserToolsEnabled = {
                     request.config.browserTools && currentPermissions().browserTools
                 },
@@ -251,7 +255,7 @@ internal class AgentRuntimeRunExecutor(
                                 browserTools = false,
                                 deviceDirectTools = request.config.deviceDirectTools && currentPermissions().deviceDirectTools,
                                 deviceSensitiveReadTools = request.config.deviceSensitiveReadTools && currentPermissions().deviceSensitiveReadTools,
-                                memoryTools = memoryEnabled, capabilities = AgentToolCapabilities.capture(appContext)))
+                                memoryTools = memoryEnabled, capabilities = AgentToolCapabilities.capture(appContext).copy(virtualDisplay = runVirtualDisplay)))
                             SubAgentRunner.run(config, prompt, readTools, executor, controller,
                                 sessionId = request.effectiveModelSessionId, onProgress = progress)
                         }
@@ -269,7 +273,7 @@ internal class AgentRuntimeRunExecutor(
                         deviceDirectTools = request.config.deviceDirectTools && currentPermissions().deviceDirectTools,
                         deviceSensitiveReadTools = request.config.deviceSensitiveReadTools && currentPermissions().deviceSensitiveReadTools,
                         memoryTools = memoryEnabled,
-                        capabilities = AgentToolCapabilities.capture(appContext),
+                        capabilities = AgentToolCapabilities.capture(appContext).copy(virtualDisplay = runVirtualDisplay),
                     ))
                     SubAgentRunner.run(config, prompt, readTools, executor, controller, sessionId = request.effectiveModelSessionId)
                 }
@@ -288,7 +292,7 @@ internal class AgentRuntimeRunExecutor(
             val completedResponse = AgentModelClient.complete(
                 config = request.config,
                 sessionId = request.effectiveModelSessionId,
-                capabilitiesProvider = { AgentToolCapabilities.capture(appContext) },
+                capabilitiesProvider = { AgentToolCapabilities.capture(appContext).copy(virtualDisplay = runVirtualDisplay) },
                 prompt = request.prompt,
                 toolExecutor = delegatedExecutor,
                 images = request.images,

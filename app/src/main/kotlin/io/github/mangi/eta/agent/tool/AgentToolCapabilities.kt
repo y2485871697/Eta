@@ -22,13 +22,14 @@ internal data class AgentToolCapabilities(
     val usageAllowed: Boolean = true,
     val locationAllowed: Boolean = true,
     val colorOs: Boolean = true,
+    val virtualDisplay: Boolean = false,
 ) {
     fun unavailableCode(name: String): String? {
         val requirement = AgentToolRequirements.find(name) ?: return "UNKNOWN_TOOL"
         if (requirement.rootRequirement == RootRequirement.REQUIRED && !rootAvailable) return "ROOT_REQUIRED"
         if (requirement.lsposedRequirement == LsposedRequirement.REQUIRED && !lsposedAvailable) return "LSPOSED_REQUIRED"
         if (requirement.colorOs && !colorOs) return "DEVICE_UNSUPPORTED"
-        if (requirement.accessibility && !accessibilityAvailable && !accessibilityRecoveryAvailable) {
+        if (requirement.accessibility && !(virtualDisplay && rootAvailable && io.github.mangi.eta.agent.device.AgentTaskSurface.isTraditionalScreenGuiTool(name)) && !accessibilityAvailable && !accessibilityRecoveryAvailable) {
             return "ACCESSIBILITY_UNAVAILABLE"
         }
         return when (requirement.systemAccess) {

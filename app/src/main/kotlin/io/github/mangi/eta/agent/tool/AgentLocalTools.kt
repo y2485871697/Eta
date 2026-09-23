@@ -97,10 +97,11 @@ internal class AgentLocalTools(
     private val runSkillsRoot: File? = null,
     pendingSkillConflict: PendingSkillConflictCapability? = null,
     private val rootAvailable: () -> Boolean = { RootAccess.isGranted },
+    private val frozenSurface: io.github.mangi.eta.agent.device.AgentTaskSurfaceMode = runCatching {
+        io.github.mangi.eta.agent.device.AgentTaskSurface.stored()
+    }.getOrDefault(io.github.mangi.eta.agent.device.AgentTaskSurfaceMode.ASK),
 ) : AgentModelClient.ToolExecutor, AutoCloseable {
 
-    private val frozenSurface = runCatching { io.github.mangi.eta.agent.device.AgentTaskSurface.stored() }
-        .getOrDefault(io.github.mangi.eta.agent.device.AgentTaskSurfaceMode.ASK)
     private val backgroundSurface = frozenSurface == io.github.mangi.eta.agent.device.AgentTaskSurfaceMode.BACKGROUND
     private val virtualLifecycle = setOf("start_virtual_session", "keep_virtual_result", "finish_virtual_session")
     private fun virtualRouted(name: String) = backgroundSurface &&
@@ -218,7 +219,7 @@ internal class AgentLocalTools(
                     "start_virtual_session" -> textResult(io.github.mangi.eta.agent.device.VirtualDisplaySession.start(context,browserRunId).toString())
                     "keep_virtual_result" -> textResult(io.github.mangi.eta.agent.device.VirtualDisplaySession.keep(browserRunId,args).toString())
                     "finish_virtual_session" -> textResult(io.github.mangi.eta.agent.device.VirtualDisplaySession.finish(browserRunId).toString())
-                    else -> io.github.mangi.eta.agent.device.VirtualDisplaySession.executeGui(context,browserRunId,toolCall.name,args)
+                    else -> io.github.mangi.eta.agent.device.VirtualDisplaySession.executeGui(context,browserRunId,toolCall.name,args,screenshotExcludedPackages())
                 }
             }
             if (toolCall.name in virtualLifecycle) return@runCatching textResult(errorResult("BACKGROUND_MODE_REQUIRED", "当前任务不是后台模式"))

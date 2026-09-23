@@ -20,9 +20,8 @@ import android.os.Process;
  * serialized; the IPC layer only ever posts to that handler.
  *
  * <p>{@code release} refuses unless the source display is currently observed empty and every
- * observed task binder is stable. {@code handoff} is named by the protocol but not implemented, and
- * reports that explicitly instead of pretending to move tasks. Nothing here kills a task or a user
- * process.
+ * observed task binder is stable. Handoff migrates selected fresh tasks and removes only verified
+ * session intermediates. It is not a framework-level external-launch fence; no user process is killed.
  */
 public final class VirtualDisplayOwner {
     private static final int MAX_IMAGES = 2;
@@ -113,6 +112,18 @@ public final class VirtualDisplayOwner {
             } else {
                 out.put("sourceError", source.errorCode);
             }
+            JSONArray packages=new JSONArray();
+            try {
+                java.util.Set<String> visiblePackages=new java.util.LinkedHashSet<String>();
+                for(Object task:OwnerHandoff.roots().values())if(OwnerHandoff.number(task,"displayId")==created.displayId) {
+                    android.content.Intent bi=(android.content.Intent)OwnerHandoff.field(task,"baseIntent");
+                    if(bi!=null && bi.getComponent()!=null)visiblePackages.add(bi.getComponent().getPackageName());
+                    Object top=OwnerHandoff.field(task,"topActivity");
+                    if(top instanceof android.content.ComponentName)visiblePackages.add(((android.content.ComponentName)top).getPackageName());
+                }
+                for(String pkg:visiblePackages)packages.put(pkg);
+                out.put("sourcePackages",packages);
+            }catch(Exception e){out.put("sourcePackagesKnown",false);}
             out.put("retainedTaskIds",new JSONArray(owned.keySet()));
             out.put("finishing",finishing);
             out.put("supported", stringArray(OwnerProtocol.SUPPORTED_OPS));
@@ -162,6 +173,7 @@ public final class VirtualDisplayOwner {
             throw new OwnerException(OwnerProtocol.ERROR_LAUNCH_FAILED, result.summary());
         }
         try {
+            boolean provenanceObserved=false;
             java.util.Map<Integer,Object> after=OwnerHandoff.roots();
             for(Object task:after.values()) if(OwnerHandoff.number(task,"displayId")==displayId) {
                 int id=OwnerHandoff.number(task,"taskId");
@@ -170,8 +182,10 @@ public final class VirtualDisplayOwner {
                     android.content.Intent base=(android.content.Intent)OwnerHandoff.field(task,"baseIntent");
                     if(!marker.equals(base.getDataString())||!targetPackage.equals(base.getComponent().getPackageName()))throw new IllegalStateException("launch provenance");
                     owned.put(id,new OwnerHandoff.Task(task));
+                    provenanceObserved=true;
                 }
             }
+            if(!provenanceObserved)throw new IllegalStateException("fresh launch task not observed");
         } catch(Exception e) { finishing=true; throw new OwnerException("LAUNCH_IDENTITY_UNCERTAIN"); }
         JSONObject out = new JSONObject();
         try {
