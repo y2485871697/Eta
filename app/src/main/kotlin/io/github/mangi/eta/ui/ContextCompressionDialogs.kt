@@ -91,6 +91,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 
@@ -444,6 +445,9 @@ internal fun CompressConversationDialog(
                     Text(
                         text = stringResource(R.string.compress_conversation_in_progress),
                         style = MaterialTheme.typography.bodySmall,
+                        // Material3 Text 未显式着色时取 LocalContentColor（默认近黑），
+                        // 在 Miuix 深色弹窗上不可读，这里显式跟随主题。
+                        color = MiuixTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(start = 8.dp),
                     )
                 }
@@ -600,6 +604,9 @@ internal fun CompressModelPickerDialog(
                         Text(
                             text = group.providerName,
                             style = MaterialTheme.typography.bodyLarge,
+                            // Material3 Text 未显式着色时取 LocalContentColor（默认近黑），
+                            // 在 Miuix 深色弹窗上不可读，这里显式跟随主题。
+                            color = MiuixTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -622,6 +629,7 @@ internal fun CompressModelPickerDialog(
                                 Text(
                                     text = model.displayName,
                                     style = MaterialTheme.typography.bodyMedium,
+                                    color = MiuixTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f),
                                 )
                                 if (model.id == state.selectedModel?.id) {

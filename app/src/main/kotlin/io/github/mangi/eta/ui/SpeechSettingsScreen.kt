@@ -24,6 +24,7 @@ import io.github.mangi.eta.ui.haptics.TouchHaptics
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 internal fun SpeechSettingsScreen(onBack: () -> Unit) {
@@ -79,7 +80,10 @@ internal fun SpeechSettingsScreen(onBack: () -> Unit) {
                     val progress = (state.downloadedBytes.toFloat() / SpeechModelManifest.totalBytes).coerceIn(0f, 1f)
                     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
                         LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                        // Material3 Text 未显式着色时取 LocalContentColor（默认近黑），
+                        // 在 Miuix 深色卡片上不可读，这里显式跟随主题。
                         Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall,
+                            color = MiuixTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(top = 6.dp))
                     }
                 }
@@ -104,7 +108,8 @@ internal fun SpeechSettingsScreen(onBack: () -> Unit) {
         title = stringResource(R.string.speech_download),
         onDismissRequest = { confirmDownload = false },
     ) {
-        Text(stringResource(R.string.speech_download_confirm), style = MaterialTheme.typography.bodyMedium)
+        Text(stringResource(R.string.speech_download_confirm), style = MaterialTheme.typography.bodyMedium,
+            color = MiuixTheme.colorScheme.onSurface)
         MiuixDialogActions(
             confirmText = stringResource(R.string.speech_download),
             cancelText = stringResource(R.string.action_cancel),
