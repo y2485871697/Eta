@@ -88,6 +88,24 @@ final class OwnerHandoff {
             }
             for(Integer id:selected) owned.get(id).check(current.get(id),source);
             Task main=new Task(invokeAtm("getFocusedRootTaskInfo",new Class<?>[0]));main.check(current.get(main.id),0);
+            // A dedicated source-display cover prevents migrating the currently focused source task.
+            String anchorUri="eta-vd-anchor://handoff/"+UUID.randomUUID().toString();
+            String anchorComponent="io.github.mangi.eta/io.github.mangi.eta.agent.device.VirtualDisplayAnchorActivity";
+            OwnerShell.Result started=OwnerShell.run(new String[]{"/system/bin/am","start","--display",Integer.toString(source),"-n",anchorComponent,"-d",anchorUri,"-f",Integer.toString(0x18000000)},10000L,8192);
+            if(!started.success())throw new IllegalStateException("anchor launch failed");
+            Task anchor=null;
+            for(int attempt=0;attempt<20 && anchor==null;attempt++) {
+                for(Object t:roots().values())if(number(t,"displayId")==source && !current.containsKey(number(t,"taskId"))) {
+                    Intent bi=(Intent)field(t,"baseIntent");
+                    if(anchorUri.equals(bi.getDataString()) && bi.getComponent()!=null && anchorComponent.equals(bi.getComponent().flattenToString())) {
+                        Task found=new Task(t);found.check(t,source);
+                        if(anchor!=null)throw new IllegalStateException("multiple anchors");anchor=found;
+                    }
+                }
+                if(anchor==null)Thread.sleep(100L);
+            }
+            if(anchor==null)throw new IllegalStateException("anchor identity not observed");
+            focus(main);
             // Fresh tasks only. Default hidden/focusable restoration is an explicit limited-mode assumption.
             for(Integer id:selected) {
                 Task identity=owned.get(id);verifyDisplay(source,unique);focus(main);
@@ -100,12 +118,20 @@ final class OwnerHandoff {
                 phase="restore:"+id;tx(t,false,true);identity.check(roots().get(id),0);focus(main);moved.put(id);
             }
             for(Object t:roots().values()) if(number(t,"displayId")==source) {
-                int id=number(t,"taskId");Task identity=owned.get(id);
+                int id=number(t,"taskId");
+                if(id==anchor.id)continue;
+                Task identity=owned.get(id);
                 if(identity==null||selected.contains(id))throw new IllegalStateException("unexpected residual task");
                 verifyDisplay(source,unique);identity.check(roots().get(id),source);focus(main);
                 phase="remove:"+id;Object ok=invokeAtm("removeTask",new Class<?>[]{int.class},id);
                 if(!Boolean.TRUE.equals(ok)||roots().containsKey(id))throw new IllegalStateException("remove not verified");removed.put(id);
             }
+            verifyDisplay(source,unique);focus(main);
+            anchor.check(roots().get(anchor.id),source);
+            phase="remove-anchor";
+            if(!Boolean.TRUE.equals(invokeAtm("removeTask",new Class<?>[]{int.class},anchor.id)))throw new IllegalStateException("anchor removal failed");
+            for(int attempt=0;attempt<20 && roots().containsKey(anchor.id);attempt++)Thread.sleep(100L);
+            if(roots().containsKey(anchor.id))throw new IllegalStateException("anchor removal uncertain");
             verifyDisplay(source,unique);focus(main);
             for(Object t:roots().values())if(number(t,"displayId")==source)throw new IllegalStateException("source occupied");
             for(Integer id:selected)owned.get(id).check(roots().get(id),0);

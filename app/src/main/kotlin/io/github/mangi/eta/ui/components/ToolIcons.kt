@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import io.github.mangi.eta.ui.icons.SubAgents
 
 internal fun iconForTool(toolId: String): ImageVector = when (toolId) {
+    "start_virtual_session", "keep_virtual_result", "finish_virtual_session", "inspect_virtual_backend" -> Icons.Rounded.ScreenshotMonitor
     "observe", "observe_screen" -> Icons.Rounded.DocumentScanner
     "click", "tap", "tap_element" -> Icons.Rounded.AdsClick
     "tap_area" -> Icons.Rounded.MyLocation
