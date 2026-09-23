@@ -11,7 +11,8 @@ import org.json.JSONObject;
 import android.net.Credentials;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
-import android.net.LocalSocketAddress;
+import android.os.SystemClock;
+import java.util.concurrent.atomic.AtomicBoolean;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -50,7 +51,8 @@ final class OwnerIpcServer {
     private final Runnable onStop;
 
     private final Object activeLock = new Object();
-    private Object activeConnection;
+    private Connection activeConnection;
+    private volatile boolean mutationUncertain;
     private volatile boolean stopped;
     private Thread acceptThread;
 
@@ -66,8 +68,7 @@ final class OwnerIpcServer {
         this.dispatcher = dispatcher;
         this.onStop = onStop;
         try {
-            this.server = new LocalServerSocket(
-                    new LocalSocketAddress(socketName, LocalSocketAddress.Namespace.ABSTRACT));
+            this.server = new LocalServerSocket(socketName);
         } catch (IOException ex) {
             throw new OwnerException(OwnerProtocol.ERROR_INTERNAL, "socket bind");
         }
@@ -90,6 +91,9 @@ final class OwnerIpcServer {
 
     void stop() {
         stopped = true;
+        synchronized (activeLock) {
+            if (activeConnection != null) closeQuietly(activeConnection.socket);
+        }
         try {
             server.close();
         } catch (IOException ignored) {
@@ -125,6 +129,7 @@ final class OwnerIpcServer {
         public void run() {
             boolean claimed = false;
             try {
+                socket.setSoTimeout(10_000);
                 Credentials credentials = socket.getPeerCredentials();
                 if (credentials == null || credentials.getUid() != allowedUid) {
                     writeLine(socket, OwnerProtocol.fail(null, OwnerProtocol.ERROR_PEER_REJECTED,
@@ -183,8 +188,14 @@ final class OwnerIpcServer {
                             "token"));
                     return;
                 }
+                if (mutationUncertain && !OwnerProtocol.OP_STATUS.equals(request.op)
+                        && !OwnerProtocol.OP_SNAPSHOT.equals(request.op)) {
+                    writeLine(out, OwnerProtocol.fail(request.op, "SESSION_UNCERTAIN", "mutation outcome unknown"));
+                    return;
+                }
                 JSONObject response = execute(request);
-                writeLine(out, response);
+                try { writeLine(socket, out, response); }
+                catch (IOException ex) { mutationUncertain = true; throw ex; }
                 if (dispatcher.shouldStop()) {
                     stopAndQuit();
                     return;
@@ -195,9 +206,13 @@ final class OwnerIpcServer {
         /** Runs the op on the owner looper and waits for its response. */
         private JSONObject execute(OwnerProtocol.Request request) throws IOException {
             final ResultBox box = new ResultBox();
-            boolean posted = handler.post(new Runnable() {
+            Runnable action = new Runnable() {
                 @Override
                 public void run() {
+                    synchronized (box) {
+                        if (box.cancelled) return;
+                        box.started = true;
+                    }
                     JSONObject response;
                     try {
                         response = dispatcher.dispatch(request);
@@ -207,12 +222,15 @@ final class OwnerIpcServer {
                     }
                     box.complete(response);
                 }
-            });
+            };
+            boolean posted = handler.post(action);
             if (!posted) {
                 throw new IOException("owner looper stopped");
             }
             JSONObject response = box.await();
             if (response == null) {
+                synchronized (box) { box.cancelled = true; mutationUncertain = true; }
+                handler.removeCallbacks(action);
                 throw new IOException("owner did not answer");
             }
             return response;
@@ -224,7 +242,7 @@ final class OwnerIpcServer {
                 @Override
                 public void run() {
                     onStop.run();
-                    Looper.myLooper().quit();
+                    // Main callback terminates ONLY after confirmed release.
                 }
             });
         }
@@ -233,6 +251,8 @@ final class OwnerIpcServer {
     private static final class ResultBox {
         private JSONObject response;
         private boolean done;
+        private boolean started;
+        private boolean cancelled;
 
         synchronized void complete(JSONObject value) {
             response = value;
@@ -241,9 +261,9 @@ final class OwnerIpcServer {
         }
 
         synchronized JSONObject await() {
-            long deadline = System.currentTimeMillis() + 120_000L;
+            long deadline = SystemClock.elapsedRealtime() + 120_000L;
             while (!done) {
-                long remaining = deadline - System.currentTimeMillis();
+                long remaining = deadline - SystemClock.elapsedRealtime();
                 if (remaining <= 0) {
                     return null;
                 }
@@ -268,9 +288,8 @@ final class OwnerIpcServer {
             if (read == '\r') {
                 continue;
             }
-            if (buffer.size() < READ_LIMIT) {
-                buffer.write(read);
-            }
+            if (buffer.size() >= READ_LIMIT) throw new IOException("request too large");
+            buffer.write(read);
         }
         if (buffer.size() == 0) {
             return null;
@@ -284,6 +303,17 @@ final class OwnerIpcServer {
         } catch (IOException ignored) {
             // peer gone
         }
+    }
+
+    private static void writeLine(final LocalSocket socket, OutputStream out, JSONObject response) throws IOException {
+        final AtomicBoolean finished = new AtomicBoolean();
+        Thread watchdog = new Thread(new Runnable() { public void run() {
+            try { Thread.sleep(10_000L); } catch (InterruptedException e) { return; }
+            if (!finished.get()) closeQuietly(socket);
+        }}, "vd-write-deadline");
+        watchdog.setDaemon(true); watchdog.start();
+        try { writeLine(out, response); }
+        finally { finished.set(true); watchdog.interrupt(); }
     }
 
     private static void writeLine(OutputStream out, JSONObject response) throws IOException {
