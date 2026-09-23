@@ -25,8 +25,8 @@ internal class ProviderBalanceCoordinator(
 ) {
     private val gate = Any()
     private val jobs = mutableMapOf<String, Job>()
-    // Structural equality covers custom headers and every credential/config field without logging them.
-    private val configurations = mutableMapOf<String, ProviderSetting>()
+    // Compare query inputs only; timestamps, models and presentation edits do not invalidate balances.
+    private val configurations = mutableMapOf<String, List<Any?>>()
     private val stateFlow = MutableStateFlow<Map<String, ProviderBalanceState>>(emptyMap())
     val states: StateFlow<Map<String, ProviderBalanceState>> = stateFlow.asStateFlow()
     private val amountFlow = MutableStateFlow<Map<String, String>>(emptyMap())
@@ -43,11 +43,12 @@ internal class ProviderBalanceCoordinator(
             publishStates(stateFlow.value.filterKeys { it in ids })
             for (provider in enabled) {
                 val id = provider.id
+                val configuration = listOf(provider.baseUrl, provider.apiKey, provider.balanceOption, provider.customHeaders, provider.authMode)
                 val previousJob = jobs[id]
-                if (previousJob != null && !previousJob.isCompleted && !previousJob.isCancelled && configurations[id] == provider) continue
+                if (previousJob != null && !previousJob.isCompleted && !previousJob.isCancelled && configurations[id] == configuration) continue
                 jobs.remove(id)?.cancel()
-                val previous = if (configurations[id] == provider) stateFlow.value[id] ?: ProviderBalanceState() else ProviderBalanceState()
-                configurations[id] = provider
+                val previous = if (configurations[id] == configuration) stateFlow.value[id] ?: ProviderBalanceState() else ProviderBalanceState()
+                configurations[id] = configuration
                 publishStates(stateFlow.value + (id to previous.copy(refreshing = true)))
                 val job = scope.launch(start = CoroutineStart.LAZY) {
                     val self = coroutineContext[Job]!!
