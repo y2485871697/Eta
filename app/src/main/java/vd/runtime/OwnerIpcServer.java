@@ -163,8 +163,9 @@ final class OwnerIpcServer {
         private void serve() throws IOException {
             InputStream in = socket.getInputStream();
             OutputStream out = socket.getOutputStream();
+            boolean authenticated = false;
             while (!stopped) {
-                String line = readLine(in);
+                String line = readLine(socket, authenticated);
                 if (line == null) {
                     return;
                 }
@@ -188,6 +189,7 @@ final class OwnerIpcServer {
                             "token"));
                     return;
                 }
+                authenticated = true;
                 if (mutationUncertain && !OwnerProtocol.OP_STATUS.equals(request.op)
                         && !OwnerProtocol.OP_SNAPSHOT.equals(request.op)) {
                     writeLine(out, OwnerProtocol.fail(request.op, "SESSION_UNCERTAIN", "mutation outcome unknown"));
@@ -205,12 +207,12 @@ final class OwnerIpcServer {
 
         /** Runs the op on the owner looper and waits for its response. */
         private JSONObject execute(OwnerProtocol.Request request) throws IOException {
-            final ResultBox box = new ResultBox();
+            final ResultBox box = new ResultBox(request.payload.optLong("timeoutMs",15000L));
             Runnable action = new Runnable() {
                 @Override
                 public void run() {
                     synchronized (box) {
-                        if (box.cancelled) return;
+                        if (box.cancelled || SystemClock.elapsedRealtime() >= box.deadline) { box.cancelled=true; return; }
                         box.started = true;
                     }
                     JSONObject response;
@@ -249,6 +251,8 @@ final class OwnerIpcServer {
     }
 
     private static final class ResultBox {
+        final long deadline;
+        ResultBox(long timeout) { deadline=SystemClock.elapsedRealtime()+Math.max(1000L,Math.min(120000L,timeout)); }
         private JSONObject response;
         private boolean done;
         private boolean started;
@@ -261,16 +265,17 @@ final class OwnerIpcServer {
         }
 
         synchronized JSONObject await() {
-            long deadline = SystemClock.elapsedRealtime() + 120_000L;
             while (!done) {
                 long remaining = deadline - SystemClock.elapsedRealtime();
                 if (remaining <= 0) {
+                    cancelled=true;
                     return null;
                 }
                 try {
                     wait(remaining);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
+                    cancelled=true;
                     return null;
                 }
             }
@@ -278,23 +283,23 @@ final class OwnerIpcServer {
         }
     }
 
-    private static String readLine(InputStream in) throws IOException {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream(256);
-        int read;
-        while ((read = in.read()) != -1) {
-            if (read == '\n') {
-                return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
-            }
-            if (read == '\r') {
-                continue;
-            }
-            if (buffer.size() >= READ_LIMIT) throw new IOException("request too large");
-            buffer.write(read);
+    private static String readLine(LocalSocket socket, boolean authenticated) throws IOException {
+        InputStream in=socket.getInputStream();
+        socket.setSoTimeout(authenticated?0:10000);
+        int next=in.read();
+        if(next<0)return null;
+        long deadline=SystemClock.elapsedRealtime()+10000L;
+        ByteArrayOutputStream buffer=new ByteArrayOutputStream();
+        while(next>=0 && next!='\n') {
+            if(buffer.size()>=READ_LIMIT)throw new IOException("request too large");
+            if(next!='\r')buffer.write(next);
+            long remaining=deadline-SystemClock.elapsedRealtime();
+            if(remaining<=0)throw new IOException("frame deadline");
+            socket.setSoTimeout((int)remaining);
+            next=in.read();
         }
-        if (buffer.size() == 0) {
-            return null;
-        }
-        return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
+        if(next<0)throw new IOException("incomplete frame");
+        return new String(buffer.toByteArray(),StandardCharsets.UTF_8);
     }
 
     private static void writeLine(LocalSocket socket, JSONObject response) {

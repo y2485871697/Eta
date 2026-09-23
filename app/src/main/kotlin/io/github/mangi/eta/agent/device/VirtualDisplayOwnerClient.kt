@@ -103,7 +103,7 @@ internal class VirtualDisplayOwnerClient private constructor(
         try {
             if (closed.get()) return errorResponse(op, VirtualDisplayOwnerError.CLIENT_CLOSED)
             socket.setSoTimeout(remaining.toInt())
-            output.write(buildRequestLine(op, payload).toByteArray(StandardCharsets.UTF_8))
+            output.write(buildRequestLine(op, payload + ("timeoutMs" to remaining)).toByteArray(StandardCharsets.UTF_8))
             output.flush()
             val line = reader.readLine(effectiveLimit)
             val result = if (line == null) errorResponse(op, VirtualDisplayOwnerError.RESPONSE_PROTOCOL) else parseResponse(op, line)
