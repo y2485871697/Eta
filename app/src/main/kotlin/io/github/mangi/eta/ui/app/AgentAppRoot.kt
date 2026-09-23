@@ -150,6 +150,7 @@ fun AgentAppRoot(
         onDispose { io.github.mangi.eta.agent.voice.tts.SpeechPlayback.stop() }
     }
     val speechPlayback by io.github.mangi.eta.agent.voice.tts.SpeechPlayback.state.collectAsState()
+    AgentTaskSurfacePrompt()
     LaunchedEffect(speechPlayback.error) {
         speechPlayback.error?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show() }
     }
@@ -626,6 +627,9 @@ fun AgentAppRoot(
             }
             entry<AppRoute.Haptics>(swipeDismiss = swipeDismiss) {
                 HapticsSettingsScreen(onBack = ::popRoute)
+            }
+            entry<AppRoute.AgentTaskPreference>(swipeDismiss = swipeDismiss) {
+                AgentTaskPreferenceScreen()
             }
             entry<AppRoute.Tools>(swipeDismiss = swipeDismiss) {
                 AgentToolsScreen(

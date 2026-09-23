@@ -174,6 +174,12 @@ internal class AgentLocalTools(
         terminalController.sessionIdentity(sessionId)
 
     override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult {
+        val handoffBlocksGui = runCatching {
+            io.github.mangi.eta.agent.device.AgentTaskSurface.blocksGuiTool(toolCall.name)
+        }.getOrDefault(true)
+        if (handoffBlocksGui) {
+            return textResult(errorResult(io.github.mangi.eta.agent.device.VirtualDisplaySession.NOT_READY, "副屏交接未就绪，本次未执行；请在设置改为前台"))
+        }
         if (!ForegroundExclusiveGate.shouldSerialize(toolCall.name)) {
             return executeInternal(toolCall)
         }
@@ -217,6 +223,8 @@ internal class AgentLocalTools(
                 "text_to_speech" -> textResult(textToSpeech(args))
                 "search_apps" -> textResult(searchApps(args))
                 "launch_app" -> textResult(launchApp(args))
+                "inspect_virtual_backend" -> textResult(io.github.mangi.eta.agent.device.VirtualDisplayBackendBridge.inspect(context).toString())
+                "keep_virtual_result" -> textResult(keepVirtualResult(args))
                 "open_uri" -> textResult(openUri(args))
                 "browser_use" -> browserUse(args, toolCall.id)
                 "observe_screen" -> observeScreen(args)
@@ -642,6 +650,13 @@ internal class AgentLocalTools(
             .toString()
     }
 
+
+    private fun keepVirtualResult(@Suppress("UNUSED_PARAMETER") args: JSONObject): String =
+        errorResult(
+            io.github.mangi.eta.agent.device.VirtualDisplaySession.NOT_READY,
+            "虚拟副屏交接尚未就绪；只读阶段不支持保留、恢复或关闭应用，本次未执行",
+        )
+
     private fun launchApp(args: JSONObject): String {
         val packageName = args.optString("package_name").trim().ifBlank { null }
         val appName = args.optString("app_name").trim().ifBlank { null }
@@ -679,6 +694,26 @@ internal class AgentLocalTools(
             )
         }
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        if (io.github.mangi.eta.agent.device.AgentTaskSurface.useVirtualDisplay()) {
+            val launched = io.github.mangi.eta.agent.device.RootSu.process(
+                "/system/bin/vd launch ${app.packageName}",
+            ).redirectErrorStream(true).start()
+            if (!launched.waitFor(20, java.util.concurrent.TimeUnit.SECONDS)) {
+                launched.destroyForcibly()
+                return errorResult("VIRTUAL_DISPLAY_TIMEOUT", "虚拟副屏启动应用超时")
+            }
+            if (launched.exitValue() != 0) {
+                return errorResult("VIRTUAL_DISPLAY_LAUNCH_FAILED", "虚拟副屏没有打开 ${app.packageName}")
+            }
+            logger.info("Agent local tool action=launch_app outcome=virtual_display")
+            return JSONObject()
+                .put("ok", true)
+                .put("tool", "launch_app")
+                .put("display", "virtual")
+                .put("app_name", app.appName)
+                .put("package_name", app.packageName)
+                .toString()
+        }
         context.startActivity(launchIntent)
         logger.info("Agent local tool action=launch_app outcome=started")
         return JSONObject()

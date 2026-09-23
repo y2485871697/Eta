@@ -73,6 +73,40 @@ internal object AgentContextAppToolCatalog {
             )
             .put(
                 AgentToolSchema.function(
+                    name = "inspect_virtual_backend",
+                    description = "用当前应用内的探针进行 Root 只读后端检查，不启动副屏。查询成功不等于授权；mutations_enabled 与 session_authenticated 恒为 false，不迁移、恢复或关闭应用。",
+                    parameters = JSONObject()
+                        .put("type", "object")
+                        .put("properties", JSONObject())
+                )
+            )
+            .put(
+                AgentToolSchema.function(
+                    name = "keep_virtual_result",
+                    description = "兼容旧调用的保留结果入口。虚拟副屏交接尚未就绪，当前明确返回 VIRTUAL_DISPLAY_HANDOFF_NOT_READY，不保留、恢复或关闭任何应用。",
+                    parameters = JSONObject()
+                        .put("type", "object")
+                        .put(
+                            "properties",
+                            JSONObject()
+                                .put(
+                                    "package_name",
+                                    JSONObject()
+                                        .put("type", "string")
+                                        .put("description", "一个最终应用的精确包名")
+                                )
+                                .put(
+                                    "packages",
+                                    JSONObject()
+                                        .put("type", "array")
+                                        .put("items", JSONObject().put("type", "string"))
+                                        .put("description", "多个最终应用的精确包名")
+                                )
+                        )
+                )
+            )
+            .put(
+                AgentToolSchema.function(
                     name = "open_uri",
                     description = "把一个确定有效的 URI 显式交给 Android 外部应用处理，例如 https、tel、geo 或应用 deep link。它不用于读取网页或网页交互。不要编造 URI。",
                     parameters = JSONObject()

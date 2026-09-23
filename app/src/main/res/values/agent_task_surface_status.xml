@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="agent_task_surface_background_not_ready">后台副屏尚未就绪，请改回前台</string>
+    <string name="agent_task_surface_ask_not_ready">询问模式尚未就绪，请改回前台</string>
+    <string name="agent_task_surface_not_ready_hint">虚拟副屏交接尚未就绪。现在不能启用后台或询问；如果之前选过，请改回前台。缺少可用交接时不会静默改走前台执行。</string>
+</resources>

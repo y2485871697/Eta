@@ -26,7 +26,7 @@ internal object AgentToolRequirements {
         }
         register(
             RootRequirement.NONE,
-            "get_current_context", "search_apps", "launch_app", "open_uri", "browser_use", "text_to_speech",
+            "get_current_context", "search_apps", "launch_app", "keep_virtual_result", "open_uri", "browser_use", "text_to_speech",
             "observe_screen", "tap", "tap_area", "tap_element", "long_press",
             "long_press_element", "swipe", "scroll", "scroll_element", "input_text",
             "replace_text", "clear_text", "set_clipboard", "get_clipboard", "paste_text",
@@ -45,7 +45,7 @@ internal object AgentToolRequirements {
         )
         register(
             RootRequirement.REQUIRED,
-            "top_memory_apps", "top_storage_apps", "wifi_credentials", "read_sms_code",
+            "inspect_virtual_backend", "top_memory_apps", "top_storage_apps", "wifi_credentials", "read_sms_code",
             "get_logcat", "set_setting", "set_device_state", "app_state_control",
             "list_alarms", "list_active_timers", "get_health_summary", "search_clipboard_history",
             "search_media", "search_audio", "search_recordings", "search_files",

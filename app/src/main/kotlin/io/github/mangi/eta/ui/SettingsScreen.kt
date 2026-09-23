@@ -442,6 +442,19 @@ internal fun SettingsScreen(
                         onClick = { onNavigate(AppRoute.Tools) },
                     )
 
+                    if (io.github.mangi.eta.agent.device.AgentTaskSurface.settingsEntryVisible()) {
+                        ArrowPreference(
+                            title = stringResource(R.string.agent_task_surface_title),
+                            summary = stringResource(
+                                io.github.mangi.eta.agent.device.AgentTaskSurface.settingsSummaryRes(
+                                    io.github.mangi.eta.agent.device.AgentTaskSurface.stored(),
+                                ),
+                            ),
+                            startAction = { PreferenceIcon(Icons.Rounded.Layers) },
+                            onClick = { onNavigate(AppRoute.AgentTaskPreference) },
+                        )
+                    }
+
                     SwitchPref(
                         context = context,
                         prefs = agentPrefs,

@@ -304,6 +304,7 @@ private fun titleForRoute(route: AppRoute?, currentConversationTitle: String? = 
     is AppRoute.Browser -> stringResource(R.string.route_browser)
     is AppRoute.Terminal -> stringResource(R.string.route_terminal)
     is AppRoute.Tools -> stringResource(R.string.route_tools)
+    is AppRoute.AgentTaskPreference -> stringResource(R.string.agent_task_surface_title)
     is AppRoute.Haptics -> stringResource(R.string.haptics_title)
     is AppRoute.Skills -> stringResource(R.string.route_skills)
     is AppRoute.Permissions -> stringResource(R.string.route_permissions)

@@ -89,4 +89,14 @@
     <string name="capability_workspace_delete_message">确定删除“%1$s”？此操作无法撤销。</string>
     <string name="capability_workspace_delete_dir_message">确定删除文件夹“%1$s”及其全部内容？此操作无法撤销。</string>
     <string name="settings_tools_list">工具列表</string>
+    <string name="agent_task_surface_title">Agent任务偏好</string>
+    <string name="agent_task_surface_ask">每次询问</string>
+    <string name="agent_task_surface_foreground">前台执行</string>
+    <string name="agent_task_surface_background">后台执行</string>
+    <string name="agent_task_surface_ask_summary">每次操作手机前询问前台还是后台</string>
+    <string name="agent_task_surface_foreground_summary">在主屏上操作，和现在一样</string>
+    <string name="agent_task_surface_background_summary">在虚拟副屏上操作，用完即关闭</string>
+    <string name="agent_task_surface_hint">没有刷入虚拟副屏模块时，这一项不会出现，任务始终在前台执行。</string>
+    <string name="agent_task_surface_prompt_title">这次任务在哪里执行</string>
+    <string name="agent_task_surface_prompt_body">后台执行会打开虚拟副屏，任务结束或代鱼进程退出后自动关闭。</string>
 </resources>
