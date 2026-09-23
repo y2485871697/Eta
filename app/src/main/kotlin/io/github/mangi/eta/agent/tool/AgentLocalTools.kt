@@ -694,26 +694,6 @@ internal class AgentLocalTools(
             )
         }
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-        if (io.github.mangi.eta.agent.device.AgentTaskSurface.useVirtualDisplay()) {
-            val launched = io.github.mangi.eta.agent.device.RootSu.process(
-                "/system/bin/vd launch ${app.packageName}",
-            ).redirectErrorStream(true).start()
-            if (!launched.waitFor(20, java.util.concurrent.TimeUnit.SECONDS)) {
-                launched.destroyForcibly()
-                return errorResult("VIRTUAL_DISPLAY_TIMEOUT", "虚拟副屏启动应用超时")
-            }
-            if (launched.exitValue() != 0) {
-                return errorResult("VIRTUAL_DISPLAY_LAUNCH_FAILED", "虚拟副屏没有打开 ${app.packageName}")
-            }
-            logger.info("Agent local tool action=launch_app outcome=virtual_display")
-            return JSONObject()
-                .put("ok", true)
-                .put("tool", "launch_app")
-                .put("display", "virtual")
-                .put("app_name", app.appName)
-                .put("package_name", app.packageName)
-                .toString()
-        }
         context.startActivity(launchIntent)
         logger.info("Agent local tool action=launch_app outcome=started")
         return JSONObject()
