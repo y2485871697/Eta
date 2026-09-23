@@ -1,67 +1,52 @@
 package io.github.mangi.eta.data.repository
 
-import io.github.mangi.eta.data.model.ProviderSetting
-import io.github.mangi.eta.data.model.canQueryBalance
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+
+/**
+ * 单个 provider 的余额刷新状态。
+ *
+ * - [amount] 保留最后一次成功金额（失败不清空）。
+ * - [updatedAtMillis] 仅在成功时更新。
+ * - [refreshing] 当前是否有在途请求。
+ * - [error] 最近一次失败的安全错误信息（不含响应正文）。
+ */
+internal data class ProviderBalanceState(
+    val amount: String? = null,
+    val updatedAtMillis: Long? = null,
+    val refreshing: Boolean = false,
+    val error: String? = null,
+)
 
 internal object ProviderBalanceStore {
     private const val POLL_INTERVAL_MS = 30_000L
-    private val balancesState = MutableStateFlow<Map<String, String>>(emptyMap())
-    val balances: StateFlow<Map<String, String>> = balancesState.asStateFlow()
-    private val refreshMutex = Mutex()
-    @Volatile private var started = false
+
+    private val coordinator = ProviderBalanceCoordinator(
+        fetch = { provider -> ProviderBalanceFetcher.fetch(provider) },
+        clock = { System.currentTimeMillis() },
+    )
+
+    private val poller = ProviderBalancePoller(
+        refresh = { scope, providers -> coordinator.refresh(scope, providers) },
+        providersFlow = { ProviderRepository.providersFlow() },
+        intervalMs = POLL_INTERVAL_MS,
+    )
+
+    /** 富状态，供新 UI 消费者使用。 */
+    val states: StateFlow<Map<String, ProviderBalanceState>> = coordinator.states
+
+    /** 兼容旧消费者：仅暴露成功金额的映射。 */
+    val balances: StateFlow<Map<String, String>> = coordinator.balances
 
     fun start(scope: CoroutineScope) {
-        if (started) return
-        started = true
-        scope.launch(Dispatchers.IO) {
-            ProviderRepository.providersFlow().collectLatest { providers ->
-                while (isActive) {
-                    refresh(providers)
-                    delay(POLL_INTERVAL_MS)
-                }
-            }
-        }
+        poller.start(scope)
     }
 
     fun requestRefresh(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
-            refresh(ProviderRepository.allProviders())
-        }
-    }
-
-    private suspend fun refresh(providers: List<ProviderSetting>) {
-        refreshMutex.withLock {
-            val enabled = providers.filter(ProviderSetting::canQueryBalance)
-            val enabledIds = enabled.map(ProviderSetting::id).toSet()
-            coroutineScope {
-                enabled.map { provider ->
-                    async {
-                        provider.id to ProviderBalanceFetcher.fetch(provider)
-                            .getOrNull()
-                            ?.let(::formatBalanceDisplay)
-                    }
-                }.awaitAll().forEach { (id, value) ->
-                    if (value != null) {
-                        balancesState.update { current -> current + (id to value) }
-                    }
-                }
-            }
-            balancesState.update { current -> current.filterKeys { it in enabledIds } }
+            coordinator.refresh(scope, ProviderRepository.allProviders())
         }
     }
 }

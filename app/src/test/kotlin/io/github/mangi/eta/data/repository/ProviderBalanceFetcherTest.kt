@@ -3,6 +3,16 @@ package io.github.mangi.eta.data.repository
 import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.canQueryBalance
+import java.net.ServerSocket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -184,4 +194,89 @@ class ProviderBalanceFetcherTest {
         )
         assertTrue(provider.canQueryBalance())
     }
+
+    @Test
+    fun fetchFailsFastWhenServerNeverResponds() = runBlocking {
+        val server = ServerSocket(0)
+        val accepted = CountDownLatch(1)
+        val worker = Thread {
+            runCatching {
+                server.accept().use { socket ->
+                    accepted.countDown()
+                    Thread.sleep(5_000)
+                }
+            }
+        }
+        worker.isDaemon = true
+        worker.start()
+        try {
+            val client = OkHttpClient.Builder()
+                .callTimeout(300, TimeUnit.MILLISECONDS)
+                .build()
+            val provider = localProvider(server.localPort)
+            val startedAt = System.nanoTime()
+            val result = ProviderBalanceFetcher.fetch(provider, provider.balanceOption, client)
+            val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+            assertTrue("expected failure", result.isFailure)
+            assertTrue("elapsed=$elapsedMs", elapsedMs < 3_000)
+            assertTrue(accepted.await(1, TimeUnit.SECONDS))
+        } finally {
+            server.close()
+            worker.join(1_000)
+        }
+    }
+
+    @Test
+    fun fetchCancelsUnderlyingCallWhenCoroutineIsCancelled() = runBlocking {
+        val server = ServerSocket(0)
+        val accepted = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val worker = Thread {
+            runCatching {
+                server.accept().use { socket ->
+                    accepted.countDown()
+                    val input = socket.getInputStream()
+                    val buffer = ByteArray(256)
+                    while (input.read(buffer) >= 0) {
+                        // drain until the client cancels and closes the socket
+                    }
+                }
+            }
+            closed.countDown()
+        }
+        worker.isDaemon = true
+        worker.start()
+        try {
+            val client = OkHttpClient.Builder()
+                .callTimeout(30, TimeUnit.SECONDS)
+                .build()
+            val provider = localProvider(server.localPort)
+            val job = launch(Dispatchers.IO) {
+                try {
+                    ProviderBalanceFetcher.fetch(provider, provider.balanceOption, client)
+                    error("fetch should have been cancelled")
+                } catch (_: CancellationException) {
+                    // expected: cancellation is propagated, not swallowed
+                }
+            }
+            assertTrue(accepted.await(2, TimeUnit.SECONDS))
+            delay(100)
+            job.cancelAndJoin()
+            assertTrue("underlying call should be cancelled", closed.await(2, TimeUnit.SECONDS))
+        } finally {
+            server.close()
+            worker.join(1_000)
+        }
+    }
+
+    private fun localProvider(port: Int) = OpenAiCompatibleProviderSetting(
+        id = "local",
+        name = "local",
+        baseUrl = "http://127.0.0.1:$port",
+        balanceOption = BalanceOption(
+            enabled = true,
+            apiPath = "balance",
+            resultPath = "amount",
+        ),
+    )
 }
