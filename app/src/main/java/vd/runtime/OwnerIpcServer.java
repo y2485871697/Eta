@@ -197,7 +197,7 @@ final class OwnerIpcServer {
                 }
                 JSONObject response = execute(request);
                 if (OwnerProtocol.OP_STATUS.equals(request.op)) {
-                    try { response.put("mutationUncertain", mutationUncertain); }
+                    try { response.put("mutationUncertain", mutationUncertain || response.optBoolean("mutationUncertain", false)); }
                     catch (org.json.JSONException ex) { throw new IOException("status serialization failed"); }
                 }
                 try { writeLine(socket, out, response); }

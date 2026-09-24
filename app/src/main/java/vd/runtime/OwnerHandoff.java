@@ -9,6 +9,19 @@ import org.json.JSONObject;
 
 /** Restricted exclusive-session handoff. Not an atomic system_server admission fence. */
 final class OwnerHandoff {
+    /**
+     * A handoff stopped entirely inside the read-only preflight. No display, task, focus or window
+     * transaction had been attempted, so this operation has not mutated the source display and a
+     * deliberate retry is safe.
+     */
+    static final String HANDOFF_PREFLIGHT_FAILED = "HANDOFF_PREFLIGHT_FAILED";
+    /**
+     * A handoff had already crossed the first side effect (the source-display anchor launch) and then
+     * failed. The session may have been mutated, so it is reported as uncertain and is never replayed
+     * automatically: the owner records the uncertainty and refuses a second attempt.
+     */
+    static final String HANDOFF_UNCERTAIN = "HANDOFF_UNCERTAIN";
+
     static Object field(Object object, String name) throws Exception {
         if (object == null) throw new IllegalStateException("null field " + name);
         for (Class<?> c=object.getClass(); c!=null; c=c.getSuperclass()) {
@@ -396,29 +409,101 @@ final class OwnerHandoff {
         if(!hide) cl.getMethod("reorder",tokenCl,boolean.class).invoke(change,token,false);
         Class<?> org=Class.forName("android.window.WindowOrganizer");org.getMethod("applyTransaction",cl).invoke(org.getConstructor().newInstance(),change);
     }
-    static void focus(Task main)throws Exception {
-        Object f=invokeAtm("getFocusedRootTaskInfo",new Class<?>[0]);main.check(f,0);
+    /**
+     * A nested handoff failure that records whether the first side effect had been attempted when it
+     * was raised. {@link #sideEffectsAttempted()} {@code false} means the failure happened entirely
+     * inside the read-only preflight, so the display is untouched and a retry is allowed; {@code true}
+     * means the anchor launch (or a later step) had already been attempted and the session is
+     * uncertain and must never be replayed. The message carries only a symbolic phase and the thrown
+     * type, never an Intent payload, a data URI or the anchor token.
+     */
+    static final class HandoffFailure extends OwnerException {
+        private final String phase;
+        private final boolean sideEffectsAttempted;
+        HandoffFailure(String phase,Throwable cause,boolean sideEffectsAttempted,String summary) {
+            super(sideEffectsAttempted ? HANDOFF_UNCERTAIN : HANDOFF_PREFLIGHT_FAILED,
+                    failureDetail(phase,cause,summary));
+            this.phase=phase;
+            this.sideEffectsAttempted=sideEffectsAttempted;
+        }
+        String phase() { return phase; }
+        boolean sideEffectsAttempted() { return sideEffectsAttempted; }
+        /** Only a failure that never crossed the first side effect may be retried. */
+        boolean retryable() { return !sideEffectsAttempted; }
+    }
+    /**
+     * Bounded, token-free diagnostic for a handoff failure: a sanitized symbolic phase, the thrown
+     * type and a caller-provided tally. The exception message is deliberately not copied, so an
+     * Intent payload or the {@code eta-vd-anchor} / {@code eta-vd://session} data URI can never leak
+     * into a response. Pure; no device access.
+     */
+    static String failureDetail(String phase,Throwable cause,String summary) {
+        StringBuilder sb=new StringBuilder(sanitizePhase(phase));
+        sb.append(':').append(cause==null ? "none" : cause.getClass().getSimpleName());
+        if(summary!=null&&!summary.isEmpty()) sb.append(';').append(summary);
+        return sb.toString();
+    }
+    /**
+     * Neutralizes a phase label to a short symbolic charset so a diagnostic can never carry a token,
+     * URI or intent payload even if a caller passes one by mistake. Pure; no device access.
+     */
+    static String sanitizePhase(String phase) {
+        if(phase==null) return "unknown";
+        StringBuilder sb=new StringBuilder();
+        for(int i=0;i<phase.length()&&sb.length()<48;i++) {
+            char c=phase.charAt(i);
+            if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c==':'||c=='.'||c=='#') {
+                sb.append(c);
+            } else {
+                sb.append('_');
+            }
+        }
+        return sb.length()==0 ? "unknown" : sb.toString();
+    }
+    /** The inventory entry for the currently focused task, or {@code null} when unknown. */
+    private static Object inventoryEntry(Map<Integer,Object> current,Object focused) {
+        if(focused==null) return null;
+        try { return current.get(number(focused,"taskId")); }
+        catch(Exception ignored) { return null; }
+    }
+    /** Re-asserts the main-display focus against a read-only witness. Never mutates. */
+    static void focus(FocusWitness main)throws Exception {
+        Object f=invokeAtm("getFocusedRootTaskInfo",new Class<?>[0]);main.check(f);
     }
     static JSONObject move(int source,String unique,Map<Integer,Task> owned,JSONArray keep)throws OwnerException {
-        JSONArray moved=new JSONArray(),removed=new JSONArray(); String phase="preflight";
+        JSONArray moved=new JSONArray(),removed=new JSONArray();
+        // Everything up to the anchor launch is read-only; the anchor launch is the first side effect.
+        // The phase names a symbolic stage only, so no Intent payload or token can appear in a reply.
+        String phase="preflight:display";
+        boolean sideEffects=false;
         try {
             verifyDisplay(source,unique);
+            phase="preflight:selection";
             Set<Integer> selected=new LinkedHashSet<Integer>();
             if(keep==null) throw new IllegalStateException("taskIds array required");
             for(int i=0;i<keep.length();i++) {
                 Object n=keep.get(i);if(!(n instanceof Integer)||!selected.add((Integer)n)||!owned.containsKey((Integer)n)) throw new IllegalStateException("invalid taskIds");
             }
+            phase="preflight:inventory";
             Map<Integer,Object> current=roots();
             for(Object t:current.values()) if(number(t,"displayId")==source) {
                 Task identity=owned.get(number(t,"taskId"));if(identity==null)throw new IllegalStateException("foreign source task");identity.check(t,source);
             }
             for(Integer id:selected) owned.get(id).check(current.get(id),source);
-            Task main=new Task(invokeAtm("getFocusedRootTaskInfo",new Class<?>[0]));main.check(current.get(main.id),0);
-            // A dedicated source-display cover prevents migrating the currently focused source task.
+            phase="preflight:focus";
+            // The main-display task is a read-only focus witness: it is captured, verified and compared
+            // but never hidden, moved or focused. Its desktop container children are legitimate, so it
+            // uses the conservative FocusWitness identity, not the strict migrated-task Task.check.
+            Object focused=invokeAtm("getFocusedRootTaskInfo",new Class<?>[0]);
+            FocusWitness witness=FocusWitness.capture(focused,inventoryEntry(current,focused),0,0);
+            // ---- First side effect: launching the source-display anchor cover. ----
             String anchorUri="eta-vd-anchor://handoff/"+UUID.randomUUID().toString();
             String anchorComponent="io.github.mangi.eta/io.github.mangi.eta.agent.device.VirtualDisplayAnchorActivity";
+            phase="anchor:launch";
+            sideEffects=true;
             OwnerShell.Result started=OwnerShell.run(new String[]{"/system/bin/am","start","--display",Integer.toString(source),"-n",anchorComponent,"-d",anchorUri,"-f",Integer.toString(0x18000000)},10000L,8192);
             if(!started.success())throw new IllegalStateException("anchor launch failed");
+            phase="anchor:observe";
             Task anchor=null;
             for(int attempt=0;attempt<20 && anchor==null;attempt++) {
                 for(Object t:roots().values())if(number(t,"displayId")==source && !current.containsKey(number(t,"taskId"))) {
@@ -431,39 +516,39 @@ final class OwnerHandoff {
                 if(anchor==null)Thread.sleep(100L);
             }
             if(anchor==null)throw new IllegalStateException("anchor identity not observed");
-            focus(main);
+            phase="focus";focus(witness);
             // Fresh tasks only. Default hidden/focusable restoration is an explicit limited-mode assumption.
             for(Integer id:selected) {
-                Task identity=owned.get(id);verifyDisplay(source,unique);focus(main);
+                Task identity=owned.get(id);verifyDisplay(source,unique);focus(witness);
                 Object t=roots().get(id);identity.check(t,source);
                 phase="hide:"+id;tx(t,true,false);
-                t=roots().get(id);identity.check(t,source);focus(main);
+                t=roots().get(id);identity.check(t,source);focus(witness);
                 phase="move:"+id;invokeAtm("moveRootTaskToDisplay",new Class<?>[]{int.class,int.class},id.intValue(),0);
-                t=roots().get(id);identity.check(t,0);focus(main);
-                phase="park:"+id;tx(t,false,false);t=roots().get(id);identity.check(t,0);focus(main);
-                phase="restore:"+id;tx(t,false,true);identity.check(roots().get(id),0);focus(main);moved.put(id);
+                t=roots().get(id);identity.check(t,0);focus(witness);
+                phase="park:"+id;tx(t,false,false);t=roots().get(id);identity.check(t,0);focus(witness);
+                phase="restore:"+id;tx(t,false,true);identity.check(roots().get(id),0);focus(witness);moved.put(id);
             }
             for(Object t:roots().values()) if(number(t,"displayId")==source) {
                 int id=number(t,"taskId");
                 if(id==anchor.id)continue;
                 Task identity=owned.get(id);
                 if(identity==null||selected.contains(id))throw new IllegalStateException("unexpected residual task");
-                verifyDisplay(source,unique);identity.check(roots().get(id),source);focus(main);
+                verifyDisplay(source,unique);identity.check(roots().get(id),source);focus(witness);
                 phase="remove:"+id;Object ok=invokeAtm("removeTask",new Class<?>[]{int.class},id);
                 if(!Boolean.TRUE.equals(ok)||roots().containsKey(id))throw new IllegalStateException("remove not verified");removed.put(id);
             }
-            verifyDisplay(source,unique);focus(main);
+            verifyDisplay(source,unique);focus(witness);
             anchor.check(roots().get(anchor.id),source);
             phase="remove-anchor";
             if(!Boolean.TRUE.equals(invokeAtm("removeTask",new Class<?>[]{int.class},anchor.id)))throw new IllegalStateException("anchor removal failed");
             for(int attempt=0;attempt<20 && roots().containsKey(anchor.id);attempt++)Thread.sleep(100L);
             if(roots().containsKey(anchor.id))throw new IllegalStateException("anchor removal uncertain");
-            verifyDisplay(source,unique);focus(main);
+            verifyDisplay(source,unique);focus(witness);
             for(Object t:roots().values())if(number(t,"displayId")==source)throw new IllegalStateException("source occupied");
             for(Integer id:selected)owned.get(id).check(roots().get(id),0);
             return new JSONObject().put("handedOff",true).put("sourceEmpty",true).put("keptTaskIds",moved).put("removedTaskIds",removed);
-        } catch(Exception ex) {
-            throw new OwnerException("HANDOFF_UNCERTAIN",phase+":"+ex.getClass().getSimpleName()+"; moved="+moved+" removed="+removed);
+        } catch(Throwable ex) {
+            throw new HandoffFailure(phase,ex,sideEffects,"moved="+moved+" removed="+removed);
         }
     }
 }
