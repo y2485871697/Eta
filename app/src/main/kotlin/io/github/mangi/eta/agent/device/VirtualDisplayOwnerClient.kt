@@ -63,11 +63,13 @@ internal class VirtualDisplayOwnerClient private constructor(
     /** owner 本次创建的稳定标识，来自 READY。 */
     val uniqueId: String,
     /** Used only by the owning app to persist a reconnect capability. */
-    val recoveryToken: String get() = token,
     /** 与本次创建绑定的 runId；所有需要 runId 的操作默认使用它，且必须非空。 */
     val runId: String,
     private val token: String,
 ) : AutoCloseable {
+
+    /** Used only by the owning app to persist a reconnect capability. */
+    val recoveryToken: String get() = token
 
     private val closed = AtomicBoolean(false)
     private val lock = java.util.concurrent.locks.ReentrantLock()
