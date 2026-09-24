@@ -13,8 +13,16 @@ public class LaunchTargetOccupancyTest {
     private static LaunchTargetOccupancy.Root root(int id, String base, String baseActivity,
             String top, String real, boolean fieldsKnown, int activityCount,
             boolean childIdsKnown, int[] childIds, boolean childNamesKnown, String[] childNames) {
+        return root(id, base, baseActivity, top, real, fieldsKnown, activityCount,
+                childIdsKnown, childIds, childNamesKnown, childNames, false, false);
+    }
+    private static LaunchTargetOccupancy.Root root(int id, String base, String baseActivity,
+            String top, String real, boolean fieldsKnown, int activityCount,
+            boolean childIdsKnown, int[] childIds, boolean childNamesKnown, String[] childNames,
+            boolean emptyOrganizerProven, boolean organizerEvidenceValid) {
         return new LaunchTargetOccupancy.Root(id, base, baseActivity, top, real, null,
-                fieldsKnown, activityCount, childIdsKnown, childIds, childNamesKnown, childNames);
+                fieldsKnown, activityCount, childIdsKnown, childIds, childNamesKnown, childNames,
+                emptyOrganizerProven, organizerEvidenceValid);
     }
     /** A root whose child arrays are readable and empty (no nested tasks). */
     private static LaunchTargetOccupancy.Root plain(int id, String base, String baseActivity,
@@ -56,7 +64,8 @@ public class LaunchTargetOccupancyTest {
                         true, new int[]{2}, true, new String[]{TARGET})).code);
     }
     @Test public void emptyOrganizerWithoutChildIdentityNeverClears() {
-        // Mirrors the observed root #3: an empty organizer whose child tasks cannot be named.
+        // Mirrors the observed root #3: an empty organizer whose child tasks cannot be named and
+        // whose emptiness was not proven by a TaskOrganizer enumeration.
         assertEquals(LaunchTargetOccupancy.UNKNOWN,
                 decide(root(3, null, null, null, null, true, 0, true, new int[]{4, 5}, true,
                         new String[]{null, null})).code);
@@ -64,6 +73,40 @@ public class LaunchTargetOccupancyTest {
     @Test public void emptyOrganizerWithIdentifiedNonTargetChildrenIsClear() {
         assertFalse(decide(root(3, null, null, null, null, true, 0, true, new int[]{4, 5}, true,
                 new String[]{"com.other.one", "com.other.two"})).rejects());
+    }
+    @Test public void organizerEvidenceClearsUnnamedEmptyChildren() {
+        // Mirrors root #3: an identity-free empty organizer whose child tasks the platform did not
+        // name. Cleared only when the TaskOrganizer enumeration matched the child ids exactly.
+        assertFalse(decide(root(3, null, null, null, null, true, 0, true, new int[]{4, 5}, true,
+                new String[]{null, null}, true, true)).rejects());
+        // The raw childTaskNames array may be entirely absent on the same device.
+        assertFalse(decide(root(3, null, null, null, null, true, 0, true, new int[]{4, 5}, false,
+                null, true, true)).rejects());
+    }
+    @Test public void organizerEvidenceBooleansAreRequired() {
+        // emptyOrganizerProven without valid evidence is not trusted.
+        assertEquals(LaunchTargetOccupancy.UNKNOWN, decide(root(3, null, null, null, null, true, 0,
+                true, new int[]{4, 5}, true, new String[]{null, null}, true, false)).code);
+        // Valid evidence without a positive proof stays unknown.
+        assertEquals(LaunchTargetOccupancy.UNKNOWN, decide(root(3, null, null, null, null, true, 0,
+                true, new int[]{4, 5}, true, new String[]{null, null}, false, true)).code);
+    }
+    @Test public void missingOrganizerProofForUnnamedForeignChildStaysUnknown() {
+        // Mirrors root #1 with an unnamed launcher child and no organizer evidence.
+        assertEquals(LaunchTargetOccupancy.UNKNOWN, decide(root(1, "com.bbk.launcher2", null,
+                "com.bbk.launcher2", null, true, 1, true, new int[]{2}, true,
+                new String[]{null})).code);
+    }
+    @Test public void selfMarkerChildWithoutRawNamesIsNotMisrejected() {
+        // root #6: childTaskIds={6} (and/or -1) is the root's own marker, so a missing childTaskNames
+        // raw array must not turn it into an unknown child.
+        assertFalse(decide(root(6, null, null, null, null, true, 0, true,
+                new int[]{6}, false, null)).rejects());
+        assertFalse(decide(root(6, null, null, null, null, true, 0, true,
+                new int[]{-1, 6}, false, null)).rejects());
+        // A real foreign child id without a name stays unknown.
+        assertEquals(LaunchTargetOccupancy.UNKNOWN, decide(root(6, null, null, null, null, true, 0,
+                true, new int[]{6, 7}, false, null)).code);
     }
     @Test public void missingOrNonParallelChildArraysFailClosed() {
         // childTaskIds unreadable.

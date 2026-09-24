@@ -16,6 +16,13 @@ final class LaunchTargetOccupancy {
      * {@code childTaskIds} array and the parallel {@code childTaskNames} package per id are carried
      * here (a {@code null} element means the platform did not name that child) so the decision is a
      * pure function that can be unit tested without a device.
+     *
+     * <p>An organizer-created, identity-free empty container may legitimately own child tasks that the
+     * platform does not name. {@code organizerEvidenceValid} records that this root satisfied the
+     * preconditions to consult a read-only {@code TaskOrganizer} enumeration; {@code
+     * emptyOrganizerProven} records that the enumeration matched the root's own child ids exactly and
+     * every child was an identity-free empty task. Only when both hold may an unnamed foreign child be
+     * treated as harmless.
      */
     static final class Root {
         final int taskId;
@@ -26,11 +33,13 @@ final class LaunchTargetOccupancy {
         final int[] childTaskIds; // raw platform ids; may contain the root's own id or -1 marker
         final boolean childNamesKnown;
         final String[] childTaskNames; // package per raw child id; a null element is unreadable
+        final boolean emptyOrganizerProven;
+        final boolean organizerEvidenceValid;
 
         Root(int taskId, String base, String baseActivity, String topActivity,
                 String realActivity, String origActivity, boolean componentsKnown, int numActivities,
                 boolean childIdsKnown, int[] childTaskIds, boolean childNamesKnown,
-                String[] childTaskNames) {
+                String[] childTaskNames, boolean emptyOrganizerProven, boolean organizerEvidenceValid) {
             this.taskId = taskId;
             this.base = base;
             this.baseActivity = baseActivity;
@@ -43,6 +52,8 @@ final class LaunchTargetOccupancy {
             this.childTaskIds = childTaskIds == null ? new int[0] : childTaskIds;
             this.childNamesKnown = childNamesKnown;
             this.childTaskNames = childTaskNames == null ? new String[0] : childTaskNames;
+            this.emptyOrganizerProven = emptyOrganizerProven;
+            this.organizerEvidenceValid = organizerEvidenceValid;
         }
     }
 
@@ -103,27 +114,43 @@ final class LaunchTargetOccupancy {
         return false;
     }
 
+    /** No package identity in any component field; an unreadable self is only clearable as empty. */
+    private static boolean identityAbsent(Root root) {
+        return root.base == null && root.baseActivity == null && root.topActivity == null
+                && root.realActivity == null && root.origActivity == null;
+    }
+
+    /** Organizer evidence that every foreign child is an identity-free empty task. */
+    private static boolean organizerProven(Root root) {
+        return root.organizerEvidenceValid && root.emptyOrganizerProven;
+    }
+
     /**
      * True only when the platform evidence proves this root and every child task is not the target.
      *
-     * <p>A root with an unreadable self identity, unreadable child ids, missing or non-parallel
-     * child names, or a foreign child whose identity is unknown is never clearable: the caller must
-     * fail closed rather than assume the unnamed child is harmless. A self-absent root is only
-     * clearable as an empty container: it must report zero activities on top of the readable,
-     * identified non-target children.
+     * <p>A root with an unreadable self identity, unreadable child ids, missing or non-parallel child
+     * names with a foreign child, or a foreign child whose identity is unknown is never clearable: the
+     * caller must fail closed rather than assume the unnamed child is harmless. The single exception
+     * is an organizer-created, identity-free empty container whose {@code TaskOrganizer} enumeration
+     * matches its child ids exactly ({@link #organizerProven}); only then may an unnamed foreign child
+     * be accepted. A self-absent root is otherwise only clearable as an empty container: it must report
+     * zero activities on top of the readable, identified non-target children.
      */
     private static boolean provenNonTarget(Root root) {
         if (!root.componentsKnown) return false;
-        if (!hasParallelChildNames(root)) return false;
+        if (identityAbsent(root) && root.numActivities != 0) return false; // empty container required
+        if (!root.childIdsKnown) return false;
         int[] ids = root.childTaskIds;
-        String[] names = root.childTaskNames;
-        for (int i = 0; i < ids.length; i++) {
-            if (isForeignChild(root.taskId, ids[i]) && names[i] == null) return false;
+        // Only the root's own id and the -1 marker: no foreign child can possibly be the target.
+        if (!hasForeignChild(root.taskId, ids)) return true;
+        if (hasParallelChildNames(root)) {
+            for (int i = 0; i < ids.length; i++) {
+                if (isForeignChild(root.taskId, ids[i]) && root.childTaskNames[i] == null)
+                    return organizerProven(root); // an unnamed child needs organizer emptiness proof
+            }
+            return true; // a known, non-target self identity plus identified non-target children
         }
-        boolean selfAbsent = root.base == null && root.baseActivity == null
-                && root.topActivity == null && root.realActivity == null && root.origActivity == null;
-        if (!selfAbsent) return true; // a known, non-target self identity plus identified children
-        return root.numActivities == 0; // an empty container with only identified non-target children
+        return organizerProven(root); // unnamed or non-parallel children need organizer proof
     }
 
     static Decision decide(String target, List<Root> roots, List<Recent> recents) {

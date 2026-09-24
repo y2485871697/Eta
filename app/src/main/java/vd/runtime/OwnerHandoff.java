@@ -101,38 +101,58 @@ final class OwnerHandoff {
             int[] ids=(int[])field(task,"childTaskIds");
             if(ids!=null && id>=0) {
                 childIdsKnown=true; childIds=ids;
-                String[] names=childPackages(task,ids);
+                String[] names=effectiveChildNames(id,ids,rawChildNames(task));
                 if(names!=null && names.length==ids.length) { childNames=names; childNamesKnown=true; }
             }
         } catch(Exception ignored) { }
+        // Organizer evidence is only consulted for an identity-free, empty, activityType-0 container.
+        boolean emptyOrganizerProven=false, organizerEvidenceValid=false;
+        if(childIdsKnown && componentsKnown && base==null && baseActivity==null && topActivity==null
+                && realActivity==null && origActivity==null && activities==0) {
+            Integer type=activityType(task);
+            if(type!=null && type.intValue()==0) {
+                organizerEvidenceValid=true;
+                emptyOrganizerProven=organizerEmptyProven(task,childIds);
+            }
+        }
         return new LaunchTargetOccupancy.Root(id,base,baseActivity,topActivity,realActivity,
-                origActivity,componentsKnown,activities,childIdsKnown,childIds,childNamesKnown,childNames);
+                origActivity,componentsKnown,activities,childIdsKnown,childIds,childNamesKnown,childNames,
+                emptyOrganizerProven,organizerEvidenceValid);
     }
-    /**
-     * Package name for every trusted platform child task id, or {@code null} when the parallel
-     * {@code childTaskNames} array the platform carries next to {@code childTaskIds} is missing or
-     * not parallel.
-     *
-     * <p>Only that parallel array is trusted. A {@code getTaskInfo} fallback is deliberately not
-     * used: it re-reads unrelated task state by a raw id and cannot be tied back to this root, so it
-     * was removed and an unnamed child stays unreadable, letting the pure policy fail closed instead
-     * of treating an unnamed child as harmless.
-     */
-    private static String[] childPackages(Object task,int[] ids) {
+    /** The raw {@code childTaskNames} platform array for a task, or {@code null} when absent. */
+    private static String[] rawChildNames(Object task) {
         try {
             Object raw=field(task,"childTaskNames");
-            return parallelChildPackages(raw instanceof String[] ? (String[])raw : null,ids);
-        } catch(Exception ignored) { }
+            return raw instanceof String[] ? (String[])raw : null;
+        } catch(Exception ignored) { return null; }
+    }
+    /**
+     * Effective parallel child-name array for a root's raw child ids.
+     *
+     * <p>Only the platform's parallel {@code childTaskNames} array is trusted: a missing array, a
+     * non-parallel array or an empty name list in the presence of ids leaves every child unnamed and
+     * the caller must fail closed. When there is no foreign child id (only the root's own id or the
+     * {@code -1} non-task marker) the raw names carry no child identity at all, so a same-length
+     * all-null array is returned: this records "no named foreign child" without inventing a package
+     * name. A {@code getTaskInfo} fallback is deliberately not used: it re-reads unrelated task state
+     * by a raw id and cannot be tied back to this root. Pure; no device access.
+     */
+    static String[] effectiveChildNames(int selfId,int[] ids,String[] rawNames) {
+        if(ids==null) return null;
+        String[] names=parallelChildPackages(rawNames,ids);
+        if(names!=null) return names;
+        if(!LaunchTargetOccupancy.hasForeignChild(selfId,ids)) return new String[ids.length];
         return null;
     }
     /**
      * Packages for each id from the platform's parallel {@code childTaskNames} array, or {@code null}
-     * when the array is absent, not parallel or empty while ids are present. An empty id list yields
-     * an empty (complete) result. Pure; no device access.
+     * when the array is absent, not parallel or empty while ids are present. An empty id list pairs
+     * only with an absent or empty name array; an empty id list alongside a non-empty name array is
+     * not a parallel association. Pure; no device access.
      */
     static String[] parallelChildPackages(String[] rawNames,int[] ids) {
         if(ids==null) return null;
-        if(ids.length==0) return new String[0];
+        if(ids.length==0) return rawNames==null||rawNames.length==0 ? new String[0] : null;
         if(rawNames==null||rawNames.length!=ids.length) return null;
         String[] out=new String[ids.length];
         for(int i=0;i<ids.length;i++) out[i]=childNamePackage(rawNames[i]);
@@ -204,12 +224,12 @@ final class OwnerHandoff {
      * Read-only proof that {@code root} is an organizer-created, identity-free empty container whose
      * direct children are exactly {@code childIds}, each also an identity-free empty task.
      *
-     * <p>Reflection only: {@code android.window.TaskOrganizer.getChildTasks(root.token, null)}
-     * returns the direct {@code RunningTaskInfo}s of a task created by a {@code TaskOrganizer} and
-     * {@code null} when the task was not created by an organizer ({@code mCreatedByOrganizer=false}),
-     * so a non-organizer task can never be proven empty. Every read is wrapped; a missing API, a
-     * reflection failure or any mismatch answers {@code false} (fail closed). This helper is staged
-     * for a follow-up change and is deliberately not wired into the launch decision yet.
+     * <p>Reflection only: an {@code android.window.TaskOrganizer} instance exposes {@code
+     * getChildTasks(root.token, null)}, which returns the direct {@code RunningTaskInfo}s of a task
+     * created by a {@code TaskOrganizer} and {@code null} when the task was not created by an
+     * organizer ({@code mCreatedByOrganizer=false}), so a non-organizer task can never be proven
+     * empty. Every read is wrapped; a missing API, a construction or reflection failure, a permission
+     * failure or any mismatch answers {@code false} (fail closed).
      */
     private static boolean organizerEmptyProven(Object root,int[] childIds) {
         if(root==null||childIds==null) return false;
@@ -283,15 +303,19 @@ final class OwnerHandoff {
     }
     /** Direct organizer children for a nonnull window container token, or {@code null} if unprovable. */
     private static List<?> organizerChildren(Object token)throws Exception {
-        Class<?> organizer=Class.forName("android.window.TaskOrganizer");
+        Class<?> organizerClass=Class.forName("android.window.TaskOrganizer");
         Method lookup=null;
-        for(Method candidate:organizer.getMethods()) {
+        for(Method candidate:organizerClass.getMethods()) {
             Class<?>[] params=candidate.getParameterTypes();
             if("getChildTasks".equals(candidate.getName())&&params.length==2
                     && params[1]==int[].class&&params[0].isInstance(token)) { lookup=candidate; break; }
         }
         if(lookup==null) return null;
-        Object result=lookup.invoke(null,token,(Object)null);
+        // getChildTasks is an instance method: the standard TaskOrganizer exposes a public no-arg
+        // constructor, so a throwaway instance is created to invoke it. Any failure (no such
+        // constructor, permission denied, missing service) propagates and is treated as "unproven".
+        Object organizer=organizerClass.getConstructor().newInstance();
+        Object result=lookup.invoke(organizer,token,(Object)null);
         if(result==null) return null;
         if(!(result instanceof List)) throw new IllegalStateException("organizer child type");
         return (List<?>)result;
