@@ -20,33 +20,8 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
-/**
- * App 侧连接 root 虚拟屏 owner 的客户端。
- *
- * owner 是 `vd.runtime.VirtualDisplayOwnerMain`，由本类通过 [RootSu] 在 root 的
- * app_process 里拉起（CLASSPATH=apk 的 sourceDir 与 splits）。owner 在启动时向
- * stdout 打印一行 `VD_OWNER_READY`，随后只在 ABSTRACT 本地套接字上收发换行分隔的
- * JSON 请求/响应。
- *
- * 本类只做四件事：
- * 1. 启动 owner，并在超时内读取一行 READY（读取在后台线程，主调用线程只等待有界时间）。
- * 2. 连接 ABSTRACT 套接字，并核对 peer 凭据（uid==0 且 pid==启动握手里的 pid）。
- * 3. 串行发送 `{v,op,token,...}` 请求，读取有界响应。
- * 4. 暴露客户端状态与原始响应，绝不把 token 交给模型、日志或文件。
- *
- * 安全与失败语义：
- * - token 只存在于本对象私有字段和请求报文里，不进入日志、不进入 toString、不进入异常。
- * - 请求失败（超时、IO、协议）只返回错误响应，绝不杀死 owner，也绝不回退到物理屏幕。
- * - 启动阶段一旦不确定（超时、READY 解析失败、peer 校验失败），只终结本次刚拉起的进程并
- *   返回失败；绝不自动重放创建，避免留下无法对账的孤儿 owner。
- *
- * 已知限制（实现时 owner 源码尚未并入本 worktree）：
- * - 各 op 的 payload 字段由 owner 定义；本类对 launch 只要求 `component` 非空且原样透传，
- *   对 input/handoff 透传调用方给的扁平字段，不做 schema 校验。
- * - 响应里的成功标记按 `ok` 或存在 `error`/`errorCode` 判定；owner 若用其它字段表达失败，
- *   本类无法识别（见 [parseResponse]）。
- * - owner 目前没有 handoff 实现，[handoff] 只是把 op 发出去；缺失操作由 owner 返回错误，
- *   本类原样上报，不会伪装成功。
+/** Authenticated root owner transport. Recovery capability stays in app-private storage;
+ * never include it in tool results, logs or exceptions. Errors never kill the owner.
  */
 internal class VirtualDisplayOwnerClient private constructor(
     private val logger: AgentLogger,
@@ -75,7 +50,7 @@ internal class VirtualDisplayOwnerClient private constructor(
     private val lock = java.util.concurrent.locks.ReentrantLock()
 
     /** owner 进程是否仍在运行且本客户端未关闭。 */
-    val isAlive: Boolean get() = !closed.get() && (process?.isAlive ?: true)
+    val isAlive: Boolean get() = !closed.get() && (process?.isAlive ?: (socket.isConnected && !socket.isClosed))
 
     /**
      * 发送一次串行请求。payload 的键会被扁平并入请求顶层，禁止覆盖 `v`/`op`/`token`。
@@ -341,9 +316,14 @@ internal class VirtualDisplayOwnerClient private constructor(
             token: String,
             runId: String,
         ): VirtualDisplayOwnerClient? {
-            if (socketName.isBlank() || ownerPid <= 0L || displayId < 0 ||
+            if (!socketName.matches(Regex("eta\\.vd\\.owner\\.[0-9a-f]{32}")) || ownerPid <= 0L || displayId <= 0 ||
                 uniqueId.isBlank() || token.isBlank() || runId.isBlank()) return null
             val socket = LocalSocket()
+            val completed = AtomicBoolean(false)
+            val watchdog = thread(isDaemon = true, name = "vd-recovery-deadline") {
+                try { Thread.sleep(DEFAULT_REQUEST_TIMEOUT_MS) } catch (_: InterruptedException) { return@thread }
+                if (!completed.get()) runCatching { socket.close() }
+            }
             try {
                 socket.connect(LocalSocketAddress(socketName, LocalSocketAddress.Namespace.ABSTRACT))
                 val peer = socket.peerCredentials
@@ -365,7 +345,7 @@ internal class VirtualDisplayOwnerClient private constructor(
                 )
                 val status = client.status()
                 val body = status.json
-                if (!status.ok || body == null || body.optInt("displayId", -1) != displayId ||
+                if (!status.ok || body == null || body.opt("displayId") != displayId ||
                     body.optString("uniqueId") != uniqueId) {
                     client.close(); return null
                 }
@@ -373,6 +353,9 @@ internal class VirtualDisplayOwnerClient private constructor(
             } catch (_: Exception) {
                 runCatching { socket.close() }
                 return null
+            } finally {
+                completed.set(true)
+                watchdog.interrupt()
             }
         }
 

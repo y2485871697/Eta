@@ -126,6 +126,8 @@ public final class VirtualDisplayOwner {
             }catch(Exception e){out.put("sourcePackagesKnown",false);}
             out.put("retainedTaskIds",new JSONArray(owned.keySet()));
             out.put("finishing",finishing);
+            out.put("handoffComplete",handoffComplete);
+            out.put("releaseAttempted",releaseAttempted);
             out.put("supported", stringArray(OwnerProtocol.SUPPORTED_OPS));
             out.put("missing", stringArray(OwnerProtocol.MISSING_OPS));
         } catch (JSONException ex) {

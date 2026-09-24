@@ -71,6 +71,9 @@ internal class AgentRuntimeRunExecutor(
         val archivedEvents = mutableListOf<AgentEvent>()
         var entrySurfaceGuard: EntrySurfaceGuard? = null
         var toolExecutor: AutoCloseable? = null
+        var localTools: AgentLocalTools? = null
+        var deliveryFailure: String? = null
+        var modelCompleted = false
         var toolsBinding: AgentRunController.ResourceBinding? = null
         var children: SubAgentCoordinator? = null
         var childBinding: AgentRunController.ResourceBinding? = null
@@ -80,7 +83,7 @@ internal class AgentRuntimeRunExecutor(
         var unownedSkillRoot: java.io.File? = null
         val timing = AgentRunTiming(AndroidAgentLogger)
 
-        val result = try {
+        var result = try {
             checkpointRecorder = AgentRunCheckpointRecorder.create(appContext, request)
             entrySurfaceGuard = EntrySurfaceGuard.from(
                 handoff = request.handoff,
@@ -200,6 +203,7 @@ internal class AgentRuntimeRunExecutor(
                 runSkillsRoot = runSkillsRoot,
                 pendingSkillConflict = pendingSkillConflict,
             )
+            localTools = executor
             unownedSkillRoot = null
             toolExecutor = executor
             val routingExecutor = RoutingToolExecutor(
@@ -343,6 +347,7 @@ internal class AgentRuntimeRunExecutor(
                 },
             )
             response = completedResponse
+            modelCompleted = true
             AgentRuntimeWire.RunResult(
                 runId = request.runId,
                 ok = true,
@@ -396,6 +401,14 @@ internal class AgentRuntimeRunExecutor(
                     ?: (throwable as? AgentRunCancelledException)?.transcript.orEmpty(),
             )
         } finally {
+            if (modelCompleted && !cancelled && !runController.isCancelled) {
+                try {
+                    val receipt = localTools?.completeVirtualDelivery()
+                    if (receipt != null && (!receipt.optBoolean("ok") || receipt.opt("released") != true)) {
+                        deliveryFailure = receipt.optString("error", "AUTO_FINISH_FAILED")
+                    }
+                } catch (_: Exception) { deliveryFailure = "AUTO_FINISH_FAILED" }
+            }
             session.childCompactor = null
             runCatching { childBinding?.close() }
             runCatching { children?.close() }
@@ -404,6 +417,10 @@ internal class AgentRuntimeRunExecutor(
             unownedSkillRoot?.let { root -> runCatching { SkillRuntime.releaseRunSkills(appContext, root) } }
         }
 
+        deliveryFailure?.let { code ->
+            val message = "副屏自动回迁/释放未完成（$code）；会话已保留，不能视为交付成功。"
+            result = result.copy(ok = false, content = result.content + "\n\n" + message, error = message)
+        }
         // Stopped runs use the same durable outbox path as successful/failed runs.
         val completedRequest = runCatching { snapshotRequest(request) }
             .getOrElse { throwable ->

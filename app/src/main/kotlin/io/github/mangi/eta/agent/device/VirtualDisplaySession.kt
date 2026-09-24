@@ -9,7 +9,7 @@ import io.github.mangi.eta.core.AndroidAgentLogger
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Single-device, run-bound experimental owner. No transport error falls back to display zero. */
+/** Single-device owner. Recovery errors never authorize a second display. */
 internal object VirtualDisplaySession {
     const val NOT_READY = "VIRTUAL_DISPLAY_HANDOFF_NOT_READY"
     private class Session(var client: VirtualDisplayOwnerClient? = null, var phase: String = "starting") {
@@ -18,124 +18,194 @@ internal object VirtualDisplaySession {
         var observed = false
         var width = 0
         var height = 0
+        var closedRun = false
+        var cleanupOnly = false
+        var persisted = false
+        var receipt: JSONObject? = null
     }
     private val sessions = linkedMapOf<String, Session>()
+    private var recoveryContext: Context? = null
     private const val RECOVERY_PREFS = "virtual_display_owner_recovery"
     private fun recoveryPrefs(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(RECOVERY_PREFS, Context.MODE_PRIVATE)
-    private fun clearRecovery(context: Context) = recoveryPrefs(context).edit().clear().apply()
+    private fun bootId(): String? = runCatching {
+        java.io.File("/proc/sys/kernel/random/boot_id").readText().trim()
+            .takeIf { it.matches(Regex("[0-9a-fA-F-]{36}")) }
+    }.getOrNull()
     private fun reply(ok: Boolean, code: String = "", detail: String = "") =
         JSONObject().put("ok",ok).put("error",code).put("message",detail)
     private fun body(response: OwnerResponse): JSONObject = response.json ?: reply(false,response.errorCode)
+    private fun ids(value: JSONArray?): Set<Int>? = value?.let {
+        VirtualDisplayRecoveryPolicy.taskIds((0 until it.length()).map(it::opt))
+    }
+    private fun flags(state: JSONObject): VirtualDisplayRecoveryPolicy.Flags? {
+        val values = listOf("finishing", "handoffComplete", "releaseAttempted", "mutationUncertain", "sourceEmpty")
+            .map { state.opt(it) }
+        if (values.any { it !is Boolean }) return null
+        return VirtualDisplayRecoveryPolicy.Flags(values[0] as Boolean, values[1] as Boolean,
+            values[2] as Boolean, values[3] as Boolean, values[4] as Boolean)
+    }
+    private fun fail(s: Session, code: String): JSONObject {
+        s.phase = "uncertain"
+        return reply(false, code).also { s.receipt = it }
+    }
+    private fun clearReleased(context: Context?, s: Session): JSONObject {
+        s.phase = "finished"
+        s.client?.close()
+        val cleared = context != null && runCatching {
+            recoveryPrefs(context).edit().clear().commit()
+        }.getOrDefault(false)
+        return if (cleared) reply(true).put("released", true)
+        else reply(false, "RECOVERY_RECORD_CLEAR_FAILED").put("released", true)
+    }
     @Synchronized fun start(context: Context, runId: String): JSONObject {
-        if(runId.isBlank())return reply(false,"RUN_ID_REQUIRED")
-        sessions[runId]?.let { return reply(it.phase == "active",if(it.phase == "active") "" else "SESSION_${it.phase.uppercase()}").put("phase",it.phase) }
-        if(sessions.values.any { it.phase != "finished" })return reply(false,"VIRTUAL_SESSION_BUSY")
-        val session=Session();sessions[runId]=session // claim before external side effects
-        val saved = recoveryPrefs(context)
-        val recovered = VirtualDisplayOwnerClient.reconnect(
-            logger = AndroidAgentLogger,
-            socketName = saved.getString("socket", "").orEmpty(),
-            ownerPid = saved.getLong("pid", -1L),
-            displayId = saved.getInt("display", -1),
-            uniqueId = saved.getString("unique", "").orEmpty(),
-            token = saved.getString("token", "").orEmpty(),
-            runId = runId,
-        )
-        if (recovered != null) {
-            session.client = recovered
-            session.phase = "active"
-            val state = recovered.status()
-            if (state.ok) {
-                val ids = body(state).optJSONArray("retainedTaskIds")
-                if (ids != null) {
-                    val all = (0 until ids.length()).map { ids.getInt(it) }.toSet()
-                    session.packages["__recovered__"] = all
-                    session.kept.addAll(all)
-                }
-                return body(state).put("run_id", runId).put("recovered", true)
-            }
-            recovered.close()
+        recoveryContext = context.applicationContext
+        if (runId.isBlank()) return reply(false, "RUN_ID_REQUIRED")
+        sessions[runId]?.let { s ->
+            if (s.phase == "finished") return reply(false, "SESSION_FINISHED")
+            // Do not turn a held owner into an active GUI session.
+            return if (s.phase == "active") reply(true).put("phase", s.phase)
+            else reply(false, "RECOVERY_REQUIRED").put("phase", s.phase)
         }
-        saved.edit().clear().apply()
-        return when(val started=VirtualDisplayOwnerClient.start(context,AndroidAgentLogger)) {
-            is OwnerStartResult.Failed -> {
-                session.phase=if(started.errorCode in setOf(VirtualDisplayOwnerError.CLASSPATH_UNAVAILABLE,VirtualDisplayOwnerError.CLASSPATH_INVALID,VirtualDisplayOwnerError.PROCESS_START_FAILED))"finished" else "uncertain"
-                reply(false,started.errorCode)
+        val others = sessions.values.filter { it.phase != "finished" }
+        if (others.any { !it.closedRun } || others.size > 1) return reply(false, "VIRTUAL_SESSION_BUSY")
+        if (others.size == 1) {
+            val s = others.single()
+            sessions.entries.removeAll { it.value === s }
+            s.cleanupOnly = true
+            if (s.kept.isEmpty()) s.packages.values.forEach { s.kept.addAll(it) }
+            sessions[runId] = s
+            return reply(true).put("recovered", true).put("cleanup_only", true).put("phase", s.phase)
+        }
+        val s = Session()
+        sessions[runId] = s
+        val saved = try { recoveryPrefs(context) } catch (_: Exception) { return fail(s, "RECOVERY_STATE_UNREADABLE") }
+        val boot = bootId() ?: return fail(s, "BOOT_ID_UNAVAILABLE")
+        try {
+            val hasRecord = saved.all.isNotEmpty()
+            val savedBoot = saved.getString("boot", null)
+            if (hasRecord && savedBoot != null && savedBoot != boot) {
+                // An exact boot UUID change proves the old process/display cannot survive.
+                if (!saved.edit().clear().commit()) return fail(s, "RECOVERY_STATE_UNWRITABLE")
+            } else if (hasRecord) {
+                // Legacy records without a boot UUID are never silently discarded.
+                val c = VirtualDisplayOwnerClient.reconnect(AndroidAgentLogger,
+                    saved.getString("socket", "").orEmpty(), saved.getLong("pid", -1),
+                    saved.getInt("display", -1), saved.getString("unique", "").orEmpty(),
+                    saved.getString("token", "").orEmpty(), saved.getString("run", runId).orEmpty())
+                    ?: return fail(s, "RECOVERY_UNCERTAIN")
+                s.client = c
+                val state = c.status()
+                if (!state.ok) return fail(s, "RECOVERY_UNCERTAIN")
+                val registered = ids(body(state).optJSONArray("retainedTaskIds"))
+                    ?: return fail(s, "OWNER_TASKS_UNKNOWN")
+                if (flags(body(state)) == null) return fail(s, "OWNER_RECOVERY_PROTOCOL_UNSUPPORTED")
+                val selection = saved.getString("kept", null)
+                val restored = if (selection == null) registered else ids(JSONArray(selection))
+                    ?: return fail(s, "RECOVERY_SELECTION_INVALID")
+                if (!registered.containsAll(restored)) return fail(s, "RECOVERY_SELECTION_INVALID")
+                s.kept.addAll(restored)
+                s.persisted = true
+                s.cleanupOnly = true
+                s.closedRun = true
+                s.phase = "held"
+                return body(state).put("recovered", true).put("cleanup_only", true).put("run_id", runId)
             }
+        } catch (_: Exception) { return fail(s, "RECOVERY_STATE_UNREADABLE") }
+        return when (val started = VirtualDisplayOwnerClient.start(context, AndroidAgentLogger)) {
+            is OwnerStartResult.Failed -> fail(s, started.errorCode)
             is OwnerStartResult.Ready -> {
-                session.client=started.client
-                saved.edit().putString("socket", started.client.socketName)
-                    .putLong("pid", started.client.ownerPid)
-                    .putInt("display", started.client.displayId)
-                    .putString("unique", started.client.uniqueId)
-                    .putString("token", started.client.recoveryToken)
-                    .apply()
-                val state=started.client.status()
-                if(!state.ok){session.phase="uncertain";body(state)} else {
-                    session.phase="active";body(state).put("run_id",runId)
-                }
+                val c = started.client
+                s.client = c
+                s.persisted = runCatching { saved.edit().putString("socket", c.socketName)
+                    .putLong("pid", c.ownerPid).putInt("display", c.displayId)
+                    .putString("unique", c.uniqueId).putString("token", c.recoveryToken)
+                    .putString("run", runId).putString("boot", boot).commit() }.getOrDefault(false)
+                if (!s.persisted) return fail(s, "RECOVERY_STATE_UNWRITABLE")
+                val state = c.status()
+                if (!state.ok || flags(body(state)) == null) fail(s, "OWNER_STATE_UNKNOWN")
+                else { s.phase = "active"; body(state).put("run_id", runId) }
             }
         }
     }
-    @Synchronized fun keep(runId: String,args: JSONObject): JSONObject {
-        val s=sessions[runId]?:return reply(false,"NO_VIRTUAL_SESSION")
-        if(s.phase!="active")return reply(false,"SESSION_NOT_ACTIVE")
-        val wanted=linkedSetOf<Int>()
-        val ids=args.optJSONArray("task_ids")
-        if(ids!=null)for(i in 0 until ids.length()) {
-            val id=ids.opt(i);if(id !is Int || id<=0)return reply(false,"INVALID_TASK_IDS");wanted.add(id)
-        }
-        val packages=mutableListOf<String>()
-        if(args.has("package_name"))packages.add(args.getString("package_name"))
-        args.optJSONArray("packages")?.let { for(i in 0 until it.length())packages.add(it.getString(i)) }
-        for(pkg in packages)wanted.addAll(s.packages[pkg]?:return reply(false,"PACKAGE_NOT_SESSION_OWNED"))
-        if(wanted.isEmpty())return reply(false,"NO_DELIVERY_TASKS")
-        val status=s.client!!.status();if(!status.ok)return body(status)
-        val registered=body(status).optJSONArray("retainedTaskIds")?:return reply(false,"OWNER_TASKS_UNKNOWN")
-        val known=(0 until registered.length()).map { registered.getInt(it) }.toSet()
-        if(!known.containsAll(wanted))return reply(false,"TASK_NOT_SESSION_OWNED")
+    @Synchronized fun keep(runId: String, args: JSONObject): JSONObject {
+        val s = sessions[runId] ?: return reply(false, "NO_VIRTUAL_SESSION")
+        if (s.phase != "active" && !s.cleanupOnly) return reply(false, "SESSION_NOT_ACTIVE")
+        val wanted = linkedSetOf<Int>()
+        if (args.has("task_ids")) wanted.addAll(ids(args.optJSONArray("task_ids"))
+            ?: return reply(false, "INVALID_TASK_IDS"))
+        val packages = mutableListOf<String>()
+        if (args.has("package_name")) packages.add(args.getString("package_name"))
+        args.optJSONArray("packages")?.let { a -> for (i in 0 until a.length()) packages.add(a.getString(i)) }
+        for (pkg in packages) wanted.addAll(s.packages[pkg] ?: return reply(false, "PACKAGE_NOT_SESSION_OWNED"))
+        if (wanted.isEmpty()) return reply(false, "NO_DELIVERY_TASKS")
+        val state = s.client?.status() ?: return reply(false, "RECOVERY_UNCERTAIN")
+        if (!state.ok) return body(state)
+        val known = ids(body(state).optJSONArray("retainedTaskIds")) ?: return reply(false, "OWNER_TASKS_UNKNOWN")
+        if (!known.containsAll(wanted)) return reply(false, "TASK_NOT_SESSION_OWNED")
+        val next = s.kept + wanted
+        val context = recoveryContext ?: return reply(false, "RECOVERY_STATE_UNWRITABLE")
+        if (!runCatching { recoveryPrefs(context).edit().putString("kept", JSONArray(next).toString()).commit() }.getOrDefault(false))
+            return fail(s, "RECOVERY_STATE_UNWRITABLE")
         s.kept.addAll(wanted)
-        return reply(true).put("kept_task_ids",JSONArray(s.kept))
+        return reply(true).put("kept_task_ids", JSONArray(s.kept))
+    }
+    /** Result finalization queries only this run; it must not adopt another conversation. */
+    @Synchronized fun deliveryReceipt(runId: String): JSONObject? = sessions[runId]?.receipt
+    @Synchronized fun holdOnCancelledRun(runId: String) {
+        sessions[runId]?.let { s ->
+            s.closedRun = true
+            if (s.phase == "active") s.phase = "held"
+        }
     }
     @Synchronized fun finish(runId: String, context: Context? = null): JSONObject {
-        val s=sessions[runId]?:return reply(false,"NO_VIRTUAL_SESSION")
-        if(s.phase=="finished")return reply(true).put("already_finished",true)
-        if(s.phase!="active")return reply(false,"SESSION_NOT_ACTIVE")
-        if(s.kept.isEmpty()) {
-            val status=s.client!!.status()
-            if(!status.ok || body(status).opt("sourceEmpty") != true)return reply(false,"NO_DELIVERY_TASKS","先明确标记交付任务；不会自动删除所有任务")
-            val released=s.client!!.release()
-            if(!released.ok || !body(released).optBoolean("released")) {s.phase="uncertain";return body(released).put("ok",false)}
-            s.phase="finished";s.client!!.close();context?.let(::clearRecovery)
-            return reply(true).put("released",true).put("empty_session",true)
+        val ctx = context ?: recoveryContext
+        if (sessions[runId] == null) {
+            if (ctx == null) return reply(false, "NO_VIRTUAL_SESSION")
+            val hasRecord = runCatching { recoveryPrefs(ctx).all.isNotEmpty() }.getOrDefault(true)
+            val held = sessions.values.any { it.closedRun && it.phase != "finished" }
+            if (!hasRecord && !held) return reply(false, "NO_VIRTUAL_SESSION")
+            val recovered = start(ctx, runId)
+            if (!recovered.optBoolean("ok")) return recovered
         }
-        s.phase="finishing"
-        val client=s.client!!
-        val handoff=client.handoff(mapOf("taskIds" to JSONArray(s.kept)))
-        if(!handoff.ok || !body(handoff).optBoolean("handedOff")) {s.phase="uncertain";return body(handoff).put("ok",false)}
-        val released=client.release()
-        if(!released.ok || !body(released).optBoolean("released")) {s.phase="uncertain";return body(released).put("ok",false)}
-        s.phase="finished";client.close();context?.let(::clearRecovery)
-        return body(handoff).put("released",true)
+        val s = sessions[runId] ?: return reply(false, "NO_VIRTUAL_SESSION")
+        if (s.phase == "finished") return s.receipt ?: reply(true).put("already_finished", true).put("released", true)
+        val c = s.client ?: return fail(s, "RECOVERY_UNCERTAIN")
+        val state = c.status()
+        if (!state.ok) return fail(s, "RECOVERY_UNCERTAIN")
+        val f = flags(body(state)) ?: return fail(s, "OWNER_STATE_UNKNOWN")
+        val action = VirtualDisplayRecoveryPolicy.finishAction(f)
+        if (action == VirtualDisplayRecoveryPolicy.Action.REFUSE) return fail(s, "RECOVERY_UNCERTAIN")
+        if (action == VirtualDisplayRecoveryPolicy.Action.HANDOFF && s.kept.isEmpty()) {
+            if (!f.sourceEmpty) return reply(false, "NO_DELIVERY_TASKS")
+        }
+        if (action == VirtualDisplayRecoveryPolicy.Action.HANDOFF && s.kept.isNotEmpty()) {
+            s.phase = "finishing"
+            val handoff = c.handoff(mapOf("taskIds" to JSONArray(s.kept)))
+            if (!handoff.ok || body(handoff).opt("handedOff") != true || body(handoff).opt("sourceEmpty") != true)
+                return fail(s, handoff.errorCode.ifBlank { "HANDOFF_UNCERTAIN" })
+        }
+        // Re-read phase before release; never replay an uncertain release or handoff.
+        val beforeRelease = c.status()
+        val latest = if (beforeRelease.ok) flags(body(beforeRelease)) else null
+        if (latest == null || !latest.sourceEmpty || latest.releaseAttempted || latest.mutationUncertain ||
+            (latest.finishing && !latest.handoffComplete)) return fail(s, "RELEASE_UNCERTAIN")
+        val released = c.release()
+        if (!released.ok || body(released).opt("released") != true) return fail(s, released.errorCode.ifBlank { "RELEASE_UNCERTAIN" })
+        return clearReleased(ctx, s).put("handedOff", latest.handoffComplete).also { s.receipt = it }
     }
-    /**
-     * A closed agent run is the explicit end-of-work signal for this session. Finish only the
-     * tasks that this owner launched and that the caller marked for delivery; the existing owner
-     * handoff/release checks remain the admission gate. Unknown or foreign tasks therefore keep
-     * the session held instead of being killed or moved implicitly.
-     */
+    /** Called once when the owning run closes; explicit delivery choices are preserved. */
     @Synchronized fun onRunClosed(context: Context, runId: String) {
-        sessions[runId]?.let {
-            if(it.phase=="active") {
-                // Launch registration is already provenance-checked by the owner. Treat those
-                // session-owned tasks as delivery candidates even when the model omitted the
-                // optional keep tool; foreign tasks never enter this set.
-                it.packages.values.forEach { ids -> it.kept.addAll(ids) }
-                runCatching { finish(runId, context) }
-                if(it.phase=="active")it.phase="held"
-            }
+        val s = sessions[runId] ?: return
+        s.closedRun = true
+        if (s.phase == "finished") return
+        if (s.kept.isEmpty()) s.packages.values.forEach { s.kept.addAll(it) }
+        if (s.client == null) {
+            s.receipt = reply(false, "RECOVERY_UNCERTAIN")
+            return
         }
+        s.receipt = runCatching { finish(runId, context) }.getOrElse { fail(s, "AUTO_FINISH_FAILED") }
+        if (!s.receipt!!.optBoolean("ok")) AndroidAgentLogger.warn("Virtual display auto-finish failed; recovery retained")
     }
     @Synchronized fun executeGui(context: Context,runId: String,tool: String,args: JSONObject, excludedPackages: Set<String> = emptySet()): AgentModelClient.ToolResult {
         fun text(obj: JSONObject)=AgentModelClient.ToolResult(obj.put("tool",tool).put("display","virtual").toString())
@@ -146,7 +216,7 @@ internal object VirtualDisplaySession {
         if(sessions[runId]==null && tool !in setOf("launch_app","observe_screen"))return text(reply(false,"NO_VIRTUAL_SESSION"))
         if(sessions[runId]==null){val created=start(context,runId);if(!created.optBoolean("ok"))return text(created)}
         val s=sessions[runId]?:return text(reply(false,"NO_VIRTUAL_SESSION"))
-        if(s.phase!="active")return text(reply(false,"SESSION_NOT_ACTIVE"))
+        if(s.phase!="active" || s.cleanupOnly || !s.persisted)return text(reply(false,"SESSION_NOT_ACTIVE"))
         val c=s.client!!
         try {
             if(tool=="observe_screen") {
