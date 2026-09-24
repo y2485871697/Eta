@@ -161,7 +161,11 @@ public final class VirtualDisplayOwner {
         }
         if(component==null)throw new OwnerException("EXPLICIT_COMPONENT_REQUIRED");
         String targetPackage=component.substring(0,component.indexOf('/'));
-        try {OwnerHandoff.rejectExistingPackage(targetPackage);}catch(Exception e){throw new OwnerException("EXISTING_OR_UNKNOWN_TASKS","target must have no existing task");}
+        // Never conflate a known target task with an unreadable inventory, and never continue on either.
+        try { OwnerHandoff.rejectExistingPackage(targetPackage); }
+        catch(OwnerException ex) { throw ex; }
+        catch(Exception ex) { throw new OwnerException(LaunchTargetOccupancy.UNKNOWN,
+                ex.getClass().getSimpleName()); }
         String marker="eta-vd://session/"+java.util.UUID.randomUUID().toString();
         flags=0x10000000|0x00080000|0x08000000; // NEW_TASK, NEW_DOCUMENT, MULTIPLE_TASK
         String[] initial = ShellCommands.amStartArgv(displayId, packageName, component, action,categories,flags);

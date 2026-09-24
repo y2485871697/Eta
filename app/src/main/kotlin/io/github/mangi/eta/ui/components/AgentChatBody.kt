@@ -46,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
@@ -71,6 +72,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -472,6 +474,11 @@ private fun AgentChatScaffold(
         beforeResponseOnly = appearance.morphLoadingBeforeResponseOnly,
     )
 
+    // Miuix Scaffold's innerPadding is not guaranteed to include the height of its
+    // overlay bottomBar. Measure the complete bar (including navigation/IME padding)
+    // so the last message can always scroll above the input controls.
+    var bottomBarHeightPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = Color.Transparent,
@@ -482,54 +489,60 @@ private fun AgentChatScaffold(
             bottom = 0.dp,
         ),
         bottomBar = {
-            AgentChatBottomBar(
-                collaborationConversationId = collaborationConversationId,
-                messageBackdrop = messageBackdrop.takeIf { frostEnabled },
-                input = input,
-                draftField = draftField,
-                modelPickerState = modelPickerState,
-                history = history,
-                billedContextTokens = billedContextTokens,
-                requestOverheadTokens = requestOverheadTokens,
-                billedOverheadTokens = billedOverheadTokens,
-                uncommittedLiveTokens = uncommittedLiveTokens,
-                autoCompressEnabled = autoCompressEnabled,
-                showContextUsage = hasMessages,
-                isStreaming = isStreaming,
-                isPaused = isPaused,
-                canContinueDisconnected = canContinueDisconnectedRun(visibleMessages),
-                isCompressingContext = isCompressingContext,
-                showMorphLoading = showMorphLoading,
-                reasoningEffort = reasoningEffort,
-                availableReasoningEfforts = availableReasoningEfforts,
-                pendingImages = pendingImages,
-                pendingFileReferences = pendingFileReferences,
-            conversationMentions = conversationMentions,
-                messageEdit = messageEdit,
-                assistantId = assistantId,
-                voiceState = voiceState,
-                onStartVoiceMode = onStartVoiceMode,
-                onStopVoiceMode = onStopVoiceMode,
-                onSubmit = onSubmit,
-                onReasoningEffortChange = onReasoningEffortChange,
-                onModelSelected = onModelSelected,
-                onStop = onStop,
-                onContinue = onContinue,
-                onAbortPausedRun = onAbortPausedRun,
-                onAttachImage = onAttachImage,
-                onAttachVideo = onAttachVideo,
-                onRemoveImage = onRemoveImage,
-                onAttachFiles = onAttachFiles,
-                onAttachFolder = onAttachFolder,
-                onAttachFilePath = onAttachFilePath,
-                onRemoveFileReference = onRemoveFileReference,
-                onCancelMessageEdit = onCancelMessageEdit,
-                onEditAssistant = onEditAssistant,
-                onAssistantSelected = onAssistantSelected,
-            )
+            Box(Modifier.fillMaxWidth().onSizeChanged { bottomBarHeightPx = it.height }) {
+                AgentChatBottomBar(
+                    collaborationConversationId = collaborationConversationId,
+                    messageBackdrop = messageBackdrop.takeIf { frostEnabled },
+                    input = input,
+                    draftField = draftField,
+                    modelPickerState = modelPickerState,
+                    history = history,
+                    billedContextTokens = billedContextTokens,
+                    requestOverheadTokens = requestOverheadTokens,
+                    billedOverheadTokens = billedOverheadTokens,
+                    uncommittedLiveTokens = uncommittedLiveTokens,
+                    autoCompressEnabled = autoCompressEnabled,
+                    showContextUsage = hasMessages,
+                    isStreaming = isStreaming,
+                    isPaused = isPaused,
+                    canContinueDisconnected = canContinueDisconnectedRun(visibleMessages),
+                    isCompressingContext = isCompressingContext,
+                    showMorphLoading = showMorphLoading,
+                    reasoningEffort = reasoningEffort,
+                    availableReasoningEfforts = availableReasoningEfforts,
+                    pendingImages = pendingImages,
+                    pendingFileReferences = pendingFileReferences,
+                    conversationMentions = conversationMentions,
+                    messageEdit = messageEdit,
+                    assistantId = assistantId,
+                    voiceState = voiceState,
+                    onStartVoiceMode = onStartVoiceMode,
+                    onStopVoiceMode = onStopVoiceMode,
+                    onSubmit = onSubmit,
+                    onReasoningEffortChange = onReasoningEffortChange,
+                    onModelSelected = onModelSelected,
+                    onStop = onStop,
+                    onContinue = onContinue,
+                    onAbortPausedRun = onAbortPausedRun,
+                    onAttachImage = onAttachImage,
+                    onAttachVideo = onAttachVideo,
+                    onRemoveImage = onRemoveImage,
+                    onAttachFiles = onAttachFiles,
+                    onAttachFolder = onAttachFolder,
+                    onAttachFilePath = onAttachFilePath,
+                    onRemoveFileReference = onRemoveFileReference,
+                    onCancelMessageEdit = onCancelMessageEdit,
+                    onEditAssistant = onEditAssistant,
+                    onAssistantSelected = onAssistantSelected,
+                )
+            }
         },
     ) { innerPadding ->
-        val bottomPadding = innerPadding.calculateBottomPadding()
+        // maxOf avoids counting bottomBar twice if Scaffold already includes it.
+        val bottomPadding = maxOf(
+            innerPadding.calculateBottomPadding(),
+            with(density) { bottomBarHeightPx.toDp() },
+        )
         if (!hasMessages) {
             EmptyChatState(
                 showSuggestions = showEmptySuggestions,
@@ -731,7 +744,8 @@ internal fun AgentConversationMessages(
         snapshotFlow {
             val tail = currentVisibleMessages.value.lastOrNull() as? AgentMessageUi
             val rendering = tail?.let { message ->
-                streamingMarkdownStates[message.id]?.revealedContent != message.content
+                // Cold-loaded completed messages need no live reveal; null != content is not rendering.
+                streamingMarkdownStates[message.id]?.let { it.revealedContent != message.content }
             } == true
             arrayOf(currentStreaming.value, currentAnchor.value, rendering, isUserScrolling)
         }
@@ -748,7 +762,10 @@ internal fun AgentConversationMessages(
                 } else if (isBottomSettling) {
                     withFrameNanos { }
                     withFrameNanos { }
-                    snapshotFlow { !scrollState.canScrollForward }.first { it }
+                    // The follow controller stops when the sentinel reaches the visible
+                    // message boundary (before bottom content padding), which can happen
+                    // before canScrollForward becomes false. Use the same endpoint here.
+                    snapshotFlow { scrollState.isConversationAtBottom() }.first { it }
                     isBottomSettling = false
                 }
             }
@@ -790,6 +807,25 @@ internal fun AgentConversationMessages(
             }
         } finally {
             initialBottomPositionPending = false
+        }
+    }
+
+    // A finished conversation does not run the streaming follow controller. If the
+    // measured input bar grows (keyboard, attachment or first layout), keep an anchored
+    // reader's last message above it. Never move someone browsing older messages.
+    var previousBottomInset by remember(scrollState) { mutableStateOf(bottomInset) }
+    LaunchedEffect(scrollState, bottomInset) {
+        val grew = bottomInset > previousBottomInset
+        previousBottomInset = bottomInset
+        if (grew && !initialBottomPositionPending && !isStreaming &&
+            currentAnchor.value && !isUserScrolling && messageNavigationJob == null &&
+            currentScrollTarget == null
+        ) {
+            withFrameNanos { }
+            snapListToBottom(scrollState, currentBottomItemIndex) {
+                currentAnchor.value && !isUserScrolling && messageNavigationJob == null &&
+                    currentScrollTarget == null
+            }
         }
     }
 

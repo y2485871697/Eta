@@ -37,15 +37,86 @@ final class OwnerHandoff {
         if(i==null||i.getComponent()==null) throw new IllegalStateException("base intent");
         return i.getComponent().flattenToString();
     }
-    static void rejectExistingPackage(String pkg)throws Exception {
-        for(Object t:roots().values()) if(base(t).startsWith(pkg+"/"))throw new IllegalStateException("existing active task");
-        Object slice=invokeAtm("getRecentTasks",new Class<?>[]{int.class,int.class,int.class},256,1,0);
-        Object list=slice.getClass().getMethod("getList").invoke(slice);
-        if(!(list instanceof List))throw new IllegalStateException("recent inventory unknown");
-        for(Object t:(List<?>)list) {
-            Intent intent=(Intent)field(t,"baseIntent");
-            if(intent!=null&&intent.getComponent()!=null&&pkg.equals(intent.getComponent().getPackageName()))throw new IllegalStateException("existing recent task");
+    /** Launch preflight: distinguish a real target task from an unreadable inventory. */
+    static void rejectExistingPackage(String pkg)throws OwnerException {
+        Map<Integer,Object> current;
+        try { current=roots(); }
+        catch(Exception ex) { throw new OwnerException(LaunchTargetOccupancy.UNKNOWN,
+                "root inventory " + ex.getClass().getSimpleName()); }
+        List<LaunchTargetOccupancy.Root> rootDescriptions=new ArrayList<LaunchTargetOccupancy.Root>();
+        for(Object task:current.values()) rootDescriptions.add(describeRoot(task));
+        // Report an observed active target even if the recent-task query later fails.
+        LaunchTargetOccupancy.Decision active=LaunchTargetOccupancy.decide(pkg,
+                rootDescriptions, Collections.<LaunchTargetOccupancy.Recent>emptyList());
+        if(LaunchTargetOccupancy.ACTIVE.equals(active.code)) throw new OwnerException(active.code,active.detail);
+        List<LaunchTargetOccupancy.Recent> recentDescriptions=new ArrayList<LaunchTargetOccupancy.Recent>();
+        try {
+            Object slice=invokeAtm("getRecentTasks",new Class<?>[]{int.class,int.class,int.class},256,1,0);
+            Object list=slice.getClass().getMethod("getList").invoke(slice);
+            if(!(list instanceof List))throw new IllegalStateException("recent inventory type");
+            List<?> entries=(List<?>)list;
+            // A full page does not prove that older target tasks are absent.
+            for(Object task:entries) recentDescriptions.add(describeRecent(task));
         }
+        catch(Exception ex) { throw new OwnerException(LaunchTargetOccupancy.UNKNOWN,
+                "recent inventory " + ex.getClass().getSimpleName()); }
+        LaunchTargetOccupancy.Decision result=LaunchTargetOccupancy.decide(pkg,rootDescriptions,recentDescriptions);
+        if(LaunchTargetOccupancy.RECENT.equals(result.code)) throw new OwnerException(result.code,result.detail);
+        // A full page may omit older target tasks; refuse even if the visible page is clear.
+        if(recentDescriptions.size()>=256) throw new OwnerException(LaunchTargetOccupancy.UNKNOWN,
+                "recent inventory truncated");
+        if(result.rejects()) throw new OwnerException(result.code,result.detail);
+    }
+
+    private static String componentPackage(Object value) throws Exception {
+        if(value==null)return null;
+        if(!(value instanceof android.content.ComponentName))throw new IllegalStateException("component type");
+        return ((android.content.ComponentName)value).getPackageName();
+    }
+    private static String intentPackage(Object task) throws Exception {
+        Object value=field(task,"baseIntent");
+        if(value==null)return null;
+        if(!(value instanceof Intent))throw new IllegalStateException("intent type");
+        Intent intent=(Intent)value;
+        String component=componentPackage(intent.getComponent());
+        return component!=null ? component : intent.getPackage();
+    }
+    private static LaunchTargetOccupancy.Root describeRoot(Object task) {
+        int id=-1, activities=-1;
+        try { id=number(task,"taskId"); } catch(Exception ignored) { }
+        try { activities=number(task,"numActivities"); } catch(Exception ignored) { }
+        String base=null,baseActivity=null,topActivity=null,realActivity=null,origActivity=null;
+        boolean componentsKnown=false,childrenKnown=false,foreignChild=false;
+        try {
+            base=intentPackage(task);
+            baseActivity=componentPackage(field(task,"baseActivity"));
+            topActivity=componentPackage(field(task,"topActivity"));
+            realActivity=componentPackage(field(task,"realActivity"));
+            origActivity=componentPackage(field(task,"origActivity"));
+            componentsKnown=true;
+        } catch(Exception ignored) { }
+        try {
+            int[] childIds=(int[])field(task,"childTaskIds");
+            if(childIds!=null && id>=0) {
+                childrenKnown=true;
+                foreignChild=LaunchTargetOccupancy.hasForeignChild(id,childIds);
+            }
+        } catch(Exception ignored) { }
+        return new LaunchTargetOccupancy.Root(id,base,baseActivity,topActivity,realActivity,
+                origActivity,componentsKnown,activities,childrenKnown,foreignChild);
+    }
+    private static LaunchTargetOccupancy.Recent describeRecent(Object task) {
+        String base=null,baseActivity=null,topActivity=null,realActivity=null,origActivity=null;
+        boolean known=false;
+        try {
+            base=intentPackage(task);
+            baseActivity=componentPackage(field(task,"baseActivity"));
+            topActivity=componentPackage(field(task,"topActivity"));
+            realActivity=componentPackage(field(task,"realActivity"));
+            origActivity=componentPackage(field(task,"origActivity"));
+            known=true;
+        } catch(Exception ignored) { }
+        return new LaunchTargetOccupancy.Recent(base,baseActivity,topActivity,realActivity,origActivity,known);
     }
     static void verifyDisplay(int id,String unique)throws Exception {
         Class<?> c=Class.forName("android.hardware.display.DisplayManagerGlobal");

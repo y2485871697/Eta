@@ -1,7 +1,12 @@
 package io.github.mangi.eta.ui
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.RadioButton
 import androidx.compose.runtime.Composable
@@ -25,7 +30,13 @@ import top.yukonga.miuix.kmp.basic.Text
 internal fun AgentTaskPreferenceScreen() {
     val view = LocalView.current
     var selected by remember { mutableStateOf(AgentTaskSurface.stored()) }
-    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 12.dp),
+    ) {
         Card(modifier = Modifier.padding(horizontal = 12.dp)) {
             AgentTaskSurfaceMode.entries.forEach { mode ->
                 val canSelect = AgentTaskSurface.allowsPersist(mode)
