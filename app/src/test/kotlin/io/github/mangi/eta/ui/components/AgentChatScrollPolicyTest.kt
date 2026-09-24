@@ -290,6 +290,23 @@ class AgentChatScrollPolicyTest {
         assertFalse(InitialBottomPosition(8, true, false, false).shouldPosition)
     }
 
+    @Test fun initialPositionWaitsForMeasuredInputAndShrunkenViewport() {
+        assertFalse(InitialBottomPosition(8, true, true, false, geometryReady = false).ready)
+        assertTrue(InitialBottomPosition(8, true, true, false, geometryReady = true).shouldPosition)
+        // A manual drag or explicit navigation must not be trapped waiting for a bar.
+        assertTrue(InitialBottomPosition(8, true, true, true, geometryReady = false).ready)
+        assertFalse(InitialBottomPosition(8, true, true, true, geometryReady = false).shouldPosition)
+    }
+
+    @Test fun viewportWaitsForBarAndCurrentLayoutInBothResizeDirections() {
+        assertFalse(chatMessageViewportReady(false, 1000, 140, 1000))
+        assertFalse(chatMessageViewportReady(true, 1000, 140, 1000))
+        assertTrue(chatMessageViewportReady(true, 1000, 140, 860))
+        assertFalse(chatMessageViewportReady(true, 1000, 100, 860)) // old smaller viewport
+        assertTrue(chatMessageViewportReady(true, 1000, 100, 900))
+        assertFalse(chatMessageViewportReady(true, 100, 140, 0)) // no room yet; retry on resize
+    }
+
     @Test fun tallSingleItemKeepsPublishingDistanceAfterEachViewport() {
         // Emulate snapshotFlow's equality gate while a 4-screen item stays at
         // the same index. No new network text arrives during the entire drain.

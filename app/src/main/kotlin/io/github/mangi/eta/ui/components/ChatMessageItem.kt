@@ -1311,32 +1311,42 @@ private fun ChatMarkdownDocument(
 ) {
     val blocks = remember(root) { topLevelMarkdownBlocks(root) }
     val startedRevealKeys = rememberStartedRevealKeys(revealCoordinator)
-    val nextRevealKey = remember(blocks, startedRevealKeys) {
-        blocks.mapNotNull { it.firstRevealBlockKey() }
-            .firstOrNull { it !in startedRevealKeys }
+    val completedRevealKeys = rememberCompletedRevealKeys(revealCoordinator)
+    val blockRevealKeys = remember(blocks) {
+        blocks.map { block -> buildSet { collectRevealBlockKeys(block) }.sorted() }
     }
-    val lastVisibleStartOffset = remember(blocks, startedRevealKeys, nextRevealKey, revealCoordinator) {
+    // The next AST block may already exist in a fast network snapshot. Do not mount
+    // it when the previous block has merely STARTED: that would freeze/detach the
+    // unfinished node and complete all of its remaining rows in one frame.
+    val nextRevealKey = remember(blockRevealKeys, completedRevealKeys) {
+        blockRevealKeys.asSequence().flatten().firstOrNull { it !in completedRevealKeys }
+    }
+    val lastVisibleStartOffset = remember(blocks, startedRevealKeys, completedRevealKeys, nextRevealKey, revealCoordinator) {
         blocks.lastOrNull { node ->
             streamingMarkdownBlockVisible(
                 coordinatorActive = revealCoordinator != null,
                 firstRevealKey = node.firstRevealBlockKey(),
                 startedRevealKeys = startedRevealKeys,
+                completedRevealKeys = completedRevealKeys,
                 nextRevealKey = nextRevealKey,
-            )
+            ) && (revealCoordinator == null || node.firstRevealBlockKey() != null ||
+                nextRevealKey == null || node.startOffset <= nextRevealKey.sourceOffset)
         }?.startOffset
     }
     val density = LocalDensity.current
     var previousVisibleType: IElementType? = null
     Column(modifier) {
-        blocks.forEach { node ->
+        blocks.forEachIndexed { index, node ->
             val revealKey = node.firstRevealBlockKey()
             val visible = streamingMarkdownBlockVisible(
                 coordinatorActive = revealCoordinator != null,
                 firstRevealKey = revealKey,
                 startedRevealKeys = startedRevealKeys,
+                completedRevealKeys = completedRevealKeys,
                 nextRevealKey = nextRevealKey,
-            )
-            if (!visible) return@forEach
+            ) && (revealCoordinator == null || revealKey != null ||
+                nextRevealKey == null || node.startOffset <= nextRevealKey.sourceOffset)
+            if (!visible) return@forEachIndexed
             val gap = with(density) {
                 markdownBlockSpacing(previousVisibleType, node.type).toDp()
             }
@@ -1348,7 +1358,11 @@ private fun ChatMarkdownDocument(
                     components = components,
                     content = content,
                     freeze = revealCoordinator != null &&
-                        shouldFreezeStreamingMarkdownBlock(node.startOffset, lastVisibleStartOffset),
+                        shouldFreezeStreamingMarkdownBlock(
+                            blockStartOffset = node.startOffset,
+                            tailStartOffset = lastVisibleStartOffset,
+                            blockComplete = blockRevealKeys[index].all { it in completedRevealKeys },
+                        ),
                 )
             }
         }
@@ -1391,7 +1405,8 @@ private fun FrozenMarkdownElement(
 internal fun shouldFreezeStreamingMarkdownBlock(
     blockStartOffset: Int,
     tailStartOffset: Int?,
-): Boolean = tailStartOffset != null && blockStartOffset != tailStartOffset
+    blockComplete: Boolean,
+): Boolean = blockComplete && tailStartOffset != null && blockStartOffset != tailStartOffset
 
 private const val STREAMING_PARSE_PUBLISH_INTERVAL_MS = 90L
 
@@ -1399,11 +1414,12 @@ internal fun streamingMarkdownBlockVisible(
     coordinatorActive: Boolean,
     firstRevealKey: RevealBlockKey?,
     startedRevealKeys: Set<RevealBlockKey>,
+    completedRevealKeys: Set<RevealBlockKey> = emptySet(),
     nextRevealKey: RevealBlockKey?,
 ): Boolean {
     if (!coordinatorActive) return true
     if (firstRevealKey == null) return true
-    if (firstRevealKey in startedRevealKeys) return true
+    if (firstRevealKey in startedRevealKeys || firstRevealKey in completedRevealKeys) return true
     return firstRevealKey == nextRevealKey
 }
 
@@ -1766,6 +1782,12 @@ private fun ChatMarkdownList(
     if (items.isEmpty()) return
 
     val startedRevealKeys = rememberStartedRevealKeys(revealCoordinator)
+    val completedRevealKeys = rememberCompletedRevealKeys(revealCoordinator)
+    val nextRevealKey = remember(items, completedRevealKeys) {
+        items.asSequence().flatMap { item ->
+            buildSet<RevealBlockKey> { collectRevealBlockKeys(item) }.asSequence().sorted()
+        }.firstOrNull { it !in completedRevealKeys }
+    }
     val initialListNumber = items.first()
         .getUnescapedTextInNode(model.content)
         .takeWhile(Char::isDigit)
@@ -1782,6 +1804,16 @@ private fun ChatMarkdownList(
         items.forEachIndexed { index, item ->
             key(item.startOffset, item.type.name) {
                 val firstRevealKey = remember(item) { item.firstRevealBlockKey() }
+                // A hidden item must not contribute its marker/Row height yet.
+                if (!streamingListItemVisible(
+                        coordinatorActive = suppressEmptyMarker,
+                        itemStartOffset = item.startOffset,
+                        firstRevealKey = firstRevealKey,
+                        startedRevealKeys = startedRevealKeys,
+                        completedRevealKeys = completedRevealKeys,
+                        nextRevealKey = nextRevealKey,
+                    )
+                ) return@key
                 val checkboxNode = remember(item) {
                     item.children.firstOrNull { child -> child.type == CHECK_BOX }
                 }
@@ -1900,6 +1932,30 @@ private fun rememberStartedRevealKeys(
     emptySet()
 } else {
     coordinator.started.collectAsState().value
+}
+
+@Composable
+private fun rememberCompletedRevealKeys(
+    coordinator: SmoothTextRevealCoordinator?,
+): Set<RevealBlockKey> = if (coordinator == null) {
+    emptySet()
+} else {
+    coordinator.completed.collectAsState().value
+}
+
+internal fun streamingListItemVisible(
+    coordinatorActive: Boolean,
+    itemStartOffset: Int,
+    firstRevealKey: RevealBlockKey?,
+    startedRevealKeys: Set<RevealBlockKey>,
+    completedRevealKeys: Set<RevealBlockKey>,
+    nextRevealKey: RevealBlockKey?,
+): Boolean {
+    if (!coordinatorActive || nextRevealKey == null) return true
+    if (firstRevealKey != null &&
+        (firstRevealKey in startedRevealKeys || firstRevealKey in completedRevealKeys)
+    ) return true
+    return (firstRevealKey?.sourceOffset ?: itemStartOffset) <= nextRevealKey.sourceOffset
 }
 
 internal fun streamingListMarkerVisible(
@@ -2361,9 +2417,7 @@ private fun ASTNode.firstRevealBlockKey(): RevealBlockKey? = when (type) {
     MarkdownElementTypes.CODE_BLOCK,
     -> RevealBlockKey(startOffset)
 
-    TABLE -> children.asSequence()
-        .flatMap { it.depthFirstSequence() }
-        .firstOrNull { it.type == CELL && !it.containsMarkdownImage() }
+    TABLE -> renderedTableCells().firstOrNull { !it.containsMarkdownImage() }
         ?.let { RevealBlockKey(it.startOffset) }
 
     MarkdownElementTypes.IMAGE,
@@ -2374,12 +2428,7 @@ private fun ASTNode.firstRevealBlockKey(): RevealBlockKey? = when (type) {
     else -> children.asSequence().mapNotNull(ASTNode::firstRevealBlockKey).firstOrNull()
 }
 
-private fun ASTNode.depthFirstSequence(): Sequence<ASTNode> = sequence {
-    yield(this@depthFirstSequence)
-    children.forEach { child -> yieldAll(child.depthFirstSequence()) }
-}
-
-private fun State.Success.revealBlockKeys(): Set<RevealBlockKey> = buildSet {
+internal fun State.Success.revealBlockKeys(): Set<RevealBlockKey> = buildSet {
     node.children.forEach { child -> collectRevealBlockKeys(child) }
 }
 
@@ -2402,7 +2451,9 @@ private fun MutableSet<RevealBlockKey>.collectRevealBlockKeys(node: ASTNode) {
         MarkdownElementTypes.CODE_BLOCK,
         -> add(RevealBlockKey(node.startOffset))
 
-        TABLE -> collectTableCellRevealKeys(node)
+        TABLE -> node.renderedTableCells().forEach { cell ->
+            if (!cell.containsMarkdownImage()) add(RevealBlockKey(cell.startOffset))
+        }
 
         MarkdownElementTypes.IMAGE,
         MarkdownTokenTypes.EOL,
@@ -2413,15 +2464,24 @@ private fun MutableSet<RevealBlockKey>.collectRevealBlockKeys(node: ASTNode) {
     }
 }
 
-private fun MutableSet<RevealBlockKey>.collectTableCellRevealKeys(node: ASTNode) {
-    if (node.type == CELL) {
-        if (!node.containsMarkdownImage()) add(RevealBlockKey(node.startOffset))
-        return
-    }
-    node.children.forEach { child -> collectTableCellRevealKeys(child) }
+/** Mirror ChatMarkdownTable's rendered cell selection, including its header guard. */
+private fun ASTNode.renderedTableCells(): List<ASTNode> {
+    val header = findChildOfType(HEADER)?.children?.filter { it.type == CELL }.orEmpty()
+    if (header.isEmpty()) return emptyList()
+    return header + children.filter { it.type == ROW }
+        .flatMap { row -> row.children.filter { it.type == CELL } }
 }
 
 // ── 思考过程 ─────────────────────────────────────────────────────────
+
+/** A stopped thought must not switch to full stable Markdown before its final AST and reveal drain. */
+internal fun keepThinkingRevealUntilSettled(
+    isStreaming: Boolean,
+    content: String,
+    snapshotContent: String?,
+    snapshotComplete: Boolean,
+    drained: Boolean,
+): Boolean = isStreaming || snapshotContent != content || !snapshotComplete || !drained
 
 @Composable
 private fun ThinkingRow(
@@ -2433,13 +2493,24 @@ private fun ThinkingRow(
 ) {
     var expanded by rememberSaveable(message.id) { mutableStateOf(!message.collapsed) }
     var manuallyExpanded by rememberSaveable(message.id) { mutableStateOf(false) }
-    // 思考结束后立即切换为与完成态回答相同的稳定 Markdown。工具执行期间 App 可能
-    // 处于后台，不能让旧思考保留显现债务，回来后在新回答旁边补播整段内容。
-    val streamingState = if (message.isStreaming) {
-        retainedStreamingState ?: remember(message.id) { StreamingMarkdownState() }
-    } else {
-        null
-    }
+    // After the network stops, keep the same reveal node until its visible text
+    // drains; switching immediately to StableMarkdown flashes the queued thought.
+    // Background/restore already catches up in the coordinator, so no old replay.
+    // Most rows receive a list-owned state; standalone ThinkingRows still need to
+    // retain their lazily created fallback through the streaming -> stopped edge.
+    val localStateHolder = remember(message.id) { arrayOfNulls<StreamingMarkdownState>(1) }
+    val activeRevealState = retainedStreamingState ?: localStateHolder[0] ?: if (message.isStreaming) {
+        StreamingMarkdownState().also { localStateHolder[0] = it }
+    } else null
+    val revealDrained = activeRevealState?.revealCoordinator?.drained?.collectAsState()?.value ?: true
+    val keepReveal = expanded && activeRevealState != null && keepThinkingRevealUntilSettled(
+        isStreaming = message.isStreaming,
+        content = message.content,
+        snapshotContent = activeRevealState.snapshot?.originalSource,
+        snapshotComplete = activeRevealState.snapshot?.isComplete == true,
+        drained = revealDrained,
+    )
+    val streamingState = activeRevealState.takeIf { message.isStreaming || keepReveal }
     LaunchedEffect(message.isStreaming) {
         if (manuallyExpanded) return@LaunchedEffect
         expanded = message.isStreaming

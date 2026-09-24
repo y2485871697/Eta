@@ -45,6 +45,8 @@ internal class SmoothTextRevealCoordinator {
     private val wakeups = Channel<Unit>(capacity = Channel.CONFLATED)
     private val drainedState = MutableStateFlow(true)
     private val startedState = MutableStateFlow<Set<RevealBlockKey>>(emptySet())
+    private val completedState = MutableStateFlow<Set<RevealBlockKey>>(emptySet())
+    private var activeBlockKeys: Set<RevealBlockKey> = emptySet()
     private var animationsPaused = false
     private var restoredSourceLength = 0
 
@@ -64,6 +66,8 @@ internal class SmoothTextRevealCoordinator {
     val drained: StateFlow<Boolean> = drainedState
     /** 已经开始显现的块，用于让列表 marker 与正文保持同一生命周期。 */
     val started: StateFlow<Set<RevealBlockKey>> = startedState
+    /** Keys whose entire *current* text has appeared; used to admit the next block. */
+    val completed: StateFlow<Set<RevealBlockKey>> = completedState
 
     val isAnimationPaused: Boolean
         get() = animationsPaused
@@ -75,6 +79,10 @@ internal class SmoothTextRevealCoordinator {
     fun pauseAnimationsAndCatchUp() {
         animationsPaused = true
         records.values.forEach(::completeRecord)
+        // Blocks held back by the sequential renderer have no node to complete.
+        // On background/restore they are history, not animation debt.
+        completedState.value = completedState.value + activeBlockKeys
+        startedState.value = startedState.value + activeBlockKeys
         updateDrainedState()
         wakeups.trySend(Unit)
     }
@@ -94,22 +102,19 @@ internal class SmoothTextRevealCoordinator {
     }
 
     fun retainBlocks(activeBlocks: Set<RevealBlockKey>) {
+        activeBlockKeys = activeBlocks
         val iterator = records.iterator()
-        var removedPendingBlock = false
         while (iterator.hasNext()) {
             val (_, record) = iterator.next()
             if (record.key !in activeBlocks) {
-                removedPendingBlock = removedPendingBlock || record.progress < record.targetCount
                 iterator.remove()
             }
         }
         val retainedStarted = startedState.value.intersect(activeBlocks)
-        if (retainedStarted != startedState.value) {
-            startedState.value = retainedStarted
-        }
-        if (removedPendingBlock || records.none { (_, record) -> record.progress < record.targetCount }) {
-            updateDrainedState()
-        }
+        if (retainedStarted != startedState.value) startedState.value = retainedStarted
+        val retainedCompleted = completedState.value.intersect(activeBlocks)
+        if (retainedCompleted != completedState.value) completedState.value = retainedCompleted
+        updateDrainedState()
         wakeups.trySend(Unit)
     }
 
@@ -130,6 +135,7 @@ internal class SmoothTextRevealCoordinator {
     fun detach(key: RevealBlockKey, node: SmoothTextRevealNode) {
         val record = records[key]?.takeIf { it.node === node } ?: return
         record.node = null
+        record.wasDetached = true
         // 已离开组合的块不再消费帧时钟；保留完成进度，重挂载时只显现后续新增文本。
         completeRecord(record)
         updateDrainedState()
@@ -178,7 +184,7 @@ internal class SmoothTextRevealCoordinator {
                 }.toFloat()
                 StreamPerformanceDiagnostics.record("reveal.backlog", value = aggregateBacklog.toLong())
                 val previous = record.progress
-                record.progress = advanceSmoothReveal(
+                val proposed = advanceSmoothReveal(
                     current = record.progress,
                     target = record.targetCount,
                     elapsedSeconds = elapsedSeconds,
@@ -187,6 +193,9 @@ internal class SmoothTextRevealCoordinator {
                         aggregatePendingGraphemes = aggregateBacklog,
                     ),
                 )
+                record.progress = limitRevealToNextLine(previous, proposed, record.boundaries, record.layoutResult)
+                syncCompleted(record)
+                updateDrainedState()
                 val delta = record.progress - previous
                 if (delta > 0f) onRevealAdvanced?.invoke(delta)
                 if (record.progress > 0f && record.key !in startedState.value) {
@@ -220,7 +229,13 @@ internal class SmoothTextRevealCoordinator {
         if (record.layoutResult !== layoutResult) {
             record.layoutResult = layoutResult
         }
-        if (animationsPaused || record.node == null || firstLayoutOfRestoredBlock) completeRecord(record)
+        // A first live onTextLayout can run before its modifier node attaches. It
+        // must not be mistaken for a detached historical block and revealed at once.
+        if (animationsPaused || (record.node == null && record.wasDetached) || firstLayoutOfRestoredBlock) {
+            completeRecord(record)
+        } else {
+            syncCompleted(record)
+        }
         updateDrainedState()
         record.node?.onRevealDataChanged()
     }
@@ -230,7 +245,15 @@ internal class SmoothTextRevealCoordinator {
         if (record.targetCount > 0f && record.key !in startedState.value) {
             startedState.value = startedState.value + record.key
         }
+        syncCompleted(record)
         record.node?.onRevealDataChanged()
+    }
+
+    private fun syncCompleted(record: RevealRecord) {
+        val done = record.layoutResult != null && record.progress >= record.targetCount
+        val completed = completedState.value
+        if (done && record.key !in completed) completedState.value = completed + record.key
+        if (!done && record.key in completed) completedState.value = completed - record.key
     }
 
     private fun firstPendingRecord(): RevealRecord? = records.values.firstOrNull { record ->
@@ -238,7 +261,10 @@ internal class SmoothTextRevealCoordinator {
     }
 
     private fun updateDrainedState() {
-        drainedState.value = records.values.none { record -> record.progress < record.targetCount }
+        // The AST can already contain hidden future blocks. Do not declare the
+        // complete message drained before they have had their own visible turn.
+        drainedState.value = records.values.none { record -> record.progress < record.targetCount } &&
+            activeBlockKeys.all { it in completedState.value }
     }
 }
 
@@ -485,6 +511,7 @@ internal class RevealRecord(
     var boundaries: IntArray = intArrayOf(0)
     var progress: Float = 0f
     var targetCount: Float = 0f
+    var wasDetached: Boolean = false
 }
 
 private fun SmoothTextRevealState.visibleHeightPx(): Int {
@@ -609,6 +636,32 @@ internal fun advancingRevealBacklog(
     val advancing = advancingPendingGraphemes.coerceAtLeast(0f)
     val aggregate = aggregatePendingGraphemes.coerceAtLeast(0f)
     return min(advancing, aggregate)
+}
+
+/** Keep fast network bursts from adding several visible text rows in one frame. */
+internal fun limitRevealToNextLine(
+    current: Float,
+    proposed: Float,
+    boundaries: IntArray,
+    layout: TextLayoutResult?,
+): Float {
+    if (layout == null || proposed <= current || layout.lineCount <= 1 || boundaries.size <= 1) {
+        return proposed
+    }
+    val textLength = layout.layoutInput.text.length
+    if (textLength == 0) return proposed
+    val visibleCount = ceil(current).toInt().coerceIn(0, boundaries.lastIndex)
+    val previousLine = if (visibleCount == 0) -1 else {
+        layout.getLineForOffset((boundaries[visibleCount] - 1).coerceIn(0, textLength - 1))
+    }
+    val nextLine = (previousLine + 1).coerceIn(0, layout.lineCount - 1)
+    val lineEnd = layout.getLineEnd(nextLine)
+    val boundaryIndex = boundaries.binarySearch(lineEnd).let { index ->
+        if (index >= 0) index else -index - 2
+    }.coerceIn(0, boundaries.lastIndex)
+    // A leading empty line or a grapheme crossing a line end must still make progress.
+    val limit = if (boundaryIndex.toFloat() > current) boundaryIndex.toFloat() else current + 1f
+    return proposed.coerceAtMost(limit)
 }
 
 internal fun smoothRevealSpeed(totalBacklog: Float): Float =

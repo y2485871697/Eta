@@ -560,6 +560,7 @@ private fun AgentChatScaffold(
                 isCompressingContext = isCompressingContext,
                 isWaitingForCompression = isWaitingForCompression,
                 bottomInset = bottomPadding,
+                bottomBarMeasured = bottomBarHeightPx > 0,
                 keepBottomAnchored = keepBottomAnchored,
                 onBottomAnchorChanged = onBottomAnchorChanged,
                 onSuggestionClick = onSuggestionClick,
@@ -595,6 +596,7 @@ internal fun AgentConversationMessages(
     isCompressingContext: Boolean = false,
     isWaitingForCompression: Boolean = false,
     bottomInset: Dp,
+    bottomBarMeasured: Boolean = true,
     keepBottomAnchored: Boolean,
     onBottomAnchorChanged: (Boolean) -> Unit,
     onSuggestionClick: (String) -> Unit = {},
@@ -612,6 +614,7 @@ internal fun AgentConversationMessages(
     onScrollToMessageConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val density = LocalDensity.current
     val timelineEntries = remember(visibleMessages) {
         StreamPerformanceDiagnostics.measure("timeline.project", visibleMessages.size.toLong()) { visibleMessages.toTimelineEntries() }
     }
@@ -772,6 +775,11 @@ internal fun AgentConversationMessages(
     }
 
     var initialBottomPositionPending by remember(scrollState) { mutableStateOf(true) }
+    var previousBottomInset by remember(scrollState) { mutableStateOf(bottomInset) }
+    var previousViewportHeightPx by remember(scrollState) { mutableIntStateOf(0) }
+    var listContainerHeightPx by remember(scrollState) { mutableIntStateOf(0) }
+    val currentBottomInset by rememberUpdatedState(bottomInset)
+    val currentBottomBarMeasured by rememberUpdatedState(bottomBarMeasured)
     val currentScrollTarget by rememberUpdatedState(scrollToMessageId)
     val shouldFollowBottom by rememberUpdatedState(
         resolveBottomFollowEnabled(
@@ -791,11 +799,22 @@ internal fun AgentConversationMessages(
     LaunchedEffect(scrollState) {
         try {
             val initial = snapshotFlow {
+                val layout = scrollState.layoutInfo
+                val insetPx = with(density) { currentBottomInset.roundToPx() }
+                // Wait for the bar's first measurement AND for the list viewport to
+                // shrink. Otherwise the initial snap can align against a zero-height bar.
+                val geometryReady = chatMessageViewportReady(
+                    barMeasured = currentBottomBarMeasured,
+                    containerHeightPx = listContainerHeightPx,
+                    bottomInsetPx = insetPx,
+                    viewportHeightPx = layout.viewportSize.height,
+                )
                 InitialBottomPosition(
                     bottomItemIndex = currentBottomItemIndex,
-                    hasLayout = scrollState.layoutInfo.visibleItemsInfo.isNotEmpty(),
+                    hasLayout = layout.visibleItemsInfo.isNotEmpty(),
                     anchored = currentAnchor.value,
                     interrupted = isUserScrolling || messageNavigationJob != null || currentScrollTarget != null,
+                    geometryReady = geometryReady,
                 )
             }.first { it.ready }
             if (initial.shouldPosition) {
@@ -806,6 +825,8 @@ internal fun AgentConversationMessages(
                 }
             }
         } finally {
+            // A bar resize during the first snap must remain pending for the
+            // size-change effect below; recording it as handled loses the correction.
             initialBottomPositionPending = false
         }
     }
@@ -813,11 +834,17 @@ internal fun AgentConversationMessages(
     // A finished conversation does not run the streaming follow controller. If the
     // measured input bar grows (keyboard, attachment or first layout), keep an anchored
     // reader's last message above it. Never move someone browsing older messages.
-    var previousBottomInset by remember(scrollState) { mutableStateOf(bottomInset) }
-    LaunchedEffect(scrollState, bottomInset) {
+    val viewportHeightPx by remember(scrollState) {
+        derivedStateOf { scrollState.layoutInfo.viewportSize.height }
+    }
+    LaunchedEffect(scrollState, bottomInset, viewportHeightPx, initialBottomPositionPending) {
+        // Do not consume the first 0 -> measured-bar increase before initial positioning.
+        if (initialBottomPositionPending) return@LaunchedEffect
         val grew = bottomInset > previousBottomInset
+        val shrank = previousViewportHeightPx > 0 && viewportHeightPx < previousViewportHeightPx
         previousBottomInset = bottomInset
-        if (grew && !initialBottomPositionPending && !isStreaming &&
+        previousViewportHeightPx = viewportHeightPx
+        if ((grew || shrank) && !isStreaming &&
             currentAnchor.value && !isUserScrolling && messageNavigationJob == null &&
             currentScrollTarget == null
         ) {
@@ -841,8 +868,8 @@ internal fun AgentConversationMessages(
                 enabled = shouldFollowBottom,
                 bottomItemIndex = currentBottomItemIndex,
                 sentinelBottom = sentinel?.let { it.offset + it.size },
-                // 输入器高度属于滚动内容的 bottom inset，而不是滚动容器高度。
-                // 跟底目标应是 afterContentPadding 之前的正文边界。
+                // 列表视口已避开输入栏，这里只减列表内部的 14dp 留白。
+                // 哨兵贴合正文边界，不能把输入栏高度再减一次。
                 viewportEnd = layoutInfo.viewportEndOffset - layoutInfo.afterContentPadding,
                 lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index,
                 viewportSizePx = layoutInfo.viewportSize.height,
@@ -927,9 +954,10 @@ internal fun AgentConversationMessages(
         }
     }
 
-    // 滚动层保持整屏，输入器作为后绘制浮层；输入器高度进入列表的
-    // afterContentPadding，确保跟到底部时最后一行停在输入器上方。
-    Box(modifier = modifier.clipToBounds()) {
+    // The bar is drawn over the conversation, but the LIST viewport itself ends at
+    // the bar's top. A smooth follower may lag behind fast text; the visible list must
+    // never paint into the input controls while catching up.
+    Box(modifier = modifier.clipToBounds().onSizeChanged { listContainerHeightPx = it.height }) {
         val trailingWorkKey =
             (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
         val speechPrefaces = remember(visibleMessages, finalResultMessageIds) {
@@ -963,13 +991,15 @@ internal fun AgentConversationMessages(
             },
             modifier = Modifier
                 .fillMaxSize()
+                .padding(bottom = bottomInset)
+                .clipToBounds()
                 .nestedScroll(userScrollConnection)
                 // Navigation already emits one explicit click/long-press haptic.
                 .then(if (messageNavigationJob == null) Modifier.scrollEndHaptic() else Modifier)
                 .overScrollVertical(),
             contentPadding = PaddingValues(
                 top = 14.dp,
-                bottom = bottomInset + 14.dp,
+                bottom = 14.dp,
             ),
             overscrollEffect = null,
         ) {
@@ -1159,13 +1189,27 @@ internal fun resolveBottomFollowDecision(
     }
 }
 
+/** The first snap must use the viewport AFTER the input overlay was measured. */
+internal fun chatMessageViewportReady(
+    barMeasured: Boolean,
+    containerHeightPx: Int,
+    bottomInsetPx: Int,
+    viewportHeightPx: Int,
+): Boolean {
+    if (!barMeasured || containerHeightPx <= 0 || viewportHeightPx <= 0) return false
+    val expected = (containerHeightPx - bottomInsetPx).coerceAtLeast(0)
+    return kotlin.math.abs(viewportHeightPx - expected) <= 1
+}
+
 internal data class InitialBottomPosition(
     val bottomItemIndex: Int,
     val hasLayout: Boolean,
     val anchored: Boolean,
     val interrupted: Boolean,
+    val geometryReady: Boolean = true,
 ) {
-    val ready: Boolean get() = !anchored || interrupted || (bottomItemIndex > 0 && hasLayout)
+    val ready: Boolean get() = !anchored || interrupted ||
+        (bottomItemIndex > 0 && hasLayout && geometryReady)
     val shouldPosition: Boolean get() = ready && anchored && !interrupted
 }
 
