@@ -86,7 +86,7 @@ final class OwnerHandoff {
         try { id=number(task,"taskId"); } catch(Exception ignored) { }
         try { activities=number(task,"numActivities"); } catch(Exception ignored) { }
         String base=null,baseActivity=null,topActivity=null,realActivity=null,origActivity=null;
-        boolean componentsKnown=false,childrenKnown=false,foreignChild=false;
+        boolean componentsKnown=false;
         try {
             base=intentPackage(task);
             baseActivity=componentPackage(field(task,"baseActivity"));
@@ -95,15 +95,77 @@ final class OwnerHandoff {
             origActivity=componentPackage(field(task,"origActivity"));
             componentsKnown=true;
         } catch(Exception ignored) { }
+        boolean childIdsKnown=false,childNamesKnown=false;
+        int[] childIds=null; String[] childNames=null;
         try {
-            int[] childIds=(int[])field(task,"childTaskIds");
-            if(childIds!=null && id>=0) {
-                childrenKnown=true;
-                foreignChild=LaunchTargetOccupancy.hasForeignChild(id,childIds);
+            int[] ids=(int[])field(task,"childTaskIds");
+            if(ids!=null && id>=0) {
+                childIdsKnown=true; childIds=ids;
+                String[] names=childPackages(task,ids);
+                if(names!=null && names.length==ids.length) { childNames=names; childNamesKnown=true; }
             }
         } catch(Exception ignored) { }
         return new LaunchTargetOccupancy.Root(id,base,baseActivity,topActivity,realActivity,
-                origActivity,componentsKnown,activities,childrenKnown,foreignChild);
+                origActivity,componentsKnown,activities,childIdsKnown,childIds,childNamesKnown,childNames);
+    }
+    /**
+     * Package name for every platform child task id, or {@code null} when a child cannot be named.
+     *
+     * <p>Prefers the parallel {@code childTaskNames} array the platform already carries next to
+     * {@code childTaskIds} and only falls back to {@code getTaskInfo} when that array is missing or
+     * not parallel. A child the platform does not name stays {@code null}, so the pure policy fails
+     * closed instead of treating an unnamed child as harmless.
+     */
+    private static String[] childPackages(Object task,int[] ids) {
+        try {
+            Object raw=field(task,"childTaskNames");
+            if(raw instanceof String[] && ((String[])raw).length==ids.length) {
+                String[] names=(String[])raw;
+                String[] out=new String[ids.length];
+                for(int i=0;i<ids.length;i++) out[i]=childNamePackage(names[i]);
+                return out;
+            }
+        } catch(Exception ignored) { }
+        return resolveChildPackages(ids);
+    }
+    /**
+     * Package of a flattened child component ({@code pkg/Class}) or a bare package string; a blank,
+     * empty or non-identifier value is reported as {@code null} (identity unknown), never guessed.
+     */
+    static String childNamePackage(String raw) {
+        if(raw==null) return null;
+        int slash=raw.indexOf('/');
+        String pkg=slash<0 ? raw : raw.substring(0,slash);
+        if(pkg.isEmpty()) return null;
+        return OwnerProtocol.isSafeIdentifier(pkg) ? pkg : null;
+    }
+    private static String[] resolveChildPackages(int[] ids) {
+        Object service; Method lookup; boolean twoArg;
+        try {
+            service=atm();
+            Class<?> iface=Class.forName("android.app.IActivityTaskManager");
+            Method two=null;
+            try { two=iface.getMethod("getTaskInfo",int.class,boolean.class); } catch(Exception ignored) { }
+            Method one=null;
+            if(two==null) try { one=iface.getMethod("getTaskInfo",int.class); } catch(Exception ignored) { }
+            lookup=two!=null?two:one; twoArg=two!=null;
+            if(lookup==null) return null;
+        } catch(Exception missing) { return null; }
+        String[] out=new String[ids.length];
+        for(int i=0;i<ids.length;i++) {
+            Object info=null;
+            try {
+                info=twoArg ? lookup.invoke(service,Integer.valueOf(ids[i]),Boolean.FALSE)
+                        : lookup.invoke(service,Integer.valueOf(ids[i]));
+            } catch(Exception ignored) { }
+            out[i]=childTaskPackage(info);
+        }
+        return out;
+    }
+    private static String childTaskPackage(Object info) {
+        if(info==null) return null;
+        try { String pkg=intentPackage(info); if(pkg!=null) return pkg; } catch(Exception ignored) { }
+        try { return componentPackage(field(info,"topActivity")); } catch(Exception ignored) { return null; }
     }
     private static LaunchTargetOccupancy.Recent describeRecent(Object task) {
         String base=null,baseActivity=null,topActivity=null,realActivity=null,origActivity=null;
