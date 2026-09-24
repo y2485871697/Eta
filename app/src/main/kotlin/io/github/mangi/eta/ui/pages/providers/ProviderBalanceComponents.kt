@@ -17,7 +17,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -36,9 +35,7 @@ import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.repository.ProviderBalanceFetcher
 import io.github.mangi.eta.data.repository.ProviderBalanceState
 import io.github.mangi.eta.data.repository.formatBalanceDisplay
-import io.github.mangi.eta.ui.components.StatusWarning
 import io.github.mangi.eta.ui.icons.MoneyBag02
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -262,7 +259,7 @@ internal fun hasBalanceIndicatorContent(state: ProviderBalanceState?): Boolean =
  * 顶部栏与模型选择器共用的余额只读指示器。
  *
  * - 只展示最后一次成功金额；刷新继续在后台更新数字，但不再显示刷新中/已刷新等提示。
- * - 长时间未更新或最近一次失败时用警示色标注，不把旧金额伪装成实时值。
+ * - 金额与图标始终使用主题中性文字色，缓存过期或刷新失败不改变颜色。
  * - 只读：不响应点击，也不弹出余额详情。
  */
 @Composable
@@ -272,19 +269,7 @@ internal fun ProviderBalanceIndicator(
 ) {
     if (state == null) return
     val amount = state.amount ?: return
-    val updatedAtMillis = state.updatedAtMillis
-    val now by produceState(System.currentTimeMillis(), updatedAtMillis) {
-        while (true) {
-            value = System.currentTimeMillis()
-            delay(5_000)
-        }
-    }
-    val stale = updatedAtMillis?.let { now - it > 90_000 } == true
-    val amountColor = if (state.error != null || stale) {
-        StatusWarning
-    } else {
-        MiuixTheme.colorScheme.onSurfaceVariantSummary
-    }
+    val amountColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier,
