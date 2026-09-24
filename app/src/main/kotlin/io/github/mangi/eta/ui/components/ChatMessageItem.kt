@@ -1805,7 +1805,7 @@ private fun ChatMarkdownList(
             key(item.startOffset, item.type.name) {
                 val firstRevealKey = remember(item) { item.firstRevealBlockKey() }
                 // A hidden item must not contribute its marker/Row height yet.
-                if (!streamingListItemVisible(
+                if (streamingListItemVisible(
                         coordinatorActive = suppressEmptyMarker,
                         itemStartOffset = item.startOffset,
                         firstRevealKey = firstRevealKey,
@@ -1813,109 +1813,110 @@ private fun ChatMarkdownList(
                         completedRevealKeys = completedRevealKeys,
                         nextRevealKey = nextRevealKey,
                     )
-                ) return@key
-                val checkboxNode = remember(item) {
-                    item.children.firstOrNull { child -> child.type == CHECK_BOX }
-                }
-                val markerVisible = streamingListMarkerVisible(
-                    coordinatorActive = suppressEmptyMarker,
-                    firstRevealKey = firstRevealKey,
-                    startedRevealKeys = startedRevealKeys,
-                    containsImage = item.containsMarkdownImage(),
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics { isTraversalGroup = true }
-                        .padding(
-                            top = padding.listItemTop,
-                            bottom = padding.listItemBottom,
-                        ),
                 ) {
-                    Box(
-                        modifier = Modifier.graphicsLayer(
-                            // 隐藏 marker 但保留它的测量宽度，避免正文横向跳动。
-                            alpha = if (markerVisible) 1f else 0f,
-                        ),
-                    ) {
-                        if (checkboxNode != null) {
-                            components.checkbox(
-                                MarkdownComponentModel(
-                                    content = model.content,
-                                    node = checkboxNode,
-                                    typography = model.typography,
-                                ),
-                            )
-                        } else if (ordered) {
-                            Text(
-                                text = "${initialListNumber + index}.",
-                                style = model.typography.ordered.copy(
-                                    color = MiuixTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.SemiBold,
-                                ),
-                            )
-                        } else {
-                            // Compose 单行 Text 在默认 Trim.Both 下忽略 lineHeight，行框即字体自然行高；
-                            // marker 必须与正文同 fontSize/lineHeight 才能共享度规对齐，
-                            // 层级差异只通过字形与颜色表达。
-                            val bulletDepth = depth % 3
-                            Text(
-                                text = when (bulletDepth) {
-                                    0 -> "•"
-                                    1 -> "◦"
-                                    else -> "▪"
-                                },
-                                style = model.typography.bullet.copy(
-                                    color = if (bulletDepth == 2) {
-                                        MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                    } else {
-                                        MiuixTheme.colorScheme.primary
-                                    },
-                                ),
-                            )
-                        }
+                    val checkboxNode = remember(item) {
+                        item.children.firstOrNull { child -> child.type == CHECK_BOX }
                     }
+                    val markerVisible = streamingListMarkerVisible(
+                        coordinatorActive = suppressEmptyMarker,
+                        firstRevealKey = firstRevealKey,
+                        startedRevealKeys = startedRevealKeys,
+                        containsImage = item.containsMarkdownImage(),
+                    )
 
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    Column {
-                        item.children.forEach { child ->
-                            when (child.type) {
-                                MarkdownElementTypes.ORDERED_LIST -> {
-                                    ChatMarkdownList(
-                                        model = MarkdownComponentModel(
-                                            content = model.content,
-                                            node = child,
-                                            typography = model.typography,
-                                        ),
-                                        ordered = true,
-                                        revealCoordinator = revealCoordinator,
-                                        suppressEmptyMarker = suppressEmptyMarker,
-                                        depth = depth + 1,
-                                    )
-                                }
-
-                                MarkdownElementTypes.UNORDERED_LIST -> {
-                                    ChatMarkdownList(
-                                        model = MarkdownComponentModel(
-                                            content = model.content,
-                                            node = child,
-                                            typography = model.typography,
-                                        ),
-                                        ordered = false,
-                                        revealCoordinator = revealCoordinator,
-                                        suppressEmptyMarker = suppressEmptyMarker,
-                                        depth = depth + 1,
-                                    )
-                                }
-
-                                else -> MarkdownElement(
-                                    node = child,
-                                    components = components,
-                                    content = model.content,
-                                    includeSpacer = false,
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { isTraversalGroup = true }
+                            .padding(
+                                top = padding.listItemTop,
+                                bottom = padding.listItemBottom,
+                            ),
+                    ) {
+                        Box(
+                            modifier = Modifier.graphicsLayer(
+                                // 隐藏 marker 但保留它的测量宽度，避免正文横向跳动。
+                                alpha = if (markerVisible) 1f else 0f,
+                            ),
+                        ) {
+                            if (checkboxNode != null) {
+                                components.checkbox(
+                                    MarkdownComponentModel(
+                                        content = model.content,
+                                        node = checkboxNode,
+                                        typography = model.typography,
+                                    ),
                                 )
+                            } else if (ordered) {
+                                Text(
+                                    text = "${initialListNumber + index}.",
+                                    style = model.typography.ordered.copy(
+                                        color = MiuixTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold,
+                                    ),
+                                )
+                            } else {
+                                // Compose 单行 Text 在默认 Trim.Both 下忽略 lineHeight，行框即字体自然行高；
+                                // marker 必须与正文同 fontSize/lineHeight 才能共享度规对齐，
+                                // 层级差异只通过字形与颜色表达。
+                                val bulletDepth = depth % 3
+                                Text(
+                                    text = when (bulletDepth) {
+                                        0 -> "•"
+                                        1 -> "◦"
+                                        else -> "▪"
+                                    },
+                                    style = model.typography.bullet.copy(
+                                        color = if (bulletDepth == 2) {
+                                            MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                        } else {
+                                            MiuixTheme.colorScheme.primary
+                                        },
+                                    ),
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Column {
+                            item.children.forEach { child ->
+                                when (child.type) {
+                                    MarkdownElementTypes.ORDERED_LIST -> {
+                                        ChatMarkdownList(
+                                            model = MarkdownComponentModel(
+                                                content = model.content,
+                                                node = child,
+                                                typography = model.typography,
+                                            ),
+                                            ordered = true,
+                                            revealCoordinator = revealCoordinator,
+                                            suppressEmptyMarker = suppressEmptyMarker,
+                                            depth = depth + 1,
+                                        )
+                                    }
+
+                                    MarkdownElementTypes.UNORDERED_LIST -> {
+                                        ChatMarkdownList(
+                                            model = MarkdownComponentModel(
+                                                content = model.content,
+                                                node = child,
+                                                typography = model.typography,
+                                            ),
+                                            ordered = false,
+                                            revealCoordinator = revealCoordinator,
+                                            suppressEmptyMarker = suppressEmptyMarker,
+                                            depth = depth + 1,
+                                        )
+                                    }
+
+                                    else -> MarkdownElement(
+                                        node = child,
+                                        components = components,
+                                        content = model.content,
+                                        includeSpacer = false,
+                                    )
+                                }
                             }
                         }
                     }
