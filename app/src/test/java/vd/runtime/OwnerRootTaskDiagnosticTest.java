@@ -127,8 +127,10 @@ public class OwnerRootTaskDiagnosticTest {
         assertNull(OwnerRootTaskDiagnostic.safeIdentifier("com.example\n.Main"));
         assertNull(OwnerRootTaskDiagnostic.safeIdentifier(
                 "a".repeat(OwnerRootTaskDiagnostic.MAX_NAME_CHARS + 1)));
-        assertEquals("com.example/.Main", OwnerRootTaskDiagnostic.safeIdentifier("com.example/.Main"));
+        assertNull(OwnerRootTaskDiagnostic.safeIdentifier("com.example/.Main"));
         assertEquals("com.example.app",
                 OwnerRootTaskDiagnostic.safeIdentifier("com.example.app"));
+        assertNull(OwnerRootTaskDiagnostic.safeIdentifier("profile@owner"));
+        assertNull(OwnerRootTaskDiagnostic.safeIdentifier("com-example"));
     }
 }

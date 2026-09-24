@@ -92,10 +92,17 @@ final class OwnerRootTaskDiagnostic {
         }
     }
 
+    private static final class Snapshot {
+        final List<Root> roots;
+        final int total;
+        Snapshot(List<Root> roots, int total) { this.roots = roots; this.total = total; }
+    }
+
     /** A read-only snapshot, or a fail-closed {@code known=false} marker. Never throws. */
     static JSONObject collect() {
         try {
-            return toJson(readRoots());
+            Snapshot snapshot = readRoots();
+            return toJson(snapshot.roots, snapshot.total);
         } catch (OwnerException ex) {
             return unknown(ex.code);
         } catch (Throwable ex) {
@@ -117,12 +124,15 @@ final class OwnerRootTaskDiagnostic {
 
     /** Renders sanitized roots with every list capped. Pure; no device access. */
     static JSONObject toJson(List<Root> roots) {
-        if (roots == null) {
+        return toJson(roots, roots == null ? 0 : roots.size());
+    }
+
+    private static JSONObject toJson(List<Root> roots, int total) {
+        if (roots == null || total < roots.size()) {
             return unknown(ERROR_UNKNOWN);
         }
         try {
-            int total = roots.size();
-            int emitted = Math.min(total, MAX_ROOTS);
+            int emitted = Math.min(roots.size(), MAX_ROOTS);
             boolean truncated = total > MAX_ROOTS;
             JSONArray tasks = new JSONArray();
             for (int i = 0; i < emitted; i++) {
@@ -157,7 +167,10 @@ final class OwnerRootTaskDiagnostic {
         entry.put("userId", root.userId);
         entry.put("activityType", root.activityType);
         entry.put("numActivities", root.numActivities);
-        entry.put("componentsKnown", root.componentsKnown);
+        boolean componentsValid = validOrMissing(root.base) && validOrMissing(root.baseActivity)
+                && validOrMissing(root.topActivity) && validOrMissing(root.realActivity)
+                && validOrMissing(root.origActivity);
+        entry.put("componentsKnown", root.componentsKnown && componentsValid);
         putIdentifier(entry, "base", root.base);
         putIdentifier(entry, "baseActivity", root.baseActivity);
         putIdentifier(entry, "topActivity", root.topActivity);
@@ -165,15 +178,22 @@ final class OwnerRootTaskDiagnostic {
         putIdentifier(entry, "origActivity", root.origActivity);
         entry.put("childrenKnown", root.childrenKnown);
         entry.put("childTaskIds", boundedInts(root.childTaskIds));
-        entry.put("childNamesKnown", root.childNamesKnown);
+        entry.put("childNamesKnown", root.childNamesKnown
+                && root.childTaskNames.length == root.childTaskIds.length
+                && allNames(root.childTaskNames));
         entry.put("childTaskNames", boundedNames(root.childTaskNames));
         return entry;
     }
 
     private static void putIdentifier(JSONObject entry, String key, String value) throws JSONException {
-        if (value != null) {
-            entry.put(key, value);
+        String safe = safeIdentifier(value);
+        if (safe != null) {
+            entry.put(key, safe);
         }
+    }
+
+    private static boolean validOrMissing(String value) {
+        return value == null || safeIdentifier(value) != null;
     }
 
     private static JSONArray boundedInts(int[] values) {
@@ -189,7 +209,8 @@ final class OwnerRootTaskDiagnostic {
         JSONArray array = new JSONArray();
         int count = Math.min(values.length, MAX_CHILD_NAMES);
         for (int i = 0; i < count; i++) {
-            array.put(values[i] == null ? JSONObject.NULL : values[i]);
+            String safe = safeIdentifier(values[i]);
+            array.put(safe == null ? JSONObject.NULL : safe);
         }
         return array;
     }
@@ -202,28 +223,47 @@ final class OwnerRootTaskDiagnostic {
         if (value == null || value.isEmpty() || value.length() > MAX_NAME_CHARS) {
             return null;
         }
-        return OwnerProtocol.isSafeIdentifier(value) ? value : null;
+        if (!OwnerProtocol.isSafeIdentifier(value)) return null;
+        boolean segmentStart = true;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '.') {
+                if (segmentStart) return null;
+                segmentStart = true;
+            } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+                    || (!segmentStart && c >= '0' && c <= '9')) {
+                segmentStart = false;
+            } else {
+                return null;
+            }
+        }
+        return segmentStart ? null : value;
     }
 
-    /** Package of a {@link ComponentName}, or {@code null} when absent or unsafe. */
+    /** Package of a {@link ComponentName}; invalid or unexpected nonnull identities are unknown. */
     static String componentPackage(Object value) {
-        if (!(value instanceof ComponentName)) {
-            return null;
-        }
-        return safeIdentifier(((ComponentName) value).getPackageName());
+        if (value == null) return null;
+        if (!(value instanceof ComponentName)) throw new IllegalArgumentException("component type");
+        String name = safeIdentifier(((ComponentName) value).getPackageName());
+        if (name == null) throw new IllegalArgumentException("component package");
+        return name;
     }
 
     /** Package of a task base intent; never reads data, extras, action or categories. */
     static String intentPackage(Object value) {
-        if (!(value instanceof Intent)) {
-            return null;
-        }
+        if (value == null) return null;
+        if (!(value instanceof Intent)) throw new IllegalArgumentException("intent type");
         Intent intent = (Intent) value;
         String component = componentPackage(intent.getComponent());
-        return component != null ? component : safeIdentifier(intent.getPackage());
+        if (component != null) return component;
+        String pkg = intent.getPackage();
+        if (pkg == null) return null;
+        String safe = safeIdentifier(pkg);
+        if (safe == null) throw new IllegalArgumentException("intent package");
+        return safe;
     }
 
-    private static List<Root> readRoots() throws OwnerException {
+    private static Snapshot readRoots() throws OwnerException {
         Object service;
         Class<?> taskManager;
         Method getAll;
@@ -254,16 +294,17 @@ final class OwnerRootTaskDiagnostic {
             throw new OwnerException(ERROR_UNKNOWN, "TASK_LIST");
         }
         int count = isList ? ((List<?>) result).size() : Array.getLength(result);
-        List<Root> roots = new ArrayList<Root>(count);
+        int limited = Math.min(count, MAX_ROOTS);
+        List<Root> roots = new ArrayList<Root>(limited);
         try {
-            for (int i = 0; i < count; i++) {
+            for (int i = 0; i < limited; i++) {
                 Object info = isList ? ((List<?>) result).get(i) : Array.get(result, i);
                 roots.add(readRoot(info, service, taskManager));
             }
         } catch (Exception ex) {
             throw new OwnerException(ERROR_UNKNOWN, describe(ex));
         }
-        return roots;
+        return new Snapshot(roots, count);
     }
 
     private static Root readRoot(Object info, Object service, Class<?> taskManager) throws Exception {
@@ -318,9 +359,7 @@ final class OwnerRootTaskDiagnostic {
         boolean childrenKnown;
         try {
             Object raw = field(info, "childTaskIds");
-            if (raw == null) {
-                childrenKnown = true;
-            } else if (raw instanceof int[]) {
+            if (raw instanceof int[]) {
                 childTaskIds = (int[]) raw;
                 childrenKnown = true;
             } else {
@@ -336,15 +375,31 @@ final class OwnerRootTaskDiagnostic {
             // No children to name, so the (empty) name list is complete.
             childNamesKnown = true;
         } else if (childrenKnown) {
-            String[] resolved = resolveChildNames(service, taskManager, childTaskIds);
-            if (resolved != null && hasName(resolved)) {
+            // RootTaskInfo already carries parallel childTaskNames on supported platform versions.
+            // Do not rely solely on the optional getTaskInfo binder method: it may not exist.
+            String[] resolved = directChildNames(info, childTaskIds.length);
+            if (resolved == null) resolved = resolveChildNames(service, taskManager, childTaskIds);
+            if (resolved != null) {
                 childTaskNames = resolved;
-                childNamesKnown = true;
+                childNamesKnown = resolved.length == childTaskIds.length && allNames(resolved);
             }
         }
         return new Root(id, displayId, userId, activityType, numActivities, base, baseActivity,
                 topActivity, realActivity, origActivity, componentsKnown, childTaskIds,
                 childTaskNames, childrenKnown, childNamesKnown);
+    }
+
+    private static String[] directChildNames(Object info, int count) {
+        Object value = optionalField(info, "childTaskNames");
+        if (!(value instanceof String[])) return null;
+        String[] raw = (String[]) value;
+        if (raw.length != count) return null;
+        String[] packages = new String[Math.min(count, MAX_CHILD_IDS)];
+        for (int i = 0; i < packages.length; i++) {
+            ComponentName name = raw[i] == null ? null : ComponentName.unflattenFromString(raw[i]);
+            packages[i] = name == null ? null : safeIdentifier(name.getPackageName());
+        }
+        return packages;
     }
 
     /**
@@ -375,13 +430,9 @@ final class OwnerRootTaskDiagnostic {
         return names;
     }
 
-    private static boolean hasName(String[] names) {
-        for (int i = 0; i < names.length; i++) {
-            if (names[i] != null) {
-                return true;
-            }
-        }
-        return false;
+    private static boolean allNames(String[] names) {
+        for (String name : names) if (name == null || safeIdentifier(name) == null) return false;
+        return true;
     }
 
     private static String childPackage(Object child) {

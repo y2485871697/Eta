@@ -141,7 +141,7 @@ class HapticSelectionGestureTest {
                 }
             }
         }
-        compose.onNodeWithTag("text").performTouchInput { longClick(layout.getBoundingBox(4).center) }
+        compose.onNodeWithTag("text", useUnmergedTree = true).performTouchInput { longClick(layout.getBoundingBox(4).center) }
         compose.runOnIdle {
             assertEquals("APK", selection.selectedTexts.joinToString("") { it.text })
             assertNotNull(toolbar.copy)
