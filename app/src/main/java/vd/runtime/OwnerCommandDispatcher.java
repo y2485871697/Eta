@@ -8,6 +8,12 @@ import org.json.JSONObject;
  * <p>An operation is only ever reported as {@code ok=true} when the owner returned a body. Every
  * {@link OwnerException} becomes {@code ok=false} with its code, and any unexpected throwable
  * becomes {@code INTERNAL} rather than a silent success.
+ *
+ * <p>This layer also nests the bounded, read-only {@link OwnerRootTaskDiagnostic} under
+ * {@link OwnerRootTaskDiagnostic#FIELD} on every {@code status} reply and on a
+ * {@link LaunchTargetOccupancy#UNKNOWN} launch failure, so a caller can see which root task the
+ * inventory could not identify. Attaching the diagnostic never changes the ok/error outcome and
+ * never relaxes a launch / handoff / release gate.
  */
 final class OwnerCommandDispatcher implements OwnerIpcServer.Dispatcher {
     private final VirtualDisplayOwner owner;
@@ -21,7 +27,9 @@ final class OwnerCommandDispatcher implements OwnerIpcServer.Dispatcher {
     public JSONObject dispatch(OwnerProtocol.Request request) {
         try {
             if (OwnerProtocol.OP_STATUS.equals(request.op)) {
-                return OwnerProtocol.ok(request.op, owner.status());
+                JSONObject body = owner.status();
+                attachDiagnostic(body);
+                return OwnerProtocol.ok(request.op, body);
             }
             if (OwnerProtocol.OP_LAUNCH.equals(request.op)) {
                 return OwnerProtocol.ok(request.op, owner.launch(request.payload));
@@ -42,10 +50,29 @@ final class OwnerCommandDispatcher implements OwnerIpcServer.Dispatcher {
             }
             return OwnerProtocol.fail(request.op, OwnerProtocol.ERROR_UNKNOWN_OP, request.op);
         } catch (OwnerException ex) {
-            return OwnerProtocol.fail(request.op, ex.code, ex.getMessage());
+            JSONObject response = OwnerProtocol.fail(request.op, ex.code, ex.getMessage());
+            if (LaunchTargetOccupancy.UNKNOWN.equals(ex.code)) {
+                attachDiagnostic(response);
+            }
+            return response;
         } catch (Throwable unexpected) {
             return OwnerProtocol.fail(request.op, OwnerProtocol.ERROR_INTERNAL,
                     unexpected.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * Nests the read-only inventory diagnostic under {@link OwnerRootTaskDiagnostic#FIELD}.
+     * A diagnostic failure must never change the reported outcome, so it is swallowed.
+     */
+    private static void attachDiagnostic(JSONObject response) {
+        if (response == null) {
+            return;
+        }
+        try {
+            response.put(OwnerRootTaskDiagnostic.FIELD, OwnerRootTaskDiagnostic.collect());
+        } catch (Exception ignored) {
+            // Never turn a reported outcome into a different one.
         }
     }
 
