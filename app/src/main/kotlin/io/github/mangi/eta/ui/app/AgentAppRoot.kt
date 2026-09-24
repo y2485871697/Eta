@@ -631,7 +631,7 @@ fun AgentAppRoot(
                 HapticsSettingsScreen(onBack = ::popRoute)
             }
             entry<AppRoute.AgentTaskPreference>(swipeDismiss = swipeDismiss) {
-                AgentTaskPreferenceScreen()
+                AgentTaskPreferenceScreen(onBack = ::popRoute)
             }
             entry<AppRoute.Tools>(swipeDismiss = swipeDismiss) {
                 AgentToolsScreen(
