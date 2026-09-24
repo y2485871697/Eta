@@ -258,4 +258,15 @@ class VirtualDisplayHandoffRetryTest {
         assertEquals(1, calls)
         assertEquals(0, budget.remaining)
     }
+
+    @Test fun taskSetChangedNeverUsesFocusRetry() {
+        val budget = VirtualDisplayHandoffRetry.Budget()
+        var calls = 0
+        VirtualDisplayHandoffRetry.run(budget, {
+            calls++
+            refused("HANDOFF_TASK_SET_CHANGED", "preflight:inventory:missing30:unowned31:OwnerTaskInventoryMismatch;moved=[] removed=[]")
+        }, { error("must not retry") }, { error("must not delay") })
+        assertEquals(1, calls)
+        assertEquals(0, budget.remaining)
+    }
 }

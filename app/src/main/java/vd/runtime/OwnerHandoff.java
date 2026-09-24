@@ -421,7 +421,9 @@ final class OwnerHandoff {
         private final String phase;
         private final boolean sideEffectsAttempted;
         HandoffFailure(String phase,Throwable cause,boolean sideEffectsAttempted,String summary) {
-            super(sideEffectsAttempted ? HANDOFF_UNCERTAIN : HANDOFF_PREFLIGHT_FAILED,
+            super(sideEffectsAttempted ? HANDOFF_UNCERTAIN
+                    : cause instanceof OwnerTaskInventoryMismatch ? OwnerTaskInventoryMismatch.CODE
+                    : HANDOFF_PREFLIGHT_FAILED,
                     failureDetail(phase,cause,summary));
             this.phase=phase;
             this.sideEffectsAttempted=sideEffectsAttempted;
@@ -486,6 +488,11 @@ final class OwnerHandoff {
             }
             phase="preflight:inventory";
             Map<Integer,Object> current=roots();
+            Set<Integer> sourceIds=new LinkedHashSet<Integer>();
+            for(Object t:current.values()) if(number(t,"displayId")==source)
+                sourceIds.add(number(t,"taskId"));
+            OwnerTaskInventoryMismatch mismatch=OwnerTaskInventoryMismatch.detect(owned.keySet(),sourceIds);
+            if(mismatch!=null) { phase=mismatch.phase(); throw mismatch; }
             for(Object t:current.values()) if(number(t,"displayId")==source) {
                 Task identity=owned.get(number(t,"taskId"));if(identity==null)throw new IllegalStateException("foreign source task");identity.check(t,source);
             }
