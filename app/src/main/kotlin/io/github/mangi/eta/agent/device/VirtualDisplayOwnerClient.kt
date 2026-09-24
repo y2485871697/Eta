@@ -317,7 +317,7 @@ internal class VirtualDisplayOwnerClient private constructor(
 
             drainStderr(process)
 
-            val handshake = StartupHandshake(LineReader(process.inputStream))
+            val handshake = StartupHandshake(LineReader(requireNotNull(process).inputStream))
             handshake.begin()
             return when (val outcome = handshake.await(startupTimeoutMillis)) {
                 is HandshakeOutcome.Failed -> {
@@ -795,7 +795,7 @@ private fun drainStderr(process: Process): Thread = thread(isDaemon = true, name
     val buffer = ByteArray(8 * 1024)
     try {
         while (true) {
-            if (process.errorStream.read(buffer) < 0) return@thread
+            if (requireNotNull(process).errorStream.read(buffer) < 0) return@thread
         }
     } catch (_: IOException) {
         // 进程退出或流关闭，正常结束。
