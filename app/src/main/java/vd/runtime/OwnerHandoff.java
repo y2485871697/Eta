@@ -109,63 +109,192 @@ final class OwnerHandoff {
                 origActivity,componentsKnown,activities,childIdsKnown,childIds,childNamesKnown,childNames);
     }
     /**
-     * Package name for every platform child task id, or {@code null} when a child cannot be named.
+     * Package name for every trusted platform child task id, or {@code null} when the parallel
+     * {@code childTaskNames} array the platform carries next to {@code childTaskIds} is missing or
+     * not parallel.
      *
-     * <p>Prefers the parallel {@code childTaskNames} array the platform already carries next to
-     * {@code childTaskIds} and only falls back to {@code getTaskInfo} when that array is missing or
-     * not parallel. A child the platform does not name stays {@code null}, so the pure policy fails
-     * closed instead of treating an unnamed child as harmless.
+     * <p>Only that parallel array is trusted. A {@code getTaskInfo} fallback is deliberately not
+     * used: it re-reads unrelated task state by a raw id and cannot be tied back to this root, so it
+     * was removed and an unnamed child stays unreadable, letting the pure policy fail closed instead
+     * of treating an unnamed child as harmless.
      */
     private static String[] childPackages(Object task,int[] ids) {
         try {
             Object raw=field(task,"childTaskNames");
-            if(raw instanceof String[] && ((String[])raw).length==ids.length) {
-                String[] names=(String[])raw;
-                String[] out=new String[ids.length];
-                for(int i=0;i<ids.length;i++) out[i]=childNamePackage(names[i]);
-                return out;
-            }
+            return parallelChildPackages(raw instanceof String[] ? (String[])raw : null,ids);
         } catch(Exception ignored) { }
-        return resolveChildPackages(ids);
+        return null;
     }
     /**
-     * Package of a flattened child component ({@code pkg/Class}) or a bare package string; a blank,
-     * empty or non-identifier value is reported as {@code null} (identity unknown), never guessed.
+     * Packages for each id from the platform's parallel {@code childTaskNames} array, or {@code null}
+     * when the array is absent, not parallel or empty while ids are present. An empty id list yields
+     * an empty (complete) result. Pure; no device access.
+     */
+    static String[] parallelChildPackages(String[] rawNames,int[] ids) {
+        if(ids==null) return null;
+        if(ids.length==0) return new String[0];
+        if(rawNames==null||rawNames.length!=ids.length) return null;
+        String[] out=new String[ids.length];
+        for(int i=0;i<ids.length;i++) out[i]=childNamePackage(rawNames[i]);
+        return out;
+    }
+    /**
+     * Package of a trusted platform child descriptor: a bare package name or a flattened
+     * {@code pkg/Class} component. The platform's {@code RootTaskInfo.childTaskNames} placeholder
+     * {@code "unknown"}, a blank value, a value carrying whitespace or control characters, and a
+     * flattened component with a missing package or class part are all unreadable identities and are
+     * reported as {@code null}, never guessed.
      */
     static String childNamePackage(String raw) {
         if(raw==null) return null;
         int slash=raw.indexOf('/');
         String pkg=slash<0 ? raw : raw.substring(0,slash);
-        if(pkg.isEmpty()) return null;
-        return OwnerProtocol.isSafeIdentifier(pkg) ? pkg : null;
+        String cls=slash<0 ? null : raw.substring(slash+1);
+        if(pkg.isEmpty()||isUnknownName(pkg)||!isPackageName(pkg)) return null;
+        if(cls!=null&&!isComponentClass(cls)) return null;
+        return pkg;
     }
-    private static String[] resolveChildPackages(int[] ids) {
-        Object service; Method lookup; boolean twoArg;
-        try {
-            service=atm();
-            Class<?> iface=Class.forName("android.app.IActivityTaskManager");
-            Method two=null;
-            try { two=iface.getMethod("getTaskInfo",int.class,boolean.class); } catch(Exception ignored) { }
-            Method one=null;
-            if(two==null) try { one=iface.getMethod("getTaskInfo",int.class); } catch(Exception ignored) { }
-            lookup=two!=null?two:one; twoArg=two!=null;
-            if(lookup==null) return null;
-        } catch(Exception missing) { return null; }
-        String[] out=new String[ids.length];
-        for(int i=0;i<ids.length;i++) {
-            Object info=null;
-            try {
-                info=twoArg ? lookup.invoke(service,Integer.valueOf(ids[i]),Boolean.FALSE)
-                        : lookup.invoke(service,Integer.valueOf(ids[i]));
-            } catch(Exception ignored) { }
-            out[i]=childTaskPackage(info);
+    /** The literal placeholder the platform uses for a child task it cannot name. */
+    private static boolean isUnknownName(String value) {
+        return "unknown".equalsIgnoreCase(value);
+    }
+    /** Dotted identifier with no whitespace, slash, colon, control character or empty segment. */
+    private static boolean isPackageName(String value) {
+        if(value==null||value.isEmpty()) return false;
+        boolean segmentStart=true;
+        for(int i=0;i<value.length();i++) {
+            char c=value.charAt(i);
+            if(c=='.') { if(segmentStart) return false; segmentStart=true; }
+            else if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||c=='_') segmentStart=false;
+            else if(c>='0'&&c<='9'&&!segmentStart) { }
+            else return false;
         }
-        return out;
+        return !segmentStart;
     }
-    private static String childTaskPackage(Object info) {
-        if(info==null) return null;
-        try { String pkg=intentPackage(info); if(pkg!=null) return pkg; } catch(Exception ignored) { }
-        try { return componentPackage(field(info,"topActivity")); } catch(Exception ignored) { return null; }
+    /** Flattened component class: an optional short {@code .Class} prefix in front of a dotted name. */
+    private static boolean isComponentClass(String value) {
+        if(value==null||value.isEmpty()) return false;
+        String body=value.charAt(0)=='.' ? value.substring(1) : value;
+        return !body.isEmpty()&&isClassName(body);
+    }
+    private static boolean isClassName(String value) {
+        boolean segmentStart=true;
+        for(int i=0;i<value.length();i++) {
+            char c=value.charAt(i);
+            if(c=='.') { if(segmentStart) return false; segmentStart=true; }
+            else if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||c=='_'||c=='$') segmentStart=false;
+            else if(c>='0'&&c<='9'&&!segmentStart) { }
+            else return false;
+        }
+        return !segmentStart;
+    }
+    /**
+     * True when {@code childIds} is a complete identity of the root's nested tasks: not empty, every
+     * id positive, no duplicates and never the root's own id. Pure; no device access.
+     */
+    static boolean completeChildIds(int[] childIds,int selfId) {
+        if(childIds==null||childIds.length==0) return false;
+        Set<Integer> seen=new HashSet<Integer>();
+        for(int id:childIds) {
+            if(id<=0||id==selfId||!seen.add(id)) return false;
+        }
+        return true;
+    }
+    /**
+     * Read-only proof that {@code root} is an organizer-created, identity-free empty container whose
+     * direct children are exactly {@code childIds}, each also an identity-free empty task.
+     *
+     * <p>Reflection only: {@code android.window.TaskOrganizer.getChildTasks(root.token, null)}
+     * returns the direct {@code RunningTaskInfo}s of a task created by a {@code TaskOrganizer} and
+     * {@code null} when the task was not created by an organizer ({@code mCreatedByOrganizer=false}),
+     * so a non-organizer task can never be proven empty. Every read is wrapped; a missing API, a
+     * reflection failure or any mismatch answers {@code false} (fail closed). This helper is staged
+     * for a follow-up change and is deliberately not wired into the launch decision yet.
+     */
+    private static boolean organizerEmptyProven(Object root,int[] childIds) {
+        if(root==null||childIds==null) return false;
+        try {
+            int rootId=requiredInt(root,"taskId");
+            if(!completeChildIds(childIds,rootId)) return false;
+            Integer activityType=activityType(root);
+            if(activityType==null||activityType.intValue()!=0) return false;
+            Integer numActivities=intFieldOrNull(root,"numActivities");
+            if(numActivities==null||numActivities.intValue()!=0) return false;
+            if(!identityFree(root)) return false;
+            Object token=field(root,"token");
+            if(token==null) return false;
+            Integer display=intFieldOrNull(root,"displayId");
+            Integer user=intFieldOrNull(root,"userId");
+            if(display==null||user==null) return false;
+            List<?> children=organizerChildren(token);
+            if(children==null||children.size()!=childIds.length) return false;
+            Set<Integer> expected=new HashSet<Integer>();
+            for(int id:childIds) expected.add(id);
+            Set<Integer> seen=new HashSet<Integer>();
+            for(Object child:children) {
+                if(child==null) return false;
+                Integer childId=intFieldOrNull(child,"taskId");
+                if(childId==null||!expected.contains(childId)||!seen.add(childId)) return false;
+                if(requiredInt(child,"parentTaskId")!=rootId) return false;
+                if(requiredInt(child,"displayId")!=display.intValue()) return false;
+                if(requiredInt(child,"userId")!=user.intValue()) return false;
+                Integer childActivities=intFieldOrNull(child,"numActivities");
+                if(childActivities==null||childActivities.intValue()!=0) return false;
+                if(!identityFree(child)) return false;
+            }
+            return seen.equals(expected);
+        } catch(Exception ex) {
+            return false;
+        }
+    }
+    /** A task field as an {@code Integer}, or {@code null} when the field is missing or not an int. */
+    private static Integer intFieldOrNull(Object task,String name) {
+        try {
+            Object value=field(task,name);
+            return value instanceof Integer ? (Integer)value : null;
+        } catch(Exception ignored) { return null; }
+    }
+    private static int requiredInt(Object task,String name)throws Exception {
+        Object value=field(task,name);
+        if(!(value instanceof Integer)) throw new IllegalStateException("bad int "+name);
+        return ((Integer)value).intValue();
+    }
+    /** Activity type via {@code getActivityType()} or the platform field aliases, or {@code null}. */
+    private static Integer activityType(Object task) {
+        try {
+            Object value=task.getClass().getMethod("getActivityType").invoke(task);
+            if(value instanceof Integer) return (Integer)value;
+        } catch(Exception ignored) { }
+        Integer direct=intFieldOrNull(task,"activityType");
+        return direct!=null ? direct : intFieldOrNull(task,"mActivityType");
+    }
+    /** No package identity in the base intent or any component field; a malformed value throws. */
+    private static boolean identityFree(Object task)throws Exception {
+        Object rawIntent=field(task,"baseIntent");
+        if(rawIntent!=null) {
+            if(!(rawIntent instanceof Intent)) return false;
+            Intent intent=(Intent)rawIntent;
+            if(intent.getComponent()!=null||intent.getPackage()!=null) return false;
+        }
+        return componentPackage(field(task,"baseActivity"))==null
+                && componentPackage(field(task,"topActivity"))==null
+                && componentPackage(field(task,"realActivity"))==null
+                && componentPackage(field(task,"origActivity"))==null;
+    }
+    /** Direct organizer children for a nonnull window container token, or {@code null} if unprovable. */
+    private static List<?> organizerChildren(Object token)throws Exception {
+        Class<?> organizer=Class.forName("android.window.TaskOrganizer");
+        Method lookup=null;
+        for(Method candidate:organizer.getMethods()) {
+            Class<?>[] params=candidate.getParameterTypes();
+            if("getChildTasks".equals(candidate.getName())&&params.length==2
+                    && params[1]==int[].class&&params[0].isInstance(token)) { lookup=candidate; break; }
+        }
+        if(lookup==null) return null;
+        Object result=lookup.invoke(null,token,(Object)null);
+        if(result==null) return null;
+        if(!(result instanceof List)) throw new IllegalStateException("organizer child type");
+        return (List<?>)result;
     }
     private static LaunchTargetOccupancy.Recent describeRecent(Object task) {
         String base=null,baseActivity=null,topActivity=null,realActivity=null,origActivity=null;
