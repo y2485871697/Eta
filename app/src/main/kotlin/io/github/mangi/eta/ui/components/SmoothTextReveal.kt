@@ -25,6 +25,7 @@ import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -172,16 +173,19 @@ internal class SmoothTextRevealCoordinator {
                     .coerceIn(0f, MAX_FRAME_DELTA_SECONDS)
                 previousFrameNanos = frameNanos
 
-                val totalBacklog = records.values.sumOf { candidate ->
+                val aggregateBacklog = records.values.sumOf { candidate ->
                     max(0.0, (candidate.targetCount - candidate.progress).toDouble())
                 }.toFloat()
-                StreamPerformanceDiagnostics.record("reveal.backlog", value = totalBacklog.toLong())
+                StreamPerformanceDiagnostics.record("reveal.backlog", value = aggregateBacklog.toLong())
                 val previous = record.progress
                 record.progress = advanceSmoothReveal(
                     current = record.progress,
                     target = record.targetCount,
                     elapsedSeconds = elapsedSeconds,
-                    totalBacklog = totalBacklog,
+                    totalBacklog = advancingRevealBacklog(
+                        advancingPendingGraphemes = record.targetCount - record.progress,
+                        aggregatePendingGraphemes = aggregateBacklog,
+                    ),
                 )
                 val delta = record.progress - previous
                 if (delta > 0f) onRevealAdvanced?.invoke(delta)
@@ -588,6 +592,23 @@ internal fun commonUtf16PrefixLength(first: String, second: String): Int {
         index -= 1
     }
     return index
+}
+
+/**
+ * 只有正在推进的块自身的待显现字数才能决定它的显现速度。
+ *
+ * 一帧只推进一个块，但聚合积压会包含同一条回答里仍在排队的其他块（正文与思考）。把
+ * 兄弟块的字数计入速度会让当前块一次跨越整屏文字：逐字淡入消失、测量高度一次跳过多
+ * 行。这里返回当前块的待显现字数，并以观测到的聚合积压封顶，单块积压时的自适应追赶
+ * 保持不变。
+ */
+internal fun advancingRevealBacklog(
+    advancingPendingGraphemes: Float,
+    aggregatePendingGraphemes: Float,
+): Float {
+    val advancing = advancingPendingGraphemes.coerceAtLeast(0f)
+    val aggregate = aggregatePendingGraphemes.coerceAtLeast(0f)
+    return min(advancing, aggregate)
 }
 
 internal fun smoothRevealSpeed(totalBacklog: Float): Float =
