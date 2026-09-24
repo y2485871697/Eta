@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.device
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.ClipData
 import android.content.ClipboardManager
 import io.github.mangi.eta.agent.model.AgentModelClient
@@ -19,6 +20,10 @@ internal object VirtualDisplaySession {
         var height = 0
     }
     private val sessions = linkedMapOf<String, Session>()
+    private const val RECOVERY_PREFS = "virtual_display_owner_recovery"
+    private fun recoveryPrefs(context: Context): SharedPreferences =
+        context.applicationContext.getSharedPreferences(RECOVERY_PREFS, Context.MODE_PRIVATE)
+    private fun clearRecovery(context: Context) = recoveryPrefs(context).edit().clear().apply()
     private fun reply(ok: Boolean, code: String = "", detail: String = "") =
         JSONObject().put("ok",ok).put("error",code).put("message",detail)
     private fun body(response: OwnerResponse): JSONObject = response.json ?: reply(false,response.errorCode)
@@ -27,6 +32,32 @@ internal object VirtualDisplaySession {
         sessions[runId]?.let { return reply(it.phase == "active",if(it.phase == "active") "" else "SESSION_${it.phase.uppercase()}").put("phase",it.phase) }
         if(sessions.values.any { it.phase != "finished" })return reply(false,"VIRTUAL_SESSION_BUSY")
         val session=Session();sessions[runId]=session // claim before external side effects
+        val saved = recoveryPrefs(context)
+        val recovered = VirtualDisplayOwnerClient.reconnect(
+            logger = AndroidAgentLogger,
+            socketName = saved.getString("socket", "").orEmpty(),
+            ownerPid = saved.getLong("pid", -1L),
+            displayId = saved.getInt("display", -1),
+            uniqueId = saved.getString("unique", "").orEmpty(),
+            token = saved.getString("token", "").orEmpty(),
+            runId = runId,
+        )
+        if (recovered != null) {
+            session.client = recovered
+            session.phase = "active"
+            val state = recovered.status()
+            if (state.ok) {
+                val ids = body(state).optJSONArray("retainedTaskIds")
+                if (ids != null) {
+                    val all = (0 until ids.length()).map { ids.getInt(it) }.toSet()
+                    session.packages["__recovered__"] = all
+                    session.kept.addAll(all)
+                }
+                return body(state).put("run_id", runId).put("recovered", true)
+            }
+            recovered.close()
+        }
+        saved.edit().clear().apply()
         return when(val started=VirtualDisplayOwnerClient.start(context,AndroidAgentLogger)) {
             is OwnerStartResult.Failed -> {
                 session.phase=if(started.errorCode in setOf(VirtualDisplayOwnerError.CLASSPATH_UNAVAILABLE,VirtualDisplayOwnerError.CLASSPATH_INVALID,VirtualDisplayOwnerError.PROCESS_START_FAILED))"finished" else "uncertain"
@@ -34,6 +65,12 @@ internal object VirtualDisplaySession {
             }
             is OwnerStartResult.Ready -> {
                 session.client=started.client
+                saved.edit().putString("socket", started.client.socketName)
+                    .putLong("pid", started.client.ownerPid)
+                    .putInt("display", started.client.displayId)
+                    .putString("unique", started.client.uniqueId)
+                    .putString("token", started.client.recoveryToken)
+                    .apply()
                 val state=started.client.status()
                 if(!state.ok){session.phase="uncertain";body(state)} else {
                     session.phase="active";body(state).put("run_id",runId)
@@ -61,7 +98,7 @@ internal object VirtualDisplaySession {
         s.kept.addAll(wanted)
         return reply(true).put("kept_task_ids",JSONArray(s.kept))
     }
-    @Synchronized fun finish(runId: String): JSONObject {
+    @Synchronized fun finish(runId: String, context: Context? = null): JSONObject {
         val s=sessions[runId]?:return reply(false,"NO_VIRTUAL_SESSION")
         if(s.phase=="finished")return reply(true).put("already_finished",true)
         if(s.phase!="active")return reply(false,"SESSION_NOT_ACTIVE")
@@ -70,7 +107,7 @@ internal object VirtualDisplaySession {
             if(!status.ok || body(status).opt("sourceEmpty") != true)return reply(false,"NO_DELIVERY_TASKS","先明确标记交付任务；不会自动删除所有任务")
             val released=s.client!!.release()
             if(!released.ok || !body(released).optBoolean("released")) {s.phase="uncertain";return body(released).put("ok",false)}
-            s.phase="finished";s.client!!.close()
+            s.phase="finished";s.client!!.close();context?.let(::clearRecovery)
             return reply(true).put("released",true).put("empty_session",true)
         }
         s.phase="finishing"
@@ -79,7 +116,7 @@ internal object VirtualDisplaySession {
         if(!handoff.ok || !body(handoff).optBoolean("handedOff")) {s.phase="uncertain";return body(handoff).put("ok",false)}
         val released=client.release()
         if(!released.ok || !body(released).optBoolean("released")) {s.phase="uncertain";return body(released).put("ok",false)}
-        s.phase="finished";client.close()
+        s.phase="finished";client.close();context?.let(::clearRecovery)
         return body(handoff).put("released",true)
     }
     /**
@@ -88,14 +125,14 @@ internal object VirtualDisplaySession {
      * handoff/release checks remain the admission gate. Unknown or foreign tasks therefore keep
      * the session held instead of being killed or moved implicitly.
      */
-    @Synchronized fun onRunClosed(runId: String) {
+    @Synchronized fun onRunClosed(context: Context, runId: String) {
         sessions[runId]?.let {
             if(it.phase=="active") {
                 // Launch registration is already provenance-checked by the owner. Treat those
                 // session-owned tasks as delivery candidates even when the model omitted the
                 // optional keep tool; foreign tasks never enter this set.
                 it.packages.values.forEach { ids -> it.kept.addAll(ids) }
-                runCatching { finish(runId) }
+                runCatching { finish(runId, context) }
                 if(it.phase=="active")it.phase="held"
             }
         }

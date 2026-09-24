@@ -50,7 +50,7 @@ import org.json.JSONObject
  */
 internal class VirtualDisplayOwnerClient private constructor(
     private val logger: AgentLogger,
-    private val process: Process,
+    private val process: Process?,
     private val socket: LocalSocket,
     private val output: OutputStream,
     private val reader: LineReader,
@@ -62,6 +62,8 @@ internal class VirtualDisplayOwnerClient private constructor(
     val displayId: Int,
     /** owner 本次创建的稳定标识，来自 READY。 */
     val uniqueId: String,
+    /** Used only by the owning app to persist a reconnect capability. */
+    val recoveryToken: String get() = token
     /** 与本次创建绑定的 runId；所有需要 runId 的操作默认使用它，且必须非空。 */
     val runId: String,
     private val token: String,
@@ -71,7 +73,7 @@ internal class VirtualDisplayOwnerClient private constructor(
     private val lock = java.util.concurrent.locks.ReentrantLock()
 
     /** owner 进程是否仍在运行且本客户端未关闭。 */
-    val isAlive: Boolean get() = !closed.get() && process.isAlive
+    val isAlive: Boolean get() = !closed.get() && (process?.isAlive ?: true)
 
     /**
      * 发送一次串行请求。payload 的键会被扁平并入请求顶层，禁止覆盖 `v`/`op`/`token`。
@@ -324,6 +326,51 @@ internal class VirtualDisplayOwnerClient private constructor(
 
                 is HandshakeOutcome.Ready ->
                     finishStart(logger, process, socketName, allowUid, outcome.line)
+            }
+        }
+
+        /** Reconnects only to a persisted owner after validating kernel peer identity and status. */
+        fun reconnect(
+            logger: AgentLogger,
+            socketName: String,
+            ownerPid: Long,
+            displayId: Int,
+            uniqueId: String,
+            token: String,
+            runId: String,
+        ): VirtualDisplayOwnerClient? {
+            if (socketName.isBlank() || ownerPid <= 0L || displayId < 0 ||
+                uniqueId.isBlank() || token.isBlank() || runId.isBlank()) return null
+            val socket = LocalSocket()
+            try {
+                socket.connect(LocalSocketAddress(socketName, LocalSocketAddress.Namespace.ABSTRACT))
+                val peer = socket.peerCredentials
+                if (peer.uid != 0 || peer.pid.toLong() != ownerPid) {
+                    socket.close(); return null
+                }
+                val client = VirtualDisplayOwnerClient(
+                    logger = logger,
+                    process = null,
+                    socket = socket,
+                    output = socket.outputStream,
+                    reader = LineReader(socket.inputStream),
+                    socketName = socketName,
+                    ownerPid = ownerPid,
+                    displayId = displayId,
+                    uniqueId = uniqueId,
+                    runId = runId,
+                    token = token,
+                )
+                val status = client.status()
+                val body = status.json
+                if (!status.ok || body == null || body.optInt("displayId", -1) != displayId ||
+                    body.optString("uniqueId") != uniqueId) {
+                    client.close(); return null
+                }
+                return client
+            } catch (_: Exception) {
+                runCatching { socket.close() }
+                return null
             }
         }
 
