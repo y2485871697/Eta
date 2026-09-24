@@ -5,6 +5,7 @@ import io.github.mangi.eta.ui.markdown.StreamingGfmParserSession
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.ast.findChildOfType
 import org.intellij.markdown.flavours.gfm.GFMElementTypes
+import org.intellij.markdown.flavours.gfm.GFMTokenTypes.CELL
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -244,10 +245,10 @@ class SmoothTextRevealPolicyTest {
         val table = topLevelMarkdownBlocks(snapshot.state.node).single()
         assertEquals(GFMElementTypes.TABLE, table.type)
         val header = table.findChildOfType(GFMElementTypes.HEADER)?.children
-            ?.filter { it.type == GFMElementTypes.CELL }.orEmpty()
+            ?.filter { it.type == CELL }.orEmpty()
         val rows = table.children.filter { it.type == GFMElementTypes.ROW }
         val actuallyRenderedCells = header + rows.flatMap { row ->
-            row.children.filter { it.type == GFMElementTypes.CELL }
+            row.children.filter { it.type == CELL }
         }
         assertEquals(4, actuallyRenderedCells.size)
         assertEquals(
