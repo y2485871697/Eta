@@ -82,12 +82,20 @@ internal object VirtualDisplaySession {
         s.phase="finished";client.close()
         return body(handoff).put("released",true)
     }
-    /** Cancellation cannot destroy or migrate applications without a verified explicit finish. */
+    /**
+     * A closed agent run is the explicit end-of-work signal for this session. Finish only the
+     * tasks that this owner launched and that the caller marked for delivery; the existing owner
+     * handoff/release checks remain the admission gate. Unknown or foreign tasks therefore keep
+     * the session held instead of being killed or moved implicitly.
+     */
     @Synchronized fun onRunClosed(runId: String) {
         sessions[runId]?.let {
             if(it.phase=="active") {
-                // Only a provably empty owner may be released without a delivery selection.
-                if(it.kept.isEmpty())runCatching { finish(runId) }
+                // Launch registration is already provenance-checked by the owner. Treat those
+                // session-owned tasks as delivery candidates even when the model omitted the
+                // optional keep tool; foreign tasks never enter this set.
+                it.packages.values.forEach { ids -> it.kept.addAll(ids) }
+                runCatching { finish(runId) }
                 if(it.phase=="active")it.phase="held"
             }
         }
