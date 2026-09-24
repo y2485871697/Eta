@@ -20,6 +20,8 @@ internal object VirtualDisplaySession {
         var cleanupOnly = false
         var persisted = false
         var receipt: JSONObject? = null
+        /** Shared across finish/onRunClosed for this run so automatic retries cannot multiply. */
+        val handoffBudget = VirtualDisplayHandoffRetry.Budget()
     }
     private val sessions = linkedMapOf<String, Session>()
     private var recoveryContext: Context? = null
@@ -95,6 +97,8 @@ internal object VirtualDisplaySession {
             s.cleanupOnly = true
             if (s.kept.isEmpty()) s.packages.values.forEach { s.kept.addAll(it) }
             sessions[runId] = s
+            // A deliberate later run adopting a held session gets a fresh bounded retry budget.
+            s.handoffBudget.reset()
             return reply(true).put("recovered", true).put("cleanup_only", true).put("phase", s.phase)
         }
         val s = Session()
@@ -201,9 +205,38 @@ internal object VirtualDisplaySession {
         }
         if (action == VirtualDisplayRecoveryPolicy.Action.HANDOFF && s.kept.isNotEmpty()) {
             s.phase = "finishing"
-            val handoff = c.handoff(mapOf("taskIds" to JSONArray(s.kept)))
-            if (!handoff.ok || body(handoff).opt("handedOff") != true || body(handoff).opt("sourceEmpty") != true)
-                return fail(s, handoff.errorCode.ifBlank { "HANDOFF_UNCERTAIN" }, safeOwnerDetail(handoff))
+            // Frozen selection: retries never widen it and the fresh-state gate re-checks it.
+            val frozen = s.kept.toList()
+            val outcome = VirtualDisplayHandoffRetry.run(
+                budget = s.handoffBudget,
+                handoff = {
+                    val handoff = c.handoff(mapOf("taskIds" to JSONArray(frozen)))
+                    if (handoff.ok && body(handoff).opt("handedOff") == true && body(handoff).opt("sourceEmpty") == true)
+                        VirtualDisplayHandoffRetry.Attempt.Completed
+                    else VirtualDisplayHandoffRetry.Attempt.Refused(
+                        handoff.errorCode.ifBlank { "HANDOFF_UNCERTAIN" }, safeOwnerDetail(handoff))
+                },
+                verifyFresh = {
+                    val reread = c.status()
+                    VirtualDisplayHandoffRetry.freshStateAllowsRetry(
+                        statusOk = reread.ok,
+                        flags = if (reread.ok) flags(body(reread)) else null,
+                        retainedTaskIds = if (reread.ok) ids(body(reread).optJSONArray("retainedTaskIds")) else null,
+                        frozenSelectedIds = frozen.toSet(),
+                    )
+                },
+                delay = { millis -> Thread.sleep(millis) },
+            )
+            when (outcome) {
+                VirtualDisplayHandoffRetry.Outcome.HandedOff -> Unit
+                is VirtualDisplayHandoffRetry.Outcome.Stopped -> {
+                    // Preserve the first meaningful handoff diagnostics; never downgrade them.
+                    val first = outcome.failure
+                    if (first != null) return fail(s, first.code, first.detail)
+                    s.phase = "uncertain"
+                    return s.receipt ?: reply(false, "HANDOFF_UNCERTAIN")
+                }
+            }
         }
         // Re-read phase before release; never replay an uncertain release or handoff.
         val beforeRelease = c.status()
