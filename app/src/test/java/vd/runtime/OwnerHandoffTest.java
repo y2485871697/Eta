@@ -127,4 +127,12 @@ public class OwnerHandoffTest {
         assertFalse(OwnerHandoff.completeChildIds(new int[]{-1, 4}, 3));  // non-task marker
         assertFalse(OwnerHandoff.completeChildIds(new int[]{0, 4}, 3));   // not positive
     }
+
+    @Test public void rootTaskAllowsSelfMarkersForMultiActivityTask() {
+        assertTrue(OwnerHandoff.validRootChildMarkers(16, new int[]{16}));
+        assertTrue(OwnerHandoff.validRootChildMarkers(16, new int[]{16, -1}));
+        assertFalse(OwnerHandoff.validRootChildMarkers(16, new int[]{16, 17}));
+        assertFalse(OwnerHandoff.validRootChildMarkers(16, new int[]{16, 16}));
+        assertFalse(OwnerHandoff.validRootChildMarkers(16, null));
+    }
 }

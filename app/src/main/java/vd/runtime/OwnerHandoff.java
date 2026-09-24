@@ -377,8 +377,17 @@ final class OwnerHandoff {
             if(t==null||!Objects.equals(data,((Intent)field(t,"baseIntent")).getDataString())||number(t,"taskId")!=id||number(t,"displayId")!=display||!binder.equals(binder(t))||!base.equals(base(t))) throw new IllegalStateException("task identity changed");
             if(number(t,"userId")!=0||number(t,"parentTaskId")!=-1) throw new IllegalStateException("unsupported task shape");
             int[] kids=(int[])field(t,"childTaskIds");
-            if(kids==null||kids.length!=1||kids[0]!=id) throw new IllegalStateException("unsupported nested task");
+            if(!validRootChildMarkers(id,kids)) throw new IllegalStateException("child task ids unknown");
         }
+    }
+    static boolean validRootChildMarkers(int selfId,int[] childIds) {
+        if(selfId<=0 || childIds==null) return false;
+        Set<Integer> markers=new HashSet<Integer>();
+        for(int childId:childIds) {
+            if(childId!=selfId && childId!=-1) return false;
+            if(!markers.add(childId)) return false;
+        }
+        return true;
     }
     static void tx(Object t, boolean hide, boolean restore)throws Exception {
         Class<?> cl=Class.forName("android.window.WindowContainerTransaction"); Object change=cl.getConstructor().newInstance();
