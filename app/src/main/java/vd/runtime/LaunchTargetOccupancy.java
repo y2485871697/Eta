@@ -133,6 +133,29 @@ final class LaunchTargetOccupancy {
                 && root.realActivity == null && root.origActivity == null;
     }
 
+    /**
+     * True only when a name carried on the root's own marker exactly echoes the root's own readable
+     * identity: the name must equal every non-empty identity field, and at least one identity field
+     * must be readable.
+     *
+     * <p>The platform echoes the root's own package in the {@code childTaskNames} slot that pairs with
+     * the root's own id, so a self-marker name is only ever consistent when it merely restates the
+     * root's own package. A partial match, a field that disagrees with the name, or an identity-free
+     * root is a conflict that must fail closed: a named self marker can never invent an identity the
+     * root itself did not report.
+     */
+    private static boolean selfMarkerNameEchoesRoot(Root root, String name) {
+        boolean anyReadable = false;
+        String[] identities = {root.base, root.baseActivity, root.topActivity, root.realActivity,
+                root.origActivity};
+        for (String identity : identities) {
+            if (identity == null) continue;
+            anyReadable = true;
+            if (!identity.equals(name)) return false;
+        }
+        return anyReadable;
+    }
+
     /** Organizer evidence that every foreign child is an identity-free empty task. */
     private static boolean organizerProven(Root root) {
         return root.organizerEvidenceValid && root.emptyOrganizerProven
@@ -149,6 +172,10 @@ final class LaunchTargetOccupancy {
      * matches its child ids exactly ({@link #organizerProven}); only then may an unnamed foreign child
      * be accepted. A self-absent root is otherwise only clearable as an empty container: it must report
      * zero activities on top of the readable, identified non-target children.
+     *
+     * <p>A name on the root's own marker is tolerated only when it merely echoes the root's own
+     * readable identity ({@link #selfMarkerNameEchoesRoot}); a name on a {@code -1} marker, or a
+     * partial/contradictory self name, is a conflict, never a clean inventory.
      */
     private static boolean provenNonTarget(Root root) {
         if (!root.componentsKnown || !validChildIds(root)) return false;
@@ -160,8 +187,14 @@ final class LaunchTargetOccupancy {
         for (int i = 0; i < root.childTaskIds.length; i++) {
             int id = root.childTaskIds[i];
             if (!isForeignChild(root.taskId, id)) {
-                // A name on a self/-1 marker contradicts the assertion that it names no task.
-                if (namesKnown && root.childTaskNames[i] != null) return false;
+                // A name on the root's own marker is tolerated only when it echoes the root's own
+                // readable identity. A name on a -1 marker, or a partial/contradictory self name,
+                // contradicts the assertion that the slot names no other task.
+                if (namesKnown && root.childTaskNames[i] != null
+                        && (id != root.taskId
+                                || !selfMarkerNameEchoesRoot(root, root.childTaskNames[i]))) {
+                    return false;
+                }
                 continue;
             }
             foreign = true;

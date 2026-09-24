@@ -10,6 +10,8 @@ import org.junit.Test;
 
 public class LaunchTargetOccupancyTest {
     private static final String TARGET = "com.example.target";
+    /** Package of the owner app itself, as observed in the real-device root #249 / #242 evidence. */
+    private static final String ETA = "io.github.mangi.eta";
     private static LaunchTargetOccupancy.Root root(int id, String base, String baseActivity,
             String top, String real, boolean fieldsKnown, int activityCount,
             boolean childIdsKnown, int[] childIds, boolean childNamesKnown, String[] childNames) {
@@ -223,5 +225,48 @@ public class LaunchTargetOccupancyTest {
                 null, null, null, true)).rejects());
         assertTrue(decide(other, new LaunchTargetOccupancy.Recent(null, null,
                 null, null, null, true)).rejects());
+    }
+    @Test public void realDeviceSelfMarkerEchoingOwnIdentityIsClear() {
+        // Mirrors real-device root #249: base/baseActivity/topActivity/realActivity are all the
+        // root's own package and the self-marker child slot repeats that same package, so the root
+        // is not the target and a launch of another package must not be refused here.
+        assertFalse(decide(root(249, ETA, ETA, ETA, ETA, true, 1, true,
+                new int[]{249}, true, new String[]{ETA})).rejects());
+        // Mirrors a root like #242 whose readable identity fields are a subset: the echo must still
+        // match every non-empty identity field.
+        assertFalse(decide(root(242, ETA, null, ETA, null, true, 2, true,
+                new int[]{242}, true, new String[]{ETA})).rejects());
+    }
+    @Test public void selfMarkerNameMustEchoEveryReadableIdentity() {
+        // base=Eta but topActivity=other: the self-marker name contradicts one identity field, so the
+        // root is not clearable even though it matches the base.
+        assertEquals(LaunchTargetOccupancy.UNKNOWN,
+                decide(root(242, ETA, ETA, "com.other.app", ETA, true, 1, true,
+                        new int[]{242}, true, new String[]{ETA})).code);
+        // A self-marker name on an identity-free root has no readable identity to echo.
+        assertEquals(LaunchTargetOccupancy.UNKNOWN,
+                decide(root(242, null, null, null, null, true, 0, true,
+                        new int[]{242}, true, new String[]{ETA})).code);
+    }
+    @Test public void selfMarkerNameEqualToTargetStillRefuses() {
+        assertEquals(LaunchTargetOccupancy.ACTIVE,
+                decide(root(249, ETA, ETA, ETA, ETA, true, 1, true,
+                        new int[]{249}, true, new String[]{TARGET})).code);
+    }
+    @Test public void minusOneMarkerNameIsNeverAnEcho() {
+        // The -1 non-task marker never names a task, so any name on it is a contradiction, even when
+        // the name matches the root's own identity.
+        assertEquals(LaunchTargetOccupancy.UNKNOWN,
+                decide(root(249, ETA, ETA, ETA, ETA, true, 1, true,
+                        new int[]{-1}, true, new String[]{ETA})).code);
+    }
+    @Test public void selfMarkerEchoDoesNotClearAnUnnamedForeignChild() {
+        // The echo only explains the root's own marker; an unnamed foreign child still fails closed.
+        assertEquals(LaunchTargetOccupancy.UNKNOWN,
+                decide(root(249, ETA, ETA, ETA, ETA, true, 1, true,
+                        new int[]{249, 250}, true, new String[]{ETA, null})).code);
+        // A readable, identified non-target foreign child alongside the echo is still clear.
+        assertFalse(decide(root(249, ETA, ETA, ETA, ETA, true, 1, true,
+                new int[]{249, 250}, true, new String[]{ETA, "com.other.app"})).rejects());
     }
 }
