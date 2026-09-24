@@ -18,6 +18,7 @@ import org.junit.Test;
  *   <li>{@link OwnerHandoff#effectiveChildNames(int, int[], String[])}：在只有自身/-1 标记、
  *       没有任何外来子 id 时，把缺失/不平行名称安全折叠成长度相同的 null 平行数组。</li>
  *   <li>{@link OwnerHandoff#completeChildIds(int[], int)}：子任务 id 集合的完整性与自引用校验。</li>
+ *   <li>{@link OwnerHandoff.HandoffFailure}：只读预检失败与副作用后失败的分类（可重试 vs 不可重试）。</li>
  * </ul>
  * 不启动 owner，也不读取设备。
  */
@@ -134,5 +135,62 @@ public class OwnerHandoffTest {
         assertFalse(OwnerHandoff.validRootChildMarkers(16, new int[]{16, 17}));
         assertFalse(OwnerHandoff.validRootChildMarkers(16, new int[]{16, 16}));
         assertFalse(OwnerHandoff.validRootChildMarkers(16, null));
+    }
+
+    @Test public void preflightFailureIsTypedAndRetryable() {
+        OwnerHandoff.HandoffFailure failure = new OwnerHandoff.HandoffFailure(
+                "preflight:focus", new IllegalStateException("focus witness substructure"), false,
+                "moved=[] removed=[]");
+        assertEquals(OwnerHandoff.HANDOFF_PREFLIGHT_FAILED, failure.code);
+        assertTrue(failure.retryable());
+        assertFalse(failure.sideEffectsAttempted());
+        assertEquals("preflight:focus", failure.phase());
+    }
+
+    @Test public void sideEffectFailureIsTypedUncertainAndNeverRetryable() {
+        OwnerHandoff.HandoffFailure failure = new OwnerHandoff.HandoffFailure(
+                "anchor:launch", new IllegalStateException("anchor launch failed"), true,
+                "moved=[] removed=[]");
+        assertEquals(OwnerHandoff.HANDOFF_UNCERTAIN, failure.code);
+        assertFalse(failure.retryable());
+        assertTrue(failure.sideEffectsAttempted());
+    }
+
+    @Test public void preflightAndUncertainCodesAreDistinct() {
+        assertFalse(OwnerHandoff.HANDOFF_PREFLIGHT_FAILED.equals(OwnerHandoff.HANDOFF_UNCERTAIN));
+    }
+
+    @Test public void failureDetailNamesTheStageAndTypeButNeverTheToken() {
+        String detail = OwnerHandoff.failureDetail("anchor:launch",
+                new IllegalStateException("eta-vd-anchor://handoff/secret-token-value"),
+                "moved=[] removed=[]");
+        assertTrue(detail.contains("anchor:launch"));
+        assertTrue(detail.contains("IllegalStateException"));
+        assertFalse(detail.contains("secret-token-value"));
+        assertFalse(detail.contains("eta-vd-anchor"));
+    }
+
+    @Test public void phaseIsSanitizedToASymbolicLabel() {
+        assertEquals("preflight_focus", OwnerHandoff.sanitizePhase("preflight/focus"));
+        assertEquals("unknown", OwnerHandoff.sanitizePhase(null));
+        assertEquals("unknown", OwnerHandoff.sanitizePhase(""));
+        // A URI passed by mistake loses its separators and cannot carry a raw token through.
+        assertFalse(OwnerHandoff.sanitizePhase("eta-vd-anchor://handoff/x").contains("/"));
+        assertFalse(OwnerHandoff.sanitizePhase("a b\tc").contains(" "));
+    }
+
+    @Test public void migratedTaskCheckStaysStrictForADesktopContainer() {
+        // The home root #1 with launcher child #2 is a legitimate desktop container for the read-only
+        // focus witness, but must stay invalid for the strict check applied to migrated app tasks.
+        assertFalse(OwnerHandoff.validRootChildMarkers(1, new int[]{2}));
+        assertTrue(FocusWitness.focusSubstructureKnown(1, new int[]{2},
+                new String[]{"com.bbk.launcher2"}));
+    }
+    @Test public void errorAfterSideEffectIsNeverRetryable() {
+        OwnerHandoff.HandoffFailure failure = new OwnerHandoff.HandoffFailure(
+                "anchor:observe", new AssertionError("private payload"), true, "moved=[] removed=[]");
+        assertFalse(failure.retryable());
+        assertEquals("HANDOFF_UNCERTAIN", failure.code);
+        assertFalse(failure.getMessage().contains("private payload"));
     }
 }

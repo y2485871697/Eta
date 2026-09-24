@@ -38,6 +38,7 @@ public final class VirtualDisplayOwner {
     private boolean finishing;
     private boolean handoffComplete;
     private boolean releaseAttempted;
+    private boolean mutationUncertain;
     private final java.util.Map<Integer,OwnerHandoff.Task> owned = new java.util.LinkedHashMap<Integer,OwnerHandoff.Task>();
 
     private VirtualDisplayOwner(VirtualDisplayFactory.Created created, OwnerFrameStore frames,
@@ -128,6 +129,9 @@ public final class VirtualDisplayOwner {
             out.put("finishing",finishing);
             out.put("handoffComplete",handoffComplete);
             out.put("releaseAttempted",releaseAttempted);
+            // A side effect may have been applied without a verified outcome: the recovery policy
+            // treats this as "never replay" evidence.
+            out.put("mutationUncertain",mutationUncertain);
             out.put("supported", stringArray(OwnerProtocol.SUPPORTED_OPS));
             out.put("missing", stringArray(OwnerProtocol.MISSING_OPS));
         } catch (JSONException ex) {
@@ -192,7 +196,7 @@ public final class VirtualDisplayOwner {
                 }
             }
             if(!provenanceObserved)throw new IllegalStateException("fresh launch task not observed");
-        } catch(Exception e) { finishing=true; throw new OwnerException("LAUNCH_IDENTITY_UNCERTAIN"); }
+        } catch(Exception e) { finishing=true; mutationUncertain=true; throw new OwnerException("LAUNCH_IDENTITY_UNCERTAIN"); }
         JSONObject out = new JSONObject();
         try {
             out.put("taskIds",new JSONArray(owned.keySet()));
@@ -293,9 +297,25 @@ public final class VirtualDisplayOwner {
     public JSONObject handoff(JSONObject request) throws OwnerException {
         requireLive(); optionalDisplay(wrap(request));
         if(finishing)throw new OwnerException("HANDOFF_ALREADY_ATTEMPTED");
-        finishing=true;
-        JSONObject out=OwnerHandoff.move(created.displayId,created.uniqueId,owned,request.optJSONArray("taskIds"));
-        handoffComplete=true;return out;
+        try {
+            JSONObject out=OwnerHandoff.move(created.displayId,created.uniqueId,owned,request.optJSONArray("taskIds"));
+            finishing=true; handoffComplete=true;
+            return out;
+        } catch(OwnerHandoff.HandoffFailure ex) {
+            if(ex.sideEffectsAttempted()) {
+                // The anchor launch (the first side effect) may already be applied: this session is
+                // now uncertain and is never replayed automatically.
+                finishing=true; mutationUncertain=true;
+            }
+            // A preflight-only failure leaves finishing false so a deliberate retry is still possible.
+            throw ex;
+        } catch(OwnerException ex) {
+            finishing=true; mutationUncertain=true;
+            throw ex;
+        } catch(Throwable ex) {
+            finishing=true; mutationUncertain=true;
+            throw new OwnerException("HANDOFF_UNCERTAIN", "owner:"+ex.getClass().getSimpleName());
+        }
     }
 
     public JSONObject release(JSONObject request) throws OwnerException {
