@@ -106,6 +106,16 @@ public class OwnerHandoffTest {
                         new String[]{"unknown", "unknown"}));
         assertArrayEquals(new String[]{"com.a.app"},
                 OwnerHandoff.effectiveChildNames(3, new int[]{4}, new String[]{"com.a.app"}));
+        // Extra or shifted names are contradictory even with only self/-1 markers.
+        assertNull(OwnerHandoff.effectiveChildNames(6, new int[]{6},
+                new String[]{"com.example.target", "extra"}));
+        assertNull(OwnerHandoff.effectiveChildNames(6, new int[]{-1, 6},
+                new String[]{"com.example.target"}));
+        assertNull(OwnerHandoff.effectiveChildNames(6, new int[0],
+                new String[]{"com.a.app"}));
+        assertNull(OwnerHandoff.effectiveChildNames(6, new int[]{6, 6}, null));
+        assertNull(OwnerHandoff.effectiveChildNames(6, new int[]{6}, new String[0]));
+        assertNull(OwnerHandoff.effectiveChildNames(6, new int[]{-2}, null));
     }
 
     @Test public void childIdsMustBeCompletePositiveUniqueAndForeign() {

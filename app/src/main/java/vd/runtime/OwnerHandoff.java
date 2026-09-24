@@ -101,8 +101,14 @@ final class OwnerHandoff {
             int[] ids=(int[])field(task,"childTaskIds");
             if(ids!=null && id>=0) {
                 childIdsKnown=true; childIds=ids;
-                String[] names=effectiveChildNames(id,ids,rawChildNames(task));
-                if(names!=null && names.length==ids.length) { childNames=names; childNamesKnown=true; }
+                String[] raw=rawChildNames(task);
+                // A present but non-parallel platform array is contradictory, even if an
+                // independent organizer query could otherwise prove the children empty.
+                if(raw!=null && raw.length!=ids.length) childIdsKnown=false;
+                else {
+                    String[] names=effectiveChildNames(id,ids,raw);
+                    if(names!=null && names.length==ids.length) { childNames=names; childNamesKnown=true; }
+                }
             }
         } catch(Exception ignored) { }
         // Organizer evidence is only consulted for an identity-free, empty, activityType-0 container.
@@ -141,8 +147,14 @@ final class OwnerHandoff {
         if(ids==null) return null;
         String[] names=parallelChildPackages(rawNames,ids);
         if(names!=null) return names;
-        if(!LaunchTargetOccupancy.hasForeignChild(selfId,ids)) return new String[ids.length];
-        return null;
+        if(rawNames!=null) return null;
+        if(selfId<=0) return null;
+        java.util.Set<Integer> markers=new java.util.HashSet<Integer>();
+        for(int id:ids) {
+            if(id!=selfId && id!=-1) return null;
+            if(!markers.add(id)) return null;
+        }
+        return new String[ids.length];
     }
     /**
      * Packages for each id from the platform's parallel {@code childTaskNames} array, or {@code null}
@@ -236,6 +248,7 @@ final class OwnerHandoff {
         try {
             int rootId=requiredInt(root,"taskId");
             if(!completeChildIds(childIds,rootId)) return false;
+            if(requiredInt(root,"parentTaskId")!=-1) return false;
             Integer activityType=activityType(root);
             if(activityType==null||activityType.intValue()!=0) return false;
             Integer numActivities=intFieldOrNull(root,"numActivities");
@@ -262,7 +275,18 @@ final class OwnerHandoff {
                 if(childActivities==null||childActivities.intValue()!=0) return false;
                 if(!identityFree(child)) return false;
             }
-            return seen.equals(expected);
+            if(!seen.equals(expected)) return false;
+            // A second platform snapshot detects changes between the root and child IPC reads.
+            // This is still best-effort, not an atomic system_server admission fence.
+            Object latest=roots().get(rootId);
+            if(latest==null || !binder(root).equals(binder(latest))) return false;
+            if(requiredInt(latest,"taskId")!=rootId || requiredInt(latest,"parentTaskId")!=-1
+                    || requiredInt(latest,"displayId")!=display.intValue()
+                    || requiredInt(latest,"userId")!=user.intValue()
+                    || requiredInt(latest,"numActivities")!=0) return false;
+            Integer latestType=activityType(latest);
+            if(latestType==null || latestType.intValue()!=0 || !identityFree(latest)) return false;
+            return java.util.Arrays.equals(childIds,(int[])field(latest,"childTaskIds"));
         } catch(Exception ex) {
             return false;
         }
@@ -294,7 +318,14 @@ final class OwnerHandoff {
         if(rawIntent!=null) {
             if(!(rawIntent instanceof Intent)) return false;
             Intent intent=(Intent)rawIntent;
-            if(intent.getComponent()!=null||intent.getPackage()!=null) return false;
+            // An unresolved deep link or any other non-empty Intent is not proof of an
+            // identity-free system shell: do not infer a package from its payload.
+            if(intent.getComponent()!=null || intent.getPackage()!=null
+                    || intent.getAction()!=null || intent.getData()!=null
+                    || intent.getType()!=null || intent.getSelector()!=null
+                    || intent.getCategories()!=null || intent.getExtras()!=null
+                    || intent.getClipData()!=null || intent.getSourceBounds()!=null
+                    || intent.getFlags()!=0) return false;
         }
         return componentPackage(field(task,"baseActivity"))==null
                 && componentPackage(field(task,"topActivity"))==null

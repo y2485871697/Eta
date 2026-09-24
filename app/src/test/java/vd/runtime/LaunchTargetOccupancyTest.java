@@ -100,13 +100,70 @@ public class LaunchTargetOccupancyTest {
     @Test public void selfMarkerChildWithoutRawNamesIsNotMisrejected() {
         // root #6: childTaskIds={6} (and/or -1) is the root's own marker, so a missing childTaskNames
         // raw array must not turn it into an unknown child.
+        // The collector must first normalize a genuinely absent raw array to a parallel
+        // all-null array. A bare policy snapshot with missing names remains unknown.
+        assertEquals(LaunchTargetOccupancy.UNKNOWN, decide(root(6, null, null, null, null,
+                true, 0, true, new int[]{6}, false, null)).code);
         assertFalse(decide(root(6, null, null, null, null, true, 0, true,
-                new int[]{6}, false, null)).rejects());
+                new int[]{6}, true, new String[]{null})).rejects());
         assertFalse(decide(root(6, null, null, null, null, true, 0, true,
-                new int[]{-1, 6}, false, null)).rejects());
+                new int[]{-1, 6}, true, new String[]{null, null})).rejects());
         // A real foreign child id without a name stays unknown.
         assertEquals(LaunchTargetOccupancy.UNKNOWN, decide(root(6, null, null, null, null, true, 0,
                 true, new int[]{6, 7}, false, null)).code);
+    }
+    @Test public void malformedChildIdsNeverProveAnEmptyShell() {
+        int[][] bad = {new int[]{-2}, new int[]{6, -2}, new int[]{0},
+                new int[]{6, 6}, new int[]{-1, -1}, new int[]{7, 7}};
+        for (int[] ids : bad) {
+            String[] names = new String[ids.length];
+            java.util.Arrays.fill(names, "com.other.app");
+            assertEquals(LaunchTargetOccupancy.UNKNOWN,
+                    decide(root(6, null, null, null, null, true, 0,
+                            true, ids, true, names)).code);
+        }
+        assertEquals(LaunchTargetOccupancy.UNKNOWN, decide(root(6, null, null, null, null,
+                true, 0, true, null, true, new String[0])).code);
+        assertEquals(LaunchTargetOccupancy.UNKNOWN, decide(root(0, null, null, null, null,
+                true, 0, true, new int[0], true, new String[0])).code);
+        // A reliable target identity still wins over another malformed root.
+        assertEquals(LaunchTargetOccupancy.ACTIVE,
+                LaunchTargetOccupancy.decide(TARGET, Arrays.asList(
+                        root(6, null, null, null, null, true, 0, true,
+                                new int[]{-2}, false, null),
+                        plain(7, TARGET, null, null, null, true, 1)),
+                        Collections.emptyList()).code);
+    }
+    @Test public void organizerProofCannotContradictKnownIdentities() {
+        assertEquals(LaunchTargetOccupancy.UNKNOWN,
+                decide(root(1, "com.bbk.launcher2", null, null, null, true, 1,
+                        true, new int[]{2}, true, new String[]{null}, true, true)).code);
+        assertEquals(LaunchTargetOccupancy.UNKNOWN,
+                decide(root(3, null, null, null, null, true, 1,
+                        true, new int[]{4}, true, new String[]{null}, true, true)).code);
+        assertEquals(LaunchTargetOccupancy.UNKNOWN,
+                decide(root(3, null, null, null, null, true, 0,
+                        true, new int[]{4, 5}, true,
+                        new String[]{"com.other.app", null}, true, true)).code);
+        assertEquals(LaunchTargetOccupancy.ACTIVE,
+                decide(root(3, null, null, null, null, true, 0,
+                        true, new int[]{4, 5}, true,
+                        new String[]{TARGET, null}, true, true)).code);
+        assertEquals(LaunchTargetOccupancy.RECENT,
+                decide(root(3, null, null, null, null, true, 0,
+                        true, new int[]{-2}, false, null),
+                        new LaunchTargetOccupancy.Recent(TARGET, null, null, null, null, true)).code);
+    }
+    @Test public void aNamedSelfMarkerIsNotAnEmptyShell() {
+        assertEquals(LaunchTargetOccupancy.ACTIVE,
+                decide(root(6, null, null, null, null, true, 0,
+                        true, new int[]{6}, true, new String[]{TARGET})).code);
+        assertEquals(LaunchTargetOccupancy.UNKNOWN,
+                decide(root(6, null, null, null, null, true, 0,
+                        true, new int[]{6}, true, new String[]{"com.other.app"})).code);
+        assertEquals(LaunchTargetOccupancy.UNKNOWN,
+                decide(root(6, null, null, null, null, true, 0,
+                        true, new int[]{-1}, true, new String[]{"com.other.app"})).code);
     }
     @Test public void missingOrNonParallelChildArraysFailClosed() {
         // childTaskIds unreadable.
@@ -155,6 +212,8 @@ public class LaunchTargetOccupancyTest {
         assertFalse(LaunchTargetOccupancy.hasForeignChild(6, new int[]{6}));
         assertFalse(LaunchTargetOccupancy.hasForeignChild(6, new int[]{-1, 6}));
         assertTrue(LaunchTargetOccupancy.hasForeignChild(6, new int[]{6, 7}));
+        assertTrue(LaunchTargetOccupancy.hasForeignChild(6, new int[]{-2}));
+        assertTrue(LaunchTargetOccupancy.hasForeignChild(6, new int[]{0}));
         assertTrue(LaunchTargetOccupancy.hasForeignChild(-1, new int[]{-1}));
         assertTrue(LaunchTargetOccupancy.hasForeignChild(6, null));
     }

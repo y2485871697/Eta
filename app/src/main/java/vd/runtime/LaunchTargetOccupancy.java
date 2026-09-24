@@ -49,9 +49,9 @@ final class LaunchTargetOccupancy {
             this.componentsKnown = componentsKnown;
             this.numActivities = numActivities;
             this.childIdsKnown = childIdsKnown;
-            this.childTaskIds = childTaskIds == null ? new int[0] : childTaskIds;
+            this.childTaskIds = childTaskIds;
             this.childNamesKnown = childNamesKnown;
-            this.childTaskNames = childTaskNames == null ? new String[0] : childTaskNames;
+            this.childTaskNames = childTaskNames;
             this.emptyOrganizerProven = emptyOrganizerProven;
             this.organizerEvidenceValid = organizerEvidenceValid;
         }
@@ -89,7 +89,7 @@ final class LaunchTargetOccupancy {
     /** -1 is the platform's non-task child marker, never another task id. */
     static boolean hasForeignChild(int selfId, int[] ids) {
         if (selfId < 0 || ids == null) return true; // unreadable identity is never an empty shell
-        for (int child : ids) if (child >= 0 && child != selfId) return true;
+        for (int child : ids) if (child != -1 && child != selfId) return true;
         return false;
     }
 
@@ -99,8 +99,20 @@ final class LaunchTargetOccupancy {
     }
 
     private static boolean hasParallelChildNames(Root root) {
-        return root.childIdsKnown && root.childNamesKnown
+        return root.childIdsKnown && root.childNamesKnown && root.childTaskIds != null
+                && root.childTaskNames != null
                 && root.childTaskNames.length == root.childTaskIds.length;
+    }
+
+    /** Only -1 and the root's own id are non-task markers. Everything else must be unique. */
+    private static boolean validChildIds(Root root) {
+        if (!root.childIdsKnown || root.childTaskIds == null || root.taskId <= 0) return false;
+        java.util.Set<Integer> seen = new java.util.HashSet<Integer>();
+        for (int id : root.childTaskIds) {
+            if (id != -1 && id <= 0) return false;
+            if (!seen.add(id)) return false;
+        }
+        return true;
     }
 
     /** True when a readable, identified foreign child is the target package. */
@@ -109,7 +121,8 @@ final class LaunchTargetOccupancy {
         int[] ids = root.childTaskIds;
         String[] names = root.childTaskNames;
         for (int i = 0; i < ids.length; i++) {
-            if (isForeignChild(root.taskId, ids[i]) && target.equals(names[i])) return true;
+            // Even a self/marker slot with a target name is contradictory, never a clean inventory.
+            if (target.equals(names[i])) return true;
         }
         return false;
     }
@@ -122,7 +135,8 @@ final class LaunchTargetOccupancy {
 
     /** Organizer evidence that every foreign child is an identity-free empty task. */
     private static boolean organizerProven(Root root) {
-        return root.organizerEvidenceValid && root.emptyOrganizerProven;
+        return root.organizerEvidenceValid && root.emptyOrganizerProven
+                && identityAbsent(root) && root.numActivities == 0;
     }
 
     /**
@@ -137,20 +151,27 @@ final class LaunchTargetOccupancy {
      * zero activities on top of the readable, identified non-target children.
      */
     private static boolean provenNonTarget(Root root) {
-        if (!root.componentsKnown) return false;
-        if (identityAbsent(root) && root.numActivities != 0) return false; // empty container required
-        if (!root.childIdsKnown) return false;
-        int[] ids = root.childTaskIds;
-        // Only the root's own id and the -1 marker: no foreign child can possibly be the target.
-        if (!hasForeignChild(root.taskId, ids)) return true;
-        if (hasParallelChildNames(root)) {
-            for (int i = 0; i < ids.length; i++) {
-                if (isForeignChild(root.taskId, ids[i]) && root.childTaskNames[i] == null)
-                    return organizerProven(root); // an unnamed child needs organizer emptiness proof
+        if (!root.componentsKnown || !validChildIds(root)) return false;
+        if (identityAbsent(root) && root.numActivities != 0) return false;
+        // A claimed readable name array that disagrees with the ids is inconsistent, not empty.
+        if (root.childNamesKnown && !hasParallelChildNames(root)) return false;
+        boolean namesKnown = hasParallelChildNames(root);
+        boolean foreign = false, unnamedForeign = false, namedForeign = false;
+        for (int i = 0; i < root.childTaskIds.length; i++) {
+            int id = root.childTaskIds[i];
+            if (!isForeignChild(root.taskId, id)) {
+                // A name on a self/-1 marker contradicts the assertion that it names no task.
+                if (namesKnown && root.childTaskNames[i] != null) return false;
+                continue;
             }
-            return true; // a known, non-target self identity plus identified non-target children
+            foreign = true;
+            if (!namesKnown || root.childTaskNames[i] == null) unnamedForeign = true;
+            else namedForeign = true;
         }
-        return organizerProven(root); // unnamed or non-parallel children need organizer proof
+        if (!foreign) return namesKnown; // collector normalizes an absent self-only name array
+        if (!unnamedForeign) return namesKnown; // all foreign leaf tasks have known, non-target names
+        // An empty-organizer proof cannot coexist with a named, non-empty foreign task.
+        return !namedForeign && organizerProven(root);
     }
 
     static Decision decide(String target, List<Root> roots, List<Recent> recents) {
