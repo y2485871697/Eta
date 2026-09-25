@@ -425,9 +425,11 @@ internal class AgentLoop(
         if (forced) { manualBudgetAttempt = true; lastFailedCompaction = null }
         if (!forced && !pressureRetry && (!compactPolicy.enabled || overflowPending)) return
         val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
-        val charPressure = storedHistoryChars() > persistenceCharLimit() * 7 / 10
-        if (!forced && !pressureRetry && skipIneffectiveAutoCompact && !charPressure && !requestOverBudget()) return
-        if (!forced && !charPressure && estimatedRequestTokens() < AgentContextCompactor.autoPressureTokens(window)) return
+        if (!forced && !pressureRetry && skipIneffectiveAutoCompact && !requestOverBudget()) return
+        // Soft scheduling uses request tokens only. Hard input/storage limits and
+        // confirmed provider overflow are handled separately by tryBudgetCompaction.
+        var decisionTokens = estimatedRequestTokens()
+        if (!forced && decisionTokens < AgentContextCompactor.autoPressureTokens(window)) return
         budgetCompressModelConfig = override?.compressModelConfig
             ?: if (pressureRetry) budgetCompressModelConfig else compactPolicy.compressModelConfig
         val keep = AgentContextCompactor.coerceKeepRecent(
@@ -441,20 +443,19 @@ internal class AgentLoop(
                 reason = "当前保留范围内没有可压缩的完整历史单元。"))
             return
         }
-        if (forced) onEvent(AgentEvent.ContextCompactionStarted(round, config.modelDisplayName.ifBlank { config.model }))
         val pruned = pruneOversizedToolResults(round, systemCount + cut)
         if (pruned) {
             // Both the DTO and same-model JSON replay must come from this new snapshot.
             history = historyForCompaction()
             cut = compactionStart(history)
-            if (!forced && storedHistoryChars() <= persistenceCharLimit() * 7 / 10 &&
-                estimatedRequestTokens() < AgentContextCompactor.autoPressureTokens(window) && !requestOverBudget()) return
+            decisionTokens = estimatedRequestTokens()
+            if (!forced && decisionTokens < AgentContextCompactor.autoPressureTokens(window)) return
         }
         if (forced && cut <= 0) {
             onEvent(AgentEvent.ContextCompacted(round, false, messages.length(), messages.length(),
                 reason = "当前保留范围内没有可压缩的完整历史单元。"))
         }
-        val reduced = cut > 0 && applyCompaction(round, history, cut)
+        val reduced = cut > 0 && applyCompaction(round, history, cut, decisionTokens)
         if (reduced || pruned) {
             overflowPending = false
             skipIneffectiveAutoCompact = false
@@ -531,7 +532,12 @@ internal class AgentLoop(
         return true
     }
 
-    private fun applyCompaction(round: Int, history: List<AgentModelClient.ConversationMessage>, cut: Int): Boolean {
+    private fun applyCompaction(
+        round: Int,
+        history: List<AgentModelClient.ConversationMessage>,
+        cut: Int,
+        decisionTokens: Int = estimatedRequestTokens(),
+    ): Boolean {
         val compressConfig = budgetCompressModelConfig?.let { model ->
             val window = model.contextWindow?.takeIf { it > 0 }
                 ?: config.contextWindow?.takeIf { it > 0 }
@@ -541,6 +547,9 @@ internal class AgentLoop(
         val original = messages.toString()
         val originalCount = messages.length()
         if (lastFailedCompaction == (original to cut)) return false
+        // Publish the same next-request occupancy that selected this attempt before
+        // showing compaction, including fresh tool output not present in the last bill.
+        emitProjectedPrompt(round, decisionTokens)
         onEvent(AgentEvent.ContextCompactionStarted(round, config.modelDisplayName.ifBlank { config.model }))
         var savedCheckpoint: String? = null
         var compactionStage = "archive"
@@ -790,9 +799,7 @@ internal class AgentLoop(
         return billedInput + added
     }
 
-    private fun emitProjectedPrompt(round: Int) {
-        val projected = projectedPromptTokens() ?: (AgentContextBudget.estimate(messages) +
-            AgentContextBudget.countTokens(currentRoundTools.toString()))
+    private fun emitProjectedPrompt(round: Int, projected: Int = estimatedRequestTokens()) {
         if (projected <= 0) return
         onEvent(
             AgentEvent.UsageReceived(
