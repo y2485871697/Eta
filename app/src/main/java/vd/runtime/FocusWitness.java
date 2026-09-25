@@ -7,19 +7,16 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Read-only witness of the main-display focused root task.
+ * Read-only witness of the main-display focused task and its root.
  *
- * <p>After every migration step the owner re-asserts the main-display focus by comparing the task the
- * platform currently reports as focused against a witness captured during the read-only preflight.
- * The witness is only ever read and compared: it is never hidden, moved, removed or re-focused.
+ * <p>The root and (when supplied by the display-local reader) focused leaf identities are captured
+ * together. Checking only the root would miss a foreground switch between two of its children.
+ * Nothing here hides, moves, removes or re-focuses the protected foreground task.
  *
- * <p>The desktop root is a real container whose child tasks (the launcher and its activities) are
- * legitimate, so this check is deliberately independent of {@link OwnerHandoff.Task#check}, which
- * stays strict for the app tasks that are actually migrated. A witness is accepted only when its
- * identity is fully conservative: a stable binder, the primary user, the main display, a stable root
- * task id with no parent, and a known base component, plus a substructure that is either free of
- * foreign child tasks or whose foreign children are all named by the platform. An unreadable,
- * duplicated or unnamed structure is refused (fail closed), never guessed.
+ * <p>The desktop root can be a real container, unlike the strict app tasks that are migrated by
+ * {@link OwnerHandoff.Task#check}. Its structure must be readable and stable, and every foreign
+ * child must be named by the platform. A focused leaf must belong to exactly this root; a leaf
+ * that is itself a root must have the same Binder and identity in both snapshots.
  */
 final class FocusWitness {
     /** Fixed tokens only: never expose Intent data, package names or binder values. */
@@ -28,7 +25,8 @@ final class FocusWitness {
         NOT_ROOT, BINDER_MISSING, BASE_MISSING, CHILD_IDS_UNREADABLE, CHILD_NAMES_LENGTH_MISMATCH,
         CHILD_IDS_DUPLICATE, CHILD_ID_INVALID, CHILD_NAMES_MISSING, CHILD_NAME_UNKNOWN, TASK_CHANGED,
         USER_CHANGED, DISPLAY_CHANGED, ROOT_CHANGED, BINDER_CHANGED, BASE_CHANGED,
-        DATA_CHANGED, STRUCTURE_CHANGED, FOCUS_UNSTABLE
+        DATA_CHANGED, STRUCTURE_CHANGED, FOCUS_UNSTABLE, FOCUS_UNSUPPORTED, FOCUS_UNREADABLE,
+        FOCUS_AMBIGUOUS, LEAF_ROOT_MISMATCH
     }
 
     static final class Rejected extends IllegalStateException {
@@ -45,9 +43,15 @@ final class FocusWitness {
     private final int displayId;
     private final int[] children;
     private final String[] childNames;
+    private final Leaf leaf;
 
     private FocusWitness(int taskId, Object binder, String base, String data, int userId,
             int displayId, int[] children, String[] childNames) {
+        this(taskId, binder, base, data, userId, displayId, children, childNames, null);
+    }
+
+    private FocusWitness(int taskId, Object binder, String base, String data, int userId,
+            int displayId, int[] children, String[] childNames, Leaf leaf) {
         this.taskId = taskId;
         this.binder = binder;
         this.base = base;
@@ -56,12 +60,10 @@ final class FocusWitness {
         this.displayId = displayId;
         this.children = children.clone();
         this.childNames = childNames == null ? null : childNames.clone();
+        this.leaf = leaf;
     }
 
-    /**
-     * Captures and validates a witness from the currently focused root task, cross-checking the same
-     * task in the root inventory when it is present. Pure validation, no mutation.
-     */
+    /** Validates a focused root against the same task in a separate root inventory. */
     static FocusWitness capture(Object focused, Object inventory, int expectedDisplay, int expectedUser)
             throws Exception {
         if (focused == null) throw new Rejected(Reason.FOCUS_MISSING);
@@ -69,6 +71,42 @@ final class FocusWitness {
         FocusWitness witness = read(focused, expectedDisplay, expectedUser);
         witness.check(inventory);
         return witness;
+    }
+
+    /**
+     * Joins explicit display-local focused-leaf evidence to its uniquely identified inventory root.
+     * getTasks returns leaves, whereas RootTaskInfo.childTaskIds names leaves below a container.
+     * TaskInfo.parentTaskId can be -1 for a non-organized parent; exact inventory membership is
+     * still required in that case. A reported direct parent other than this root is unsupported
+     * (e.g. a multi-level organizer hierarchy), never guessed.
+     */
+    static FocusWitness captureFocusedTask(Object focused, Object root, int expectedDisplay,
+            int expectedUser) throws Exception {
+        Leaf leaf = new Leaf(focused, expectedDisplay, expectedUser);
+        FocusWitness witness = read(root, expectedDisplay, expectedUser);
+        if (leaf.id == witness.taskId) {
+            if (leaf.parent != -1) throw new Rejected(Reason.NOT_ROOT);
+            if (!OwnerHandoff.validRootChildMarkers(witness.taskId, witness.children)) {
+                throw new Rejected(Reason.LEAF_ROOT_MISMATCH);
+            }
+            if (!witness.binder.equals(leaf.binder)) throw new Rejected(Reason.BINDER_CHANGED);
+            if (!Objects.equals(witness.base, leaf.base)) throw new Rejected(Reason.BASE_CHANGED);
+            if (!Objects.equals(witness.data, leaf.data)) throw new Rejected(Reason.DATA_CHANGED);
+        } else {
+            if (leaf.parent != -1 && leaf.parent != witness.taskId) {
+                throw new Rejected(Reason.LEAF_ROOT_MISMATCH);
+            }
+            if (!OwnerHandoff.completeChildIds(witness.children, witness.taskId)) {
+                throw new Rejected(Reason.LEAF_ROOT_MISMATCH);
+            }
+            boolean found = false;
+            for (int id : witness.children) if (id == leaf.id) found = true;
+            if (!found || witness.binder.equals(leaf.binder)) {
+                throw new Rejected(Reason.LEAF_ROOT_MISMATCH);
+            }
+        }
+        return new FocusWitness(witness.taskId, witness.binder, witness.base, witness.data,
+                witness.userId, witness.displayId, witness.children, witness.childNames, leaf);
     }
 
     private static FocusWitness read(Object task, int expectedDisplay, int expectedUser)
@@ -80,12 +118,10 @@ final class FocusWitness {
         if (userId != expectedUser) throw new Rejected(Reason.WRONG_USER);
         int displayId = OwnerHandoff.number(task, "displayId");
         if (displayId != expectedDisplay) throw new Rejected(Reason.WRONG_DISPLAY);
-        // A focused witness must be a root task, never a nested child.
         if (OwnerHandoff.number(task, "parentTaskId") != -1) {
             throw new Rejected(Reason.NOT_ROOT);
         }
-        Object binder = OwnerHandoff.binder(task);
-        if (binder == null) throw new Rejected(Reason.BINDER_MISSING);
+        Object binder = binderOf(task);
         String base = baseOf(task);
         String data = dataString(task);
         int[] children = childIds(task);
@@ -95,7 +131,7 @@ final class FocusWitness {
         return new FocusWitness(id, binder, base, data, userId, displayId, children, names);
     }
 
-    /** Re-verifies the witness against a freshly read focused root task. Pure comparison. */
+    /** Re-verifies root identity against a fresh root task. Does not assert leaf focus by itself. */
     void check(Object focused) throws Exception {
         if (focused == null) throw new Rejected(Reason.FOCUS_MISSING);
         if (OwnerHandoff.number(focused, "taskId") != taskId) {
@@ -110,7 +146,7 @@ final class FocusWitness {
         if (OwnerHandoff.number(focused, "parentTaskId") != -1) {
             throw new Rejected(Reason.ROOT_CHANGED);
         }
-        if (!binder.equals(OwnerHandoff.binder(focused))) {
+        if (!binder.equals(binderOf(focused))) {
             throw new Rejected(Reason.BINDER_CHANGED);
         }
         if (!Objects.equals(base, baseOf(focused))) {
@@ -128,12 +164,67 @@ final class FocusWitness {
         }
     }
 
+    /** Post-anchor validation must compare fresh display-local evidence, including the leaf. */
+    void checkWitness(FocusWitness next) {
+        if (next == null) throw new Rejected(Reason.FOCUS_MISSING);
+        if (taskId != next.taskId) throw new Rejected(Reason.TASK_CHANGED);
+        if (userId != next.userId) throw new Rejected(Reason.USER_CHANGED);
+        if (displayId != next.displayId) throw new Rejected(Reason.DISPLAY_CHANGED);
+        if (!binder.equals(next.binder)) throw new Rejected(Reason.BINDER_CHANGED);
+        if (!Objects.equals(base, next.base)) throw new Rejected(Reason.BASE_CHANGED);
+        if (!Objects.equals(data, next.data)) throw new Rejected(Reason.DATA_CHANGED);
+        if (!Arrays.equals(children, next.children) || !Arrays.equals(childNames, next.childNames)) {
+            throw new Rejected(Reason.STRUCTURE_CHANGED);
+        }
+        if (leaf == null && next.leaf == null) return;
+        if (leaf == null || next.leaf == null) throw new Rejected(Reason.STRUCTURE_CHANGED);
+        leaf.check(next.leaf);
+    }
+
     /** Full identity comparison between two independently validated snapshots. */
     boolean matches(FocusWitness other) {
-        return other != null && taskId == other.taskId && userId == other.userId
-                && displayId == other.displayId && binder.equals(other.binder)
-                && Objects.equals(base, other.base) && Objects.equals(data, other.data)
-                && Arrays.equals(children, other.children) && Arrays.equals(childNames, other.childNames);
+        try { checkWitness(other); return true; }
+        catch (Rejected ex) { return false; }
+    }
+
+    /** Immutable leaf identity: token wrappers may differ, their underlying Binder must not. */
+    private static final class Leaf {
+        final int id, user, display, parent;
+        final Object binder;
+        final String base, data;
+        Leaf(Object task, int expectedDisplay, int expectedUser) throws Exception {
+            if (task == null) throw new Rejected(Reason.FOCUS_MISSING);
+            id = OwnerHandoff.number(task, "taskId");
+            if (id <= 0) throw new Rejected(Reason.INVALID_TASK_ID);
+            user = OwnerHandoff.number(task, "userId");
+            if (user != expectedUser) throw new Rejected(Reason.WRONG_USER);
+            display = OwnerHandoff.number(task, "displayId");
+            if (display != expectedDisplay) throw new Rejected(Reason.WRONG_DISPLAY);
+            parent = OwnerHandoff.number(task, "parentTaskId");
+            if (parent != -1 && (parent <= 0 || parent == id)) {
+                throw new Rejected(Reason.LEAF_ROOT_MISMATCH);
+            }
+            binder = binderOf(task);
+            base = baseOf(task);
+            data = dataString(task);
+        }
+        void check(Leaf next) {
+            if (id != next.id) throw new Rejected(Reason.TASK_CHANGED);
+            if (user != next.user) throw new Rejected(Reason.USER_CHANGED);
+            if (display != next.display) throw new Rejected(Reason.DISPLAY_CHANGED);
+            if (parent != next.parent) throw new Rejected(Reason.ROOT_CHANGED);
+            if (!binder.equals(next.binder)) throw new Rejected(Reason.BINDER_CHANGED);
+            if (!Objects.equals(base, next.base)) throw new Rejected(Reason.BASE_CHANGED);
+            if (!Objects.equals(data, next.data)) throw new Rejected(Reason.DATA_CHANGED);
+        }
+    }
+
+    private static Object binderOf(Object task) {
+        try {
+            Object binder = OwnerHandoff.binder(task);
+            if (binder != null) return binder;
+        } catch (Exception ignored) { }
+        throw new Rejected(Reason.BINDER_MISSING);
     }
 
     private static String baseOf(Object task) throws Exception {

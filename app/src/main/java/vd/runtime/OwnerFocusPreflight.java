@@ -14,7 +14,7 @@ final class OwnerFocusPreflight {
     interface Source {
         void verifyDisplay() throws Exception;
         Map<Integer, Object> roots() throws Exception;
-        Object focusedRoot() throws Exception;
+        FocusWitness focusedWitness(Map<Integer, Object> inventory) throws Exception;
         long nanoTime();
     }
 
@@ -68,12 +68,11 @@ final class OwnerFocusPreflight {
                 Map<Integer, Object> current = reader.roots();
                 verifySourceInventory(sourceDisplay, selected, current, owned);
                 phase = "preflight:focus";
-                Object focused = reader.focusedRoot();
-                Object inventory = focused == null ? null
-                        : current.get(OwnerHandoff.number(focused, "taskId"));
                 FocusWitness witness;
                 try {
-                    witness = FocusWitness.capture(focused, inventory, 0, 0);
+                    // The production source reads explicit display-0 focus, not global top focus.
+                    witness = reader.focusedWitness(current);
+                    if (witness == null) throw new FocusWitness.Rejected(FocusWitness.Reason.FOCUS_MISSING);
                 } catch (FocusWitness.Rejected ex) {
                     observations.add(ex.diagnosticCode());
                     if (!canResample(ex.reason)) throw ex;

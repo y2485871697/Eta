@@ -479,7 +479,7 @@ final class OwnerHandoff {
     }
     /** Re-asserts the main-display focus against a read-only witness. Never mutates. */
     static void focus(FocusWitness main)throws Exception {
-        Object f=invokeAtm("getFocusedRootTaskInfo",new Class<?>[0]);main.check(f);
+        main.checkWitness(MainDisplayFocus.capture(roots()));
     }
     static JSONObject move(int source,String unique,Map<Integer,Task> owned,JSONArray keep)throws OwnerException {
         JSONArray moved=new JSONArray(),removed=new JSONArray();
@@ -501,8 +501,8 @@ final class OwnerHandoff {
                     new OwnerFocusPreflight.Source() {
                         public void verifyDisplay() throws Exception { OwnerHandoff.verifyDisplay(source,unique); }
                         public Map<Integer,Object> roots() throws Exception { return OwnerHandoff.roots(); }
-                        public Object focusedRoot() throws Exception {
-                            return invokeAtm("getFocusedRootTaskInfo",new Class<?>[0]);
+                        public FocusWitness focusedWitness(Map<Integer,Object> inventory) throws Exception {
+                            return MainDisplayFocus.capture(inventory);
                         }
                         public long nanoTime() { return System.nanoTime(); }
                     },source,owned,selected);
