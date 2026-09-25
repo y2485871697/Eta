@@ -426,11 +426,19 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
                 return
             }
 
-            // A terminal snapshot is completed data, not another live thinking phase.
-            // Known blocks are reconciled in place above. Unseen reasoning remains in
-            // finalResult.reasoning; AssistantReceived inserts the collapsed UI fallback
-            // before the answer instead of reopening a streaming card after it.
-            if (part.kind == AssistantBlockKind.THINKING) return
+            if (
+                part.kind == AssistantBlockKind.THINKING &&
+                contentBlocks.any { block ->
+                    block.kind == AssistantBlockKind.THINKING &&
+                        (
+                            block.content.toString() == part.content ||
+                                block.content.toString().startsWith(part.content) ||
+                                part.content.startsWith(block.content.toString())
+                            )
+                }
+            ) {
+                return
+            }
 
             finishActiveVisibleBlock()
             val block = StreamingContentBlock(

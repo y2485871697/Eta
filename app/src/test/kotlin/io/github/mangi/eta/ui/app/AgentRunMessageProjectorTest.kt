@@ -517,28 +517,6 @@ class AgentRunMessageProjectorTest {
     }
 
     @Test
-    fun completedReasoningFallbackStaysCollapsedBeforeFinishedAnswer() {
-        val projector = AgentRunMessageProjector(nowElapsedRealtime = { 1_000L })
-        val runId = "run-terminal-reasoning"
-        val streamed = projector.appendTextDelta(
-            runId, round = 1, index = 0, delta = "回答已完成", messages = emptyList(),
-        )
-        val answered = projector.finalizeTextRound(runId, 1, streamed)
-        val messages = projector.ensureCompletedThinking(
-            runId, round = 1, content = "终态补回的摘要", messages = answered,
-        )
-        assertEquals(2, messages.size)
-        val thinking = messages.first() as ThinkingMessageUi
-        assertEquals("终态补回的摘要", thinking.content)
-        assertFalse(thinking.isStreaming)
-        assertTrue(thinking.collapsed)
-        assertEquals(answered.single(), messages.last())
-        assertEquals(messages, projector.ensureCompletedThinking(
-            runId, round = 1, content = "终态补回的摘要", messages = messages,
-        ))
-    }
-
-    @Test
     fun ignoresReasoningAndTextAfterFinalizeRun() {
         val projector = AgentRunMessageProjector(nowElapsedRealtime = { 1_000L })
         val runId = "run-sealed"

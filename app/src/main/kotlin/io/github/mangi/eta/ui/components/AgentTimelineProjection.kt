@@ -1,7 +1,6 @@
 package io.github.mangi.eta.ui.components
 
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
-import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
@@ -25,8 +24,6 @@ internal sealed interface AgentTimelineEntry {
 
 internal fun List<AgentChatMessageUi>.toTimelineEntries(): List<AgentTimelineEntry> = buildList {
     val workMessages = mutableListOf<AgentChatMessageUi>()
-    var workRunKey: String? = null
-    var currentIndex = -1
 
     fun flushWorkProcess() {
         if (workMessages.isEmpty()) return
@@ -37,43 +34,18 @@ internal fun List<AgentChatMessageUi>.toTimelineEntries(): List<AgentTimelineEnt
             )
         )
         workMessages.clear()
-        workRunKey = null
     }
 
-    fun appendWork(message: AgentChatMessageUi, runKey: String?) {
-        if (workMessages.isNotEmpty() && runKey != null && workRunKey != null && runKey != workRunKey) {
-            flushWorkProcess()
-        }
-        if (workMessages.isEmpty()) workRunKey = runKey
-        workMessages += message
-    }
-
-    fun hasLaterWorkFor(runKey: String): Boolean =
-        (currentIndex + 1 until this@toTimelineEntries.size).any {
-            this@toTimelineEntries[it].workRunKey() == runKey
-        }
-
-    this@toTimelineEntries.forEachIndexed { index, message ->
-        currentIndex = index
+    this@toTimelineEntries.forEach { message ->
         if (message is UserMessageUi && message.isResumeAfterCompress()) {
-            return@forEachIndexed
+            return@forEach
         }
-        val runKey = message.workRunKey()
-        if (runKey != null || message.isWorkProcessMessage()) {
-            appendWork(message, runKey)
-            return@forEachIndexed
-        }
-
-        // A model text block between two tool calls of the same run is progress
-        // narration, not a new chat turn. Keep it in the same collapsible work card.
-        // The final answer has no later work block and therefore stays outside.
-        if (message is AgentMessageUi && workRunKey != null && hasLaterWorkFor(workRunKey!!)) {
+        if (message.isWorkProcessMessage()) {
             workMessages += message
-            return@forEachIndexed
+        } else {
+            flushWorkProcess()
+            add(AgentTimelineEntry.Message(message))
         }
-
-        flushWorkProcess()
-        add(AgentTimelineEntry.Message(message))
     }
     flushWorkProcess()
 }
@@ -82,16 +54,6 @@ internal fun List<AgentChatMessageUi>.toTimelineEntries(): List<AgentTimelineEnt
 internal fun List<AgentTimelineEntry>.userMessageIndices(): List<Int> = mapIndexedNotNull { index, entry ->
     val user = (entry as? AgentTimelineEntry.Message)?.message as? UserMessageUi
     index.takeIf { user != null && !user.isResumeAfterCompress() }
-}
-
-private fun AgentChatMessageUi.workRunKey(): String? {
-    val marker = when (this) {
-        is ThinkingMessageUi -> "-thinking-"
-        is ToolActivityMessageUi -> "-tool-"
-        else -> return null
-    }
-    val index = id.indexOf(marker)
-    return id.takeIf { index > 0 }?.substring(0, index)
 }
 
 private fun AgentChatMessageUi.isWorkProcessMessage(): Boolean =

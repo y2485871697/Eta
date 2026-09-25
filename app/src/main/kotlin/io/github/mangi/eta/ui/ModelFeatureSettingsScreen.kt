@@ -15,7 +15,6 @@ import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 internal fun ModelFeatureSettingsScreen(feature: ModelFeature, onBack: () -> Unit) {
@@ -35,11 +34,8 @@ internal fun ModelFeatureSettingsScreen(feature: ModelFeature, onBack: () -> Uni
     }
     MiuixScaffoldPage(title = title, onBack = onBack) {
         item {
-            // Material3 Text 未显式着色时取 LocalContentColor（默认近黑），
-            // 在 Miuix 深色页面上不可读，这里显式跟随主题。
             Text(stringResource(if (vision) R.string.vision_feature_description else R.string.title_feature_description),
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                color = MiuixTheme.colorScheme.onSurface)
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
             Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                 SwitchPreference(
                     title = stringResource(R.string.model_feature_custom),
@@ -58,8 +54,7 @@ internal fun ModelFeatureSettingsScreen(feature: ModelFeature, onBack: () -> Uni
                     )
                 } else {
                     Text(stringResource(if (vision) R.string.vision_feature_off else R.string.title_feature_default),
-                        modifier = Modifier.padding(16.dp),
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        modifier = Modifier.padding(16.dp))
                 }
             }
         }

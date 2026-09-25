@@ -47,7 +47,6 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -114,13 +113,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        // Material3 Text 未显式着色时取 LocalContentColor（默认近黑），
-                        // 在 Miuix 深色卡片上不可读，这里显式跟随主题。
-                        Text(
-                            stringResource(R.string.ui_auto_compress_context_title),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MiuixTheme.colorScheme.onSurface,
-                        )
+                        Text(stringResource(R.string.ui_auto_compress_context_title), style = MaterialTheme.typography.bodyLarge)
                         Text(
                             text = stringResource(R.string.ui_auto_compress_context_summary),
                             style = MaterialTheme.typography.bodySmall,
@@ -193,7 +186,6 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                             Text(
                                 text = stringResource(R.string.ui_compress_model_title),
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = MiuixTheme.colorScheme.onSurface,
                             )
                             Text(
                                 text = selectedCompressModel?.displayName

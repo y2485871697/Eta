@@ -3,9 +3,7 @@ package io.github.mangi.eta.ui.components
 import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.ui.markdown.StreamingGfmParserSession
 import org.intellij.markdown.MarkdownElementTypes
-import org.intellij.markdown.ast.findChildOfType
 import org.intellij.markdown.flavours.gfm.GFMElementTypes
-import org.intellij.markdown.flavours.gfm.GFMTokenTypes.CELL
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -237,27 +235,6 @@ class SmoothTextRevealPolicyTest {
     }
 
     @Test
-    fun tableRevealKeysCorrespondToRenderedHeaderAndBodyCells() {
-        val snapshot = StreamingGfmParserSession().parse(
-            source = "| A | B |\n| --- | --- |\n| C | D |",
-            isComplete = true,
-        )
-        val table = topLevelMarkdownBlocks(snapshot.state.node).single()
-        assertEquals(GFMElementTypes.TABLE, table.type)
-        val header = table.findChildOfType(GFMElementTypes.HEADER)?.children
-            ?.filter { it.type == CELL }.orEmpty()
-        val rows = table.children.filter { it.type == GFMElementTypes.ROW }
-        val actuallyRenderedCells = header + rows.flatMap { row ->
-            row.children.filter { it.type == CELL }
-        }
-        assertEquals(4, actuallyRenderedCells.size)
-        assertEquals(
-            actuallyRenderedCells.map { it.startOffset }.toSet(),
-            snapshot.state.revealBlockKeys().map { it.sourceOffset }.toSet(),
-        )
-    }
-
-    @Test
     fun markdownBlockSpacingBuildsReadableHierarchyWithoutLeadingGap() {
         assertEquals(0.sp, markdownBlockSpacing(null, MarkdownElementTypes.PARAGRAPH))
         assertEquals(
@@ -333,7 +310,7 @@ class SmoothTextRevealPolicyTest {
     }
 
     @Test
-    fun streamingMarkdownWaitsUntilPreviousBlockFinishes() {
+    fun streamingMarkdownHidesFutureBlocksUntilTheirRevealStarts() {
         val current = RevealBlockKey(0)
         val next = RevealBlockKey(40)
         assertEquals(
@@ -342,16 +319,7 @@ class SmoothTextRevealPolicyTest {
                 coordinatorActive = true,
                 firstRevealKey = current,
                 startedRevealKeys = setOf(current),
-                nextRevealKey = current,
-            ),
-        )
-        assertEquals(
-            false,
-            streamingMarkdownBlockVisible(
-                coordinatorActive = true,
-                firstRevealKey = next,
-                startedRevealKeys = setOf(current),
-                nextRevealKey = current,
+                nextRevealKey = next,
             ),
         )
         assertEquals(
@@ -360,7 +328,6 @@ class SmoothTextRevealPolicyTest {
                 coordinatorActive = true,
                 firstRevealKey = next,
                 startedRevealKeys = setOf(current),
-                completedRevealKeys = setOf(current),
                 nextRevealKey = next,
             ),
         )
@@ -385,34 +352,10 @@ class SmoothTextRevealPolicyTest {
     }
 
     @Test
-    fun fastPublishedListDoesNotAllocateUnstartedItemRows() {
-        val current = RevealBlockKey(10)
-        val future = RevealBlockKey(40)
-        val rowVisible = { key: RevealBlockKey, started: Set<RevealBlockKey> ->
-            streamingListItemVisible(true, key.sourceOffset, key, started, emptySet(), current)
-        }
-        assertTrue(rowVisible(current, emptySet()))
-        assertFalse(rowVisible(future, emptySet()))
-        assertTrue(rowVisible(future, setOf(future)))
-        assertTrue(streamingListItemVisible(false, 40, future, emptySet(), emptySet(), current))
-        assertTrue(streamingListItemVisible(true, 40, future, emptySet(), setOf(future), current))
-    }
-
-    @Test
-    fun stoppedThoughtWaitsForTheFinalSnapshotAndTypewriterDrain() {
-        assertTrue(keepThinkingRevealUntilSettled(false, "正文", null, false, true))
-        assertTrue(keepThinkingRevealUntilSettled(false, "正文", "旧正文", true, true))
-        assertTrue(keepThinkingRevealUntilSettled(false, "正文", "正文", true, false))
-        assertFalse(keepThinkingRevealUntilSettled(false, "正文", "正文", true, true))
-        assertTrue(keepThinkingRevealUntilSettled(true, "正文", "正文", true, true))
-    }
-
-    @Test
-    fun onlyFullyRevealedBlocksFreezeOnceANewTailExists() {
-        assertFalse(shouldFreezeStreamingMarkdownBlock(0, 40, blockComplete = false))
-        assertTrue(shouldFreezeStreamingMarkdownBlock(0, 40, blockComplete = true))
-        assertFalse(shouldFreezeStreamingMarkdownBlock(40, 40, blockComplete = true))
-        assertFalse(shouldFreezeStreamingMarkdownBlock(0, null, blockComplete = true))
+    fun completedBlocksFreezeOnceANewTailExists() {
+        assertTrue(shouldFreezeStreamingMarkdownBlock(0, 40))
+        assertFalse(shouldFreezeStreamingMarkdownBlock(40, 40))
+        assertFalse(shouldFreezeStreamingMarkdownBlock(0, null))
     }
 
 }

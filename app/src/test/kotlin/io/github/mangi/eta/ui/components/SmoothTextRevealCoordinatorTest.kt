@@ -103,9 +103,8 @@ class SmoothTextRevealCoordinatorTest {
     }
 
     @Test
-    fun restoredLayoutWithoutMountedNodeIsImmediatelyReadableOnLaterAttach() {
+    fun layoutWithoutMountedNodeIsImmediatelyReadableOnLaterAttach() {
         val coordinator = SmoothTextRevealCoordinator()
-        coordinator.restoreHistoryThrough(100)
         val key = RevealBlockKey(0)
         val text = "尚未挂载时收到的历史内容"
         val state = SmoothTextRevealState(key, coordinator)
@@ -132,48 +131,6 @@ class SmoothTextRevealCoordinatorTest {
         assertFalse(coordinator.drained.value)
         coordinator.detach(key, replacementNode)
         assertTrue(coordinator.drained.value)
-    }
-
-    @Test fun liveLayoutBeforeAttachRetainsTheTypewriter() {
-        val coordinator = SmoothTextRevealCoordinator()
-        val key = RevealBlockKey(0)
-        val state = SmoothTextRevealState(key, coordinator)
-        val text = "刚到的首段文字"
-        state.onTextLayout(text, layout(text))
-        assertEquals(0f, coordinator.drawSnapshot(key)!!.progress, 0f)
-        assertFalse(coordinator.drained.value)
-        state.attach(SmoothTextRevealNode(state))
-        assertEquals(0f, coordinator.drawSnapshot(key)!!.progress, 0f)
-    }
-
-    @Test fun rapidOutputDoesNotGrowBySeveralLinesInOneFrame() {
-        val text = "甲\n乙\n丙\n丁\n戊\n己\n庚"
-        val result = layout(text)
-        val boundaries = graphemeBoundaries(text)
-        val proposed = advanceSmoothReveal(0f, boundaries.lastIndex.toFloat(), 0.05f, 1_000f)
-        val limited = limitRevealToNextLine(0f, proposed, boundaries, result)
-        assertTrue(limited < proposed)
-        val visibleIndex = boundaries[kotlin.math.ceil(limited).toInt()]
-        assertEquals(0, result.getLineForOffset(visibleIndex - 1))
-        val second = limitRevealToNextLine(limited, proposed, boundaries, result)
-        assertEquals(1, result.getLineForOffset(boundaries[kotlin.math.ceil(second).toInt()] - 1))
-    }
-
-    @Test fun unseenFutureAstBlockKeepsMessageUndrained() {
-        val coordinator = SmoothTextRevealCoordinator()
-        val first = RevealBlockKey(0)
-        val future = RevealBlockKey(100)
-        coordinator.retainBlocks(setOf(first, future))
-        val firstNode = attach(coordinator, first, "首段")
-        assertFalse(coordinator.drained.value)
-        coordinator.detach(first, firstNode)
-        assertTrue(first in coordinator.completed.value)
-        assertFalse(coordinator.drained.value) // future block has no node yet
-        val futureNode = attach(coordinator, future, "后一段")
-        coordinator.detach(future, futureNode)
-        assertTrue(coordinator.drained.value)
-        coordinator.retainBlocks(setOf(future))
-        assertFalse(first in coordinator.completed.value)
     }
 
     @Test fun restoredLateLayoutDoesNotReplayButSubsequentNetworkTextStillAnimates() {

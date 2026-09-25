@@ -28,7 +28,6 @@ import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> Unit) {
@@ -83,12 +82,9 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
                     insideMargin = PaddingValues(16.dp),
                     onClick = onOpenReadAloud,
                 )
-                // Material3 Text 未显式着色时取 LocalContentColor（默认近黑），
-                // 在 Miuix 深色卡片上不可读，这里显式跟随主题。
                 Text(
                     text = stringResource(R.string.voice_mode_universal_settings_hint),
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
         }
@@ -143,7 +139,6 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
                 Text(
                     text = stringResource(R.string.voice_mode_doubao_settings_hint),
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
         }
