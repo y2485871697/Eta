@@ -755,7 +755,8 @@ internal class AgentAppState(
             ?.runIds
             .orEmpty()
         val locallyObservedRunIds = withContext(Dispatchers.Main) {
-            runJobs.keys + runConversationIds.keys
+            // Conversation bindings route events; only subscriber jobs prove local observation.
+            runJobs.keys.toSet()
         }
         val plan = AgentRunRecoveryCoordinator.plan(
             checkpoints = checkpoints,
@@ -917,10 +918,9 @@ internal class AgentAppState(
                     recoverRuntimeRuns()
                 }
                 AgentRuntimeClient.AttachOutcome.Unavailable -> withContext(Dispatchers.Main) {
-                    if (runJobs.remove(runId) != null) {
-                        setConversationStreaming(runId, false)
-                        refreshConversationSummaries()
-                    }
+                    // Losing the subscriber is not evidence that Runtime stopped the run.
+                    // Keep its trace and binding until foreground recovery can query Runtime.
+                    runJobs.remove(runId)
                 }
             }
         }
