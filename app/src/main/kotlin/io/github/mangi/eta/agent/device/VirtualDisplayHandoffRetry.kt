@@ -1,99 +1,88 @@
 package io.github.mangi.eta.agent.device
 
-/**
- * Bounded automatic retry for a focus-only, read-only handoff preflight failure.
- *
- * A handoff that stops entirely inside the read-only preflight has not crossed the first side
- * effect, so the owner reports the exact authenticated error [ERROR_CODE] with a sanitized symbolic
- * detail of the form `preflight:focus:<Type>;moved=[] removed=[]`. Only that failure may be retried:
- * IO, timeouts, any other preflight stage, an uncertain mutation, release and an already finished
- * session are never replayed.
- *
- * This type keeps the decisions pure and injects the physical handoff, the fresh-state re-read and
- * the delay, so the retry budget, the fresh-state gate, the frozen selection and interruption
- * handling are unit testable without a device.
- */
+/** Bounded retries of an authenticated, read-only focus preflight rejection. No device access. */
 internal object VirtualDisplayHandoffRetry {
-    /** The only owner error code that authorizes the focus-only read-only retry. */
     const val ERROR_CODE = "HANDOFF_PREFLIGHT_FAILED"
-
-    /** Total physical handoff attempts allowed per session, shared across finish/onRunClosed. */
     const val MAX_ATTEMPTS = 3
+    private val DELAYS_MILLIS = longArrayOf(300L, 700L)
 
-    /** Delay before the first and second automatic retry. */
-    val DELAYS_MILLIS = longArrayOf(300L, 700L)
-
-    /**
-     * Sanitized symbolic detail of a handoff that stopped in the `focus` preflight stage and moved
-     * and removed nothing. The optional space after `;` matches the whitespace-collapsing sanitizer
-     * in [VirtualDisplaySession].
-     */
+    // This is the owner's existing wire detail, not proof by itself. In particular, an anchor
+    // launch can fail with empty tallies AFTER the first side effect. Never normalize this match.
     private val FOCUS_DETAIL = Regex("preflight:focus:[A-Za-z0-9_$]+; ?moved=\\[\\] removed=\\[\\]")
 
-    /** One physical handoff outcome; [Refused]'s code/detail are already the safe, token-free values. */
-    sealed interface Attempt {
-        object Completed : Attempt
-        data class Refused(val code: String, val detail: String) : Attempt
+    data class OwnerIdentity(val socketName: String, val pid: Long, val displayId: Int, val uniqueId: String) {
+        fun isValid(): Boolean = socketName.isNotBlank() && pid > 0 && displayId > 0 && uniqueId.isNotBlank()
     }
 
-    /** The first meaningful failure of a run, kept verbatim for the receipt. */
+    /** Only populated from a fresh status on the same peer-authenticated owner connection. */
+    data class OwnerState(
+        val identity: OwnerIdentity,
+        val authenticated: Boolean,
+        val flags: VirtualDisplayRecoveryPolicy.Flags,
+        val retainedTaskIds: Set<Int>,
+        val sourceTaskCount: Int,
+    )
+
+    sealed interface Attempt {
+        object Completed : Attempt
+        // Safe diagnostics are not authentication. Callers must explicitly supply transport proof.
+        data class Refused(val code: String, val detail: String, val authenticated: Boolean = false) : Attempt
+    }
+
     data class Failure(val code: String, val detail: String)
 
     sealed interface Outcome {
         object HandedOff : Outcome
 
-        /** [failure] is the FIRST meaningful failure; null only when no attempt ever ran. */
-        data class Stopped(val failure: Failure?) : Outcome
+        /** Clean means a matching fresh owner status was read AFTER the final rejection too. */
+        data class Stopped(val failure: Failure?, val cleanPreflight: Boolean = false) : Outcome {
+            val phase: String get() = if (cleanPreflight) "handoff_pending" else "uncertain"
+        }
     }
 
-    /**
-     * A per-session cap on physical handoff attempts. One instance lives on the session, so the
-     * explicit finish and the automatic onRunClosed finish share it and cannot multiply attempts.
-     */
-    class Budget(private val maxAttempts: Int = MAX_ATTEMPTS) {
+    /** Shared by finish/onRunClosed in one round. Only clean exhaustion may reset next round. */
+    class Budget(maxAttempts: Int = MAX_ATTEMPTS) {
+        private val limit = maxAttempts.coerceIn(0, MAX_ATTEMPTS)
         private var used = 0
-        val remaining: Int get() = (maxAttempts - used).coerceAtLeast(0)
+        var blocked: Boolean = false
+            private set
+        val remaining: Int get() = if (blocked) 0 else (limit - used).coerceAtLeast(0)
         fun hasRemaining(): Boolean = remaining > 0
         fun consume() { if (hasRemaining()) used++ }
+        fun reset() { if (!blocked) used = 0 }
 
-        /**
-         * A deliberate later run that adopts a held session starts a fresh bounded budget; it never
-         * inherits the exhausted budget of the run that held the session.
-         */
-        fun reset() { used = 0 }
-        fun stop() { used = maxAttempts }
+        // A later adoption must not turn a possibly applied mutation into another handoff.
+        fun stop() { blocked = true; used = limit }
     }
 
-    /** True only for the exact authenticated focus-only read-only preflight failure. Pure. */
+    /** Syntax only: neither empty tallies nor the error code alone authorize replay. */
     fun isRetryable(code: String, detail: String): Boolean =
         code == ERROR_CODE && FOCUS_DETAIL.matches(detail)
 
     /**
-     * Pure fresh-state gate: a retry is allowed only while the re-read status still proves a clean,
-     * unfinishing preflight whose retained task ids still contain the frozen selection.
+     * Compare the complete recovery-relevant state, not just a subset of retained tasks. Frame
+     * counters can legitimately advance and are not mutation evidence. The authenticated failure
+     * code supplies the no-side-effects signal (including no anchor launch); status corroborates
+     * the same owner and unchanged clean state. Neither signal is sufficient on its own.
      */
-    fun freshStateAllowsRetry(
-        statusOk: Boolean,
-        flags: VirtualDisplayRecoveryPolicy.Flags?,
-        retainedTaskIds: Set<Int>?,
-        frozenSelectedIds: Set<Int>,
-    ): Boolean {
-        if (!statusOk || flags == null || retainedTaskIds == null) return false
-        if (flags.finishing || flags.handoffComplete || flags.releaseAttempted || flags.mutationUncertain) return false
-        return retainedTaskIds.containsAll(frozenSelectedIds)
+    fun freshStateAllowsRetry(before: OwnerState?, after: OwnerState?, frozenSelectedIds: Set<Int>): Boolean {
+        if (before == null || after == null || !before.authenticated || !after.authenticated) return false
+        if (!before.identity.isValid()) return false
+        if (before != after || frozenSelectedIds.isEmpty() || frozenSelectedIds.any { it <= 0 }) return false
+        val f = after.flags
+        if (f.finishing || f.handoffComplete || f.releaseAttempted || f.mutationUncertain || f.sourceEmpty) return false
+        if (after.retainedTaskIds.any { it <= 0 } || after.sourceTaskCount < after.retainedTaskIds.size) return false
+        return after.retainedTaskIds.containsAll(frozenSelectedIds)
     }
 
     fun delayForRetry(retryIndex: Int): Long =
         DELAYS_MILLIS[retryIndex.coerceIn(0, DELAYS_MILLIS.lastIndex)]
 
     /**
-     * Drives a handoff with a bounded number of retries.
-     *
-     * @param budget shared attempt budget; checked before every physical handoff
-     * @param handoff performs exactly one physical handoff
-     * @param verifyFresh re-reads the same client and proves a clean, unfinishing state whose
-     *        retained ids still contain the frozen selection; called before every retry
-     * @param delay sleeps the given millis; an [InterruptedException] stops the run
+     * verifyFresh proves unchanged authenticated state after each clean refusal, even the last
+     * allowed attempt. Before a retry it runs AFTER the delay, so stale evidence cannot authorize
+     * the next handoff. An exhausted call never executes a handoff; its session retains diagnostics
+     * and independently revalidates evidence before retaining handoff_pending on reentry.
      */
     fun run(
         budget: Budget,
@@ -113,19 +102,31 @@ internal object VirtualDisplayHandoffRetry {
                 budget.stop()
                 Thread.currentThread().interrupt()
                 return Outcome.Stopped(Failure("HANDOFF_UNCERTAIN", ""))
+            } catch (_: Exception) {
+                budget.stop()
+                return Outcome.Stopped(Failure("HANDOFF_UNCERTAIN", ""))
+            }
+            if (Thread.currentThread().isInterrupted) {
+                budget.stop(); return Outcome.Stopped(Failure("HANDOFF_UNCERTAIN", ""))
             }
             when (attempt) {
-                Attempt.Completed -> return Outcome.HandedOff
+                Attempt.Completed -> {
+                    budget.stop() // A completed mutation is never another automatic handoff.
+                    return Outcome.HandedOff
+                }
                 is Attempt.Refused -> {
                     if (first == null) first = Failure(attempt.code, attempt.detail)
-                    if (!isRetryable(attempt.code, attempt.detail)) {
+                    if (!attempt.authenticated || !isRetryable(attempt.code, attempt.detail)) {
                         budget.stop()
                         return Outcome.Stopped(Failure(attempt.code, attempt.detail))
                     }
-                    if (!budget.hasRemaining()) return Outcome.Stopped(first)
-                    if (!sleep(delay, delayForRetry(retryIndex))) { budget.stop(); return Outcome.Stopped(first) }
+                    if (budget.hasRemaining() && !sleep(delay, delayForRetry(retryIndex))) {
+                        budget.stop(); return Outcome.Stopped(first)
+                    }
+                    // Exhaustion alone is not evidence of a clean stop. Re-read after attempt 3.
                     if (!verify(verifyFresh)) { budget.stop(); return Outcome.Stopped(first) }
                     if (Thread.currentThread().isInterrupted) { budget.stop(); return Outcome.Stopped(first) }
+                    if (!budget.hasRemaining()) return Outcome.Stopped(first, cleanPreflight = true)
                     retryIndex++
                 }
             }
