@@ -61,6 +61,23 @@ final class ShellCommands {
         return argv.toArray(new String[0]);
     }
 
+    /**
+     * {@code am start} with an explicit data URI used as the launch identity marker. The URI is a
+     * single literal argument, so no user text can become an extra {@code am} option. A {@code null}
+     * data URI leaves the base argv untouched.
+     */
+    static String[] amStartArgv(int displayId, String packageName, String component, String action,
+            List<String> categories, int flags, String dataUri) {
+        String[] base = amStartArgv(displayId, packageName, component, action, categories, flags);
+        if (dataUri == null) {
+            return base;
+        }
+        String[] withData = java.util.Arrays.copyOf(base, base.length + 2);
+        withData[base.length] = "-d";
+        withData[base.length + 1] = dataUri;
+        return withData;
+    }
+
     static String[] inputTapArgv(int displayId, int x, int y) {
         requireSecondaryDisplay(displayId);
         return new String[] {INPUT, "-d", Integer.toString(displayId), "tap",
