@@ -151,7 +151,7 @@ public final class VirtualDisplayOwner {
         String packageName = parsed.optionalString("package");
         String component = parsed.optionalString("component");
         String action = parsed.optionalString("action");
-        int flags = parsed.optionalInt("flags", 0);
+        int callerFlags = parsed.optionalInt("flags", 0);
         List<String> categories = categories(parsed);
         if (packageName != null && !OwnerProtocol.isSafeIdentifier(packageName)) {
             throw new OwnerException(OwnerProtocol.ERROR_PROTOCOL, "package");
@@ -173,11 +173,12 @@ public final class VirtualDisplayOwner {
         catch(OwnerException ex) { throw ex; }
         catch(Exception ex) { throw new OwnerException(LaunchTargetOccupancy.UNKNOWN,
                 ex.getClass().getSimpleName()); }
-        String marker="eta-vd://session/"+java.util.UUID.randomUUID().toString();
-        flags=0x10000000|0x00080000|0x08000000; // NEW_TASK, NEW_DOCUMENT, MULTIPLE_TASK
-        String[] initial = ShellCommands.amStartArgv(displayId, packageName, component, action,categories,flags);
-        String[] argv=java.util.Arrays.copyOf(initial,initial.length+2);
-        argv[initial.length]="-d";argv[initial.length+1]=marker;
+        // A caller may only restate bits the owner already forces. NEW_DOCUMENT or any other bit is
+        // rejected here, never silently ignored.
+        try { LaunchPolicy.resolveLaunchFlags(callerFlags); }
+        catch(IllegalArgumentException ex) { throw new OwnerException(OwnerProtocol.ERROR_PROTOCOL, "flags"); }
+        String marker=LaunchPolicy.newMarker();
+        String[] argv=LaunchPolicy.startArgv(displayId, packageName, component, action,categories,marker);
         OwnerShell.Result result = OwnerShell.run(argv, OwnerShell.DEFAULT_TIMEOUT_MS,
                 OwnerShell.DEFAULT_MAX_OUTPUT_BYTES);
         if (!result.success() || containsError(result.stdout) || containsError(result.stderr)) {
@@ -191,7 +192,10 @@ public final class VirtualDisplayOwner {
                 if(before.containsKey(id) && !owned.containsKey(id)) throw new IllegalStateException("pre-existing task moved");
                 if(!owned.containsKey(id)) {
                     android.content.Intent base=(android.content.Intent)OwnerHandoff.field(task,"baseIntent");
-                    if(!marker.equals(base.getDataString())||!targetPackage.equals(base.getComponent().getPackageName()))throw new IllegalStateException("launch provenance");
+                    String baseData=base==null?null:base.getDataString();
+                    android.content.ComponentName baseComponent=base==null?null:base.getComponent();
+                    String basePackage=baseComponent==null?null:baseComponent.getPackageName();
+                    if(!LaunchPolicy.provenanceMatches(marker,targetPackage,baseData,basePackage))throw new IllegalStateException("launch provenance");
                     owned.put(id,new OwnerHandoff.Task(task));
                     provenanceObserved=true;
                 }
