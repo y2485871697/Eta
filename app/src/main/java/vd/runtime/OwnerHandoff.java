@@ -420,6 +420,21 @@ final class OwnerHandoff {
     static final class HandoffFailure extends OwnerException {
         private final String phase;
         private final boolean sideEffectsAttempted;
+        private List<String> focusSamples = Collections.emptyList();
+        HandoffFailure withFocusSamples(List<String> samples) {
+            List<String> safe = new ArrayList<String>();
+            for (int i=0; i<Math.min(samples.size(),OwnerFocusPreflight.MAX_SAMPLES); i++) {
+                String token=samples.get(i);
+                boolean known="OK".equals(token);
+                for(FocusWitness.Reason reason:FocusWitness.Reason.values()) {
+                    if(("Focus_"+reason.name()).equals(token)) known=true;
+                }
+                if(known) safe.add(token);
+            }
+            focusSamples = safe;
+            return this;
+        }
+        List<String> focusSamples() { return Collections.unmodifiableList(focusSamples); }
         HandoffFailure(String phase,Throwable cause,boolean sideEffectsAttempted,String summary) {
             super(sideEffectsAttempted ? HANDOFF_UNCERTAIN : HANDOFF_PREFLIGHT_FAILED,
                     failureDetail(phase,cause,summary));
@@ -439,7 +454,9 @@ final class OwnerHandoff {
      */
     static String failureDetail(String phase,Throwable cause,String summary) {
         StringBuilder sb=new StringBuilder(sanitizePhase(phase));
-        sb.append(':').append(cause==null ? "none" : cause.getClass().getSimpleName());
+        sb.append(':').append(cause instanceof FocusWitness.Rejected
+                ? ((FocusWitness.Rejected) cause).diagnosticCode()
+                : cause==null ? "none" : cause.getClass().getSimpleName());
         if(summary!=null&&!summary.isEmpty()) sb.append(';').append(summary);
         return sb.toString();
     }
@@ -460,12 +477,6 @@ final class OwnerHandoff {
         }
         return sb.length()==0 ? "unknown" : sb.toString();
     }
-    /** The inventory entry for the currently focused task, or {@code null} when unknown. */
-    private static Object inventoryEntry(Map<Integer,Object> current,Object focused) {
-        if(focused==null) return null;
-        try { return current.get(number(focused,"taskId")); }
-        catch(Exception ignored) { return null; }
-    }
     /** Re-asserts the main-display focus against a read-only witness. Never mutates. */
     static void focus(FocusWitness main)throws Exception {
         Object f=invokeAtm("getFocusedRootTaskInfo",new Class<?>[0]);main.check(f);
@@ -476,6 +487,7 @@ final class OwnerHandoff {
         // The phase names a symbolic stage only, so no Intent payload or token can appear in a reply.
         String phase="preflight:display";
         boolean sideEffects=false;
+        List<String> focusSamples=Collections.emptyList();
         try {
             verifyDisplay(source,unique);
             phase="preflight:selection";
@@ -484,18 +496,19 @@ final class OwnerHandoff {
             for(int i=0;i<keep.length();i++) {
                 Object n=keep.get(i);if(!(n instanceof Integer)||!selected.add((Integer)n)||!owned.containsKey((Integer)n)) throw new IllegalStateException("invalid taskIds");
             }
-            phase="preflight:inventory";
-            Map<Integer,Object> current=roots();
-            for(Object t:current.values()) if(number(t,"displayId")==source) {
-                Task identity=owned.get(number(t,"taskId"));if(identity==null)throw new IllegalStateException("foreign source task");identity.check(t,source);
-            }
-            for(Integer id:selected) owned.get(id).check(current.get(id),source);
-            phase="preflight:focus";
-            // The main-display task is a read-only focus witness: it is captured, verified and compared
-            // but never hidden, moved or focused. Its desktop container children are legitimate, so it
-            // uses the conservative FocusWitness identity, not the strict migrated-task Task.check.
-            Object focused=invokeAtm("getFocusedRootTaskInfo",new Class<?>[0]);
-            FocusWitness witness=FocusWitness.capture(focused,inventoryEntry(current,focused),0,0);
+            // Each read-only round refreshes BOTH roots and focus. No stale inventory retry.
+            OwnerFocusPreflight.Sample preflight=OwnerFocusPreflight.capture(
+                    new OwnerFocusPreflight.Source() {
+                        public void verifyDisplay() throws Exception { OwnerHandoff.verifyDisplay(source,unique); }
+                        public Map<Integer,Object> roots() throws Exception { return OwnerHandoff.roots(); }
+                        public Object focusedRoot() throws Exception {
+                            return invokeAtm("getFocusedRootTaskInfo",new Class<?>[0]);
+                        }
+                        public long nanoTime() { return System.nanoTime(); }
+                    },source,owned,selected);
+            focusSamples=preflight.observations;
+            Map<Integer,Object> current=preflight.inventory;
+            FocusWitness witness=preflight.witness;
             // ---- First side effect: launching the source-display anchor cover. ----
             String anchorUri="eta-vd-anchor://handoff/"+UUID.randomUUID().toString();
             String anchorComponent="io.github.mangi.eta/io.github.mangi.eta.agent.device.VirtualDisplayAnchorActivity";
@@ -546,9 +559,13 @@ final class OwnerHandoff {
             verifyDisplay(source,unique);focus(witness);
             for(Object t:roots().values())if(number(t,"displayId")==source)throw new IllegalStateException("source occupied");
             for(Integer id:selected)owned.get(id).check(roots().get(id),0);
-            return new JSONObject().put("handedOff",true).put("sourceEmpty",true).put("keptTaskIds",moved).put("removedTaskIds",removed);
+            return new JSONObject().put("handedOff",true).put("sourceEmpty",true).put("keptTaskIds",moved).put("removedTaskIds",removed)
+                    .put("focusSamples",new JSONArray(preflight.observations));
         } catch(Throwable ex) {
-            throw new HandoffFailure(phase,ex,sideEffects,"moved="+moved+" removed="+removed);
+            // Never demote any failure after the anchor launch back to a retryable preflight.
+            if(!sideEffects && ex instanceof HandoffFailure) throw (HandoffFailure)ex;
+            throw new HandoffFailure(phase,ex,sideEffects,"moved="+moved+" removed="+removed)
+                    .withFocusSamples(focusSamples);
         }
     }
 }

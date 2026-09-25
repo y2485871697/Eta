@@ -22,6 +22,21 @@ import java.util.Set;
  * duplicated or unnamed structure is refused (fail closed), never guessed.
  */
 final class FocusWitness {
+    /** Fixed tokens only: never expose Intent data, package names or binder values. */
+    enum Reason {
+        FOCUS_MISSING, INVENTORY_MISSING, INVALID_TASK_ID, WRONG_USER, WRONG_DISPLAY,
+        NOT_ROOT, BINDER_MISSING, BASE_MISSING, CHILD_IDS_UNREADABLE, CHILD_NAMES_LENGTH_MISMATCH,
+        CHILD_IDS_DUPLICATE, CHILD_ID_INVALID, CHILD_NAMES_MISSING, CHILD_NAME_UNKNOWN, TASK_CHANGED,
+        USER_CHANGED, DISPLAY_CHANGED, ROOT_CHANGED, BINDER_CHANGED, BASE_CHANGED,
+        DATA_CHANGED, STRUCTURE_CHANGED, FOCUS_UNSTABLE
+    }
+
+    static final class Rejected extends IllegalStateException {
+        final Reason reason;
+        Rejected(Reason reason) { super(reason.name()); this.reason = reason; }
+        String diagnosticCode() { return "Focus_" + reason.name(); }
+    }
+
     private final int taskId;
     private final Object binder;
     private final String base;
@@ -49,7 +64,8 @@ final class FocusWitness {
      */
     static FocusWitness capture(Object focused, Object inventory, int expectedDisplay, int expectedUser)
             throws Exception {
-        if (inventory == null) throw new IllegalStateException("focus inventory missing");
+        if (focused == null) throw new Rejected(Reason.FOCUS_MISSING);
+        if (inventory == null) throw new Rejected(Reason.INVENTORY_MISSING);
         FocusWitness witness = read(focused, expectedDisplay, expectedUser);
         witness.check(inventory);
         return witness;
@@ -57,59 +73,75 @@ final class FocusWitness {
 
     private static FocusWitness read(Object task, int expectedDisplay, int expectedUser)
             throws Exception {
-        if (task == null) throw new IllegalStateException("focus witness missing");
+        if (task == null) throw new Rejected(Reason.FOCUS_MISSING);
         int id = OwnerHandoff.number(task, "taskId");
-        if (id <= 0) throw new IllegalStateException("focus witness id");
+        if (id <= 0) throw new Rejected(Reason.INVALID_TASK_ID);
         int userId = OwnerHandoff.number(task, "userId");
-        if (userId != expectedUser) throw new IllegalStateException("focus witness user");
+        if (userId != expectedUser) throw new Rejected(Reason.WRONG_USER);
         int displayId = OwnerHandoff.number(task, "displayId");
-        if (displayId != expectedDisplay) throw new IllegalStateException("focus witness display");
+        if (displayId != expectedDisplay) throw new Rejected(Reason.WRONG_DISPLAY);
         // A focused witness must be a root task, never a nested child.
         if (OwnerHandoff.number(task, "parentTaskId") != -1) {
-            throw new IllegalStateException("focus witness not a root");
+            throw new Rejected(Reason.NOT_ROOT);
         }
         Object binder = OwnerHandoff.binder(task);
-        if (binder == null) throw new IllegalStateException("focus binder missing");
-        String base = OwnerHandoff.base(task);
+        if (binder == null) throw new Rejected(Reason.BINDER_MISSING);
+        String base = baseOf(task);
         String data = dataString(task);
         int[] children = childIds(task);
         String[] names = rawChildNames(task);
-        if (!focusSubstructureKnown(id, children, names)) {
-            throw new IllegalStateException("focus witness substructure");
-        }
+        Reason shape = substructureFailure(id, children, names);
+        if (shape != null) throw new Rejected(shape);
         return new FocusWitness(id, binder, base, data, userId, displayId, children, names);
     }
 
     /** Re-verifies the witness against a freshly read focused root task. Pure comparison. */
     void check(Object focused) throws Exception {
-        if (focused == null) throw new IllegalStateException("focus lost");
+        if (focused == null) throw new Rejected(Reason.FOCUS_MISSING);
         if (OwnerHandoff.number(focused, "taskId") != taskId) {
-            throw new IllegalStateException("focus task changed");
+            throw new Rejected(Reason.TASK_CHANGED);
         }
         if (OwnerHandoff.number(focused, "userId") != userId) {
-            throw new IllegalStateException("focus user changed");
+            throw new Rejected(Reason.USER_CHANGED);
         }
         if (OwnerHandoff.number(focused, "displayId") != displayId) {
-            throw new IllegalStateException("focus display changed");
+            throw new Rejected(Reason.DISPLAY_CHANGED);
         }
         if (OwnerHandoff.number(focused, "parentTaskId") != -1) {
-            throw new IllegalStateException("focus no longer a root");
+            throw new Rejected(Reason.ROOT_CHANGED);
         }
         if (!binder.equals(OwnerHandoff.binder(focused))) {
-            throw new IllegalStateException("focus binder changed");
+            throw new Rejected(Reason.BINDER_CHANGED);
         }
-        if (!Objects.equals(base, OwnerHandoff.base(focused))) {
-            throw new IllegalStateException("focus base changed");
+        if (!Objects.equals(base, baseOf(focused))) {
+            throw new Rejected(Reason.BASE_CHANGED);
         }
         if (!Objects.equals(data, dataString(focused))) {
-            throw new IllegalStateException("focus data changed");
+            throw new Rejected(Reason.DATA_CHANGED);
         }
         int[] nextChildren = childIds(focused);
         String[] nextNames = rawChildNames(focused);
-        if (!focusSubstructureKnown(taskId, nextChildren, nextNames)
-                || !Arrays.equals(children, nextChildren) || !Arrays.equals(childNames, nextNames)) {
-            throw new IllegalStateException("focus substructure changed");
+        Reason shape = substructureFailure(taskId, nextChildren, nextNames);
+        if (shape != null) throw new Rejected(shape);
+        if (!Arrays.equals(children, nextChildren) || !Arrays.equals(childNames, nextNames)) {
+            throw new Rejected(Reason.STRUCTURE_CHANGED);
         }
+    }
+
+    /** Full identity comparison between two independently validated snapshots. */
+    boolean matches(FocusWitness other) {
+        return other != null && taskId == other.taskId && userId == other.userId
+                && displayId == other.displayId && binder.equals(other.binder)
+                && Objects.equals(base, other.base) && Objects.equals(data, other.data)
+                && Arrays.equals(children, other.children) && Arrays.equals(childNames, other.childNames);
+    }
+
+    private static String baseOf(Object task) throws Exception {
+        Object value = OwnerHandoff.field(task, "baseIntent");
+        if (!(value instanceof Intent) || ((Intent) value).getComponent() == null) {
+            throw new Rejected(Reason.BASE_MISSING);
+        }
+        return ((Intent) value).getComponent().flattenToString();
     }
 
     private static String dataString(Object task) throws Exception {
@@ -142,23 +174,29 @@ final class FocusWitness {
      * id and any other non-positive id are unknown and refused. Pure; no device access.
      */
     static boolean focusSubstructureKnown(int selfId, int[] childIds, String[] rawNames) {
-        if (selfId <= 0 || childIds == null) return false;
-        if (rawNames != null && rawNames.length != childIds.length) return false;
+        return substructureFailure(selfId, childIds, rawNames) == null;
+    }
+
+    /** The same fail-closed predicate, with a fixed diagnostic for every refusal branch. */
+    static Reason substructureFailure(int selfId, int[] childIds, String[] rawNames) {
+        if (selfId <= 0) return Reason.INVALID_TASK_ID;
+        if (childIds == null) return Reason.CHILD_IDS_UNREADABLE;
+        if (rawNames != null && rawNames.length != childIds.length) return Reason.CHILD_NAMES_LENGTH_MISMATCH;
         Set<Integer> seen = new HashSet<Integer>();
         boolean foreign = false;
         for (int id : childIds) {
-            if (!seen.add(id)) return false;
+            if (!seen.add(id)) return Reason.CHILD_IDS_DUPLICATE;
             if (id == selfId || id == -1) continue;
-            if (id <= 0) return false;
+            if (id <= 0) return Reason.CHILD_ID_INVALID;
             foreign = true;
         }
-        if (!foreign) return true;
-        if (rawNames == null || rawNames.length != childIds.length) return false;
+        if (!foreign) return null;
+        if (rawNames == null) return Reason.CHILD_NAMES_MISSING;
         for (int i = 0; i < childIds.length; i++) {
             int id = childIds[i];
             if (id == selfId || id == -1) continue;
-            if (OwnerHandoff.childNamePackage(rawNames[i]) == null) return false;
+            if (OwnerHandoff.childNamePackage(rawNames[i]) == null) return Reason.CHILD_NAME_UNKNOWN;
         }
-        return true;
+        return null;
     }
 }

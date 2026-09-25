@@ -170,6 +170,31 @@ public class OwnerHandoffTest {
         assertFalse(detail.contains("eta-vd-anchor"));
     }
 
+    @Test public void focusReasonSurvivesSanitizationWithoutChangingSafetyClassification() {
+        for (FocusWitness.Reason reason : FocusWitness.Reason.values()) {
+            FocusWitness.Rejected cause = new FocusWitness.Rejected(reason);
+            String detail = OwnerHandoff.failureDetail("preflight:focus", cause, "moved=[] removed=[]");
+            assertEquals("preflight:focus:Focus_" + reason.name() + ";moved=[] removed=[]", detail);
+            OwnerHandoff.HandoffFailure before = new OwnerHandoff.HandoffFailure(
+                    "preflight:focus", cause, false, "moved=[] removed=[]");
+            OwnerHandoff.HandoffFailure after = new OwnerHandoff.HandoffFailure(
+                    "focus", cause, true, "moved=[] removed=[]");
+            assertTrue(before.retryable());
+            assertFalse(after.retryable());
+            assertEquals(OwnerHandoff.HANDOFF_UNCERTAIN, after.code);
+        }
+    }
+
+    @Test public void snapshotHistoryIsBoundedAndNeverCopiesPrivatePayloads() {
+        OwnerHandoff.HandoffFailure failure = new OwnerHandoff.HandoffFailure(
+                "preflight:focus", new IllegalStateException(), false, "moved=[] removed=[]")
+                .withFocusSamples(java.util.Arrays.asList("OK", "eta-vd://session/private-token",
+                        "Focus_BINDER_CHANGED", "OK", "Focus_FOCUS_MISSING"));
+        assertEquals(java.util.Arrays.asList("OK", "Focus_BINDER_CHANGED", "OK"), failure.focusSamples());
+        assertFalse(failure.focusSamples().toString().contains("private-token"));
+        assertThrows(UnsupportedOperationException.class, () -> failure.focusSamples().add("OK"));
+    }
+
     @Test public void phaseIsSanitizedToASymbolicLabel() {
         assertEquals("preflight_focus", OwnerHandoff.sanitizePhase("preflight/focus"));
         assertEquals("unknown", OwnerHandoff.sanitizePhase(null));

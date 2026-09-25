@@ -22,6 +22,8 @@ internal object VirtualDisplaySession {
         var receipt: JSONObject? = null
         /** Shared across finish/onRunClosed for this run so automatic retries cannot multiply. */
         val handoffBudget = VirtualDisplayHandoffRetry.Budget()
+        // Bounded history survives a held-session adoption; includes successful later attempts.
+        val handoffAttempts = JSONArray()
     }
     private val sessions = linkedMapOf<String, Session>()
     private var recoveryContext: Context? = null
@@ -47,7 +49,7 @@ internal object VirtualDisplaySession {
     }
     private fun fail(s: Session, code: String, detail: String = ""): JSONObject {
         s.phase = "uncertain"
-        return reply(false, code, detail).also { s.receipt = it }
+        return reply(false, code, detail).withHandoffAttempts(s).also { s.receipt = it }
     }
     /**
      * finish 可能被重入。首次失败往往携带具体诊断（例如 owner 的 HANDOFF_PREFLIGHT_FAILED）；
@@ -71,6 +73,27 @@ internal object VirtualDisplaySession {
         if (!collapsed.matches(Regex("[A-Za-z0-9_:#.\\-]+:[A-Za-z0-9_$]+; ?moved=\\[[0-9, ]*\\] removed=\\[[0-9, ]*\\]"))) return ""
         return collapsed
     }
+    private fun JSONObject.withHandoffAttempts(s: Session): JSONObject = apply {
+        if (s.handoffAttempts.length() > 0) {
+            put("handoffAttempts", JSONArray(s.handoffAttempts.toString()))
+        }
+    }
+
+    private fun recordHandoff(s: Session, response: OwnerResponse, completed: Boolean) {
+        val rawSamples = response.json?.optJSONArray("focusSamples")
+        val samples = JSONArray()
+        if (rawSamples != null) for (i in 0 until minOf(rawSamples.length(), 4)) {
+            val token = rawSamples.opt(i) as? String ?: continue
+            if (token.length <= 80 && token.matches(Regex("OK|Focus_[A-Z_]+"))) samples.put(token)
+        }
+        if (s.handoffAttempts.length() >= 6) s.handoffAttempts.remove(0)
+        s.handoffAttempts.put(JSONObject()
+            .put("ok", completed)
+            .put("error", if (completed) "" else response.errorCode.ifBlank { "HANDOFF_UNCERTAIN" })
+            .put("message", if (completed) "" else safeOwnerDetail(response))
+            .put("focusSamples", samples))
+    }
+
     private fun clearReleased(context: Context?, s: Session): JSONObject {
         s.phase = "finished"
         s.client?.close()
@@ -211,8 +234,10 @@ internal object VirtualDisplaySession {
                 budget = s.handoffBudget,
                 handoff = {
                     val handoff = c.handoff(mapOf("taskIds" to JSONArray(frozen)))
-                    if (handoff.ok && body(handoff).opt("handedOff") == true && body(handoff).opt("sourceEmpty") == true)
-                        VirtualDisplayHandoffRetry.Attempt.Completed
+                    val completed = handoff.ok && body(handoff).opt("handedOff") == true &&
+                        body(handoff).opt("sourceEmpty") == true
+                    recordHandoff(s, handoff, completed)
+                    if (completed) VirtualDisplayHandoffRetry.Attempt.Completed
                     else VirtualDisplayHandoffRetry.Attempt.Refused(
                         handoff.errorCode.ifBlank { "HANDOFF_UNCERTAIN" }, safeOwnerDetail(handoff))
                 },
@@ -247,7 +272,8 @@ internal object VirtualDisplaySession {
         val released = c.release()
         if (!released.ok || body(released).opt("released") != true)
             return fail(s, released.errorCode.ifBlank { "RELEASE_UNCERTAIN" }, safeOwnerDetail(released))
-        return clearReleased(ctx, s).put("handedOff", latest.handoffComplete).also { s.receipt = it }
+        return clearReleased(ctx, s).put("handedOff", latest.handoffComplete)
+            .withHandoffAttempts(s).also { s.receipt = it }
     }
     /** Called once when the owning run closes; explicit delivery choices are preserved. */
     @Synchronized fun onRunClosed(context: Context, runId: String) {

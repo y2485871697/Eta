@@ -51,6 +51,12 @@ final class OwnerCommandDispatcher implements OwnerIpcServer.Dispatcher {
             return OwnerProtocol.fail(request.op, OwnerProtocol.ERROR_UNKNOWN_OP, request.op);
         } catch (OwnerException ex) {
             JSONObject response = OwnerProtocol.fail(request.op, ex.code, ex.getMessage());
+            if (ex instanceof OwnerHandoff.HandoffFailure) {
+                try {
+                    response.put("focusSamples", new org.json.JSONArray(
+                            ((OwnerHandoff.HandoffFailure) ex).focusSamples()));
+                } catch (Exception ignored) { /* Diagnostics must not change the failure outcome. */ }
+            }
             if (LaunchTargetOccupancy.UNKNOWN.equals(ex.code)) {
                 attachDiagnostic(response);
             }

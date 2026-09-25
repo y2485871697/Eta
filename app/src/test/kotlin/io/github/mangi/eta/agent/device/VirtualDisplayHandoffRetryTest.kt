@@ -27,6 +27,17 @@ class VirtualDisplayHandoffRetryTest {
         assertTrue(VirtualDisplayHandoffRetry.isRetryable(code, focusDetailSpaced))
     }
 
+    @Test fun typedFocusDiagnosticsKeepExistingRetryContract() {
+        val detail = "preflight:focus:Focus_BINDER_CHANGED;moved=[] removed=[]"
+        assertTrue(VirtualDisplayHandoffRetry.isRetryable(code, detail))
+        assertFalse(VirtualDisplayHandoffRetry.isRetryable("HANDOFF_UNCERTAIN", detail))
+        assertFalse(VirtualDisplayHandoffRetry.isRetryable(code, detail.replace("preflight:focus", "preflight:inventory")))
+        assertFalse(VirtualDisplayHandoffRetry.isRetryable(code, detail.replace("moved=[]", "moved=[20]")))
+        assertEquals(3, VirtualDisplayHandoffRetry.MAX_ATTEMPTS)
+        assertEquals(300L, VirtualDisplayHandoffRetry.delayForRetry(0))
+        assertEquals(700L, VirtualDisplayHandoffRetry.delayForRetry(1))
+    }
+
     @Test fun otherCodesStagesAndNonEmptyTalliesAreNeverRetryable() {
         assertFalse(VirtualDisplayHandoffRetry.isRetryable("HANDOFF_UNCERTAIN", focusDetail))
         assertFalse(VirtualDisplayHandoffRetry.isRetryable("OWNER_REQUEST_IO", ""))

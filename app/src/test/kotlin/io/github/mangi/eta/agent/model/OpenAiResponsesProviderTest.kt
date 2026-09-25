@@ -71,6 +71,54 @@ class OpenAiResponsesProviderTest {
     }
 
     @Test
+    fun terminalOnlyReasoningDoesNotReopenThinkingAfterAnswer() {
+        assertTerminalReasoningDoesNotReopenThinking(streamReasoning = false)
+    }
+
+    @Test
+    fun rewrittenTerminalReasoningDoesNotReopenThinkingAfterAnswer() {
+        assertTerminalReasoningDoesNotReopenThinking(streamReasoning = true)
+    }
+
+    private fun assertTerminalReasoningDoesNotReopenThinking(streamReasoning: Boolean) {
+        val body = buildString {
+            if (streamReasoning) {
+                append(responseTextEvent("response.reasoning_summary_text.delta", "rs_stream", 0,
+                    "delta", "最初的分析"))
+                append(responseTextEvent("response.reasoning_summary_text.done", "rs_stream", 0,
+                    "text", "最初的分析"))
+            }
+            append(responseTextEvent("response.output_text.delta", "msg_answer", 1,
+                "delta", "回答已完成"))
+            append(responseTextEvent("response.output_text.done", "msg_answer", 1,
+                "text", "回答已完成"))
+            append(event("response.completed", JSONObject().put("response", JSONObject()
+                .put("status", "completed").put("output", JSONArray()
+                    .put(reasoningItem("rs_terminal", "终态返回的不同摘要"))
+                    .put(messageItem("msg_answer", "回答已完成"))))))
+        }
+        withSseServer(body) { baseUrl ->
+            val events = mutableListOf<ProviderEvent>()
+            val result = OpenAiResponsesProvider.complete(
+                ProviderRequest(config(baseUrl), JSONArray(), JSONArray()), AgentRunController(), events::add,
+            )
+            val answerEnd = events.indexOfFirst {
+                it is ProviderEvent.BlockEnd && it.kind == AssistantBlockKind.TEXT
+            }
+            assertTrue(answerEnd >= 0)
+            assertFalse(events.drop(answerEnd + 1).any {
+                (it is ProviderEvent.BlockStart && it.kind == AssistantBlockKind.THINKING) ||
+                    (it is ProviderEvent.BlockDelta && it.kind == AssistantBlockKind.THINKING)
+            })
+            // Final reasoning remains available for persistence and the collapsed UI fallback.
+            assertEquals("终态返回的不同摘要", result.assistantMessage.getString("reasoning_content"))
+            assertEquals("回答已完成", result.assistantMessage.getString("content"))
+            assertEquals(if (streamReasoning) 1 else 0, events.filterIsInstance<ProviderEvent.BlockStart>()
+                .count { it.kind == AssistantBlockKind.THINKING })
+        }
+    }
+
+    @Test
     fun identicalTextInDistinctTerminalPartsMustRemainDistinct() {
         val body = responseTextEvent("response.output_text.delta", "msg_1", 0, "delta", "相同内容") +
             responseTextEvent("response.output_text.done", "msg_1", 0, "text", "相同内容") +

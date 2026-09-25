@@ -47,6 +47,34 @@ public class FocusWitnessSnapshotTest {
         Root missing=new Root(null);
         assertThrows(Exception.class, () -> FocusWitness.capture(missing,missing,0,0));
     }
+    @Test public void baseMissingAndDataChangeHaveDistinctSafeReasons() throws Exception {
+        Object id = new Object(); Root valid = new Root(id), missing = new Root(id);
+        missing.baseIntent = null;
+        assertEquals(FocusWitness.Reason.BASE_MISSING, assertThrows(FocusWitness.Rejected.class,
+                () -> FocusWitness.capture(missing, missing, 0, 0)).reason);
+        Root other = new Root(id);
+        other.baseIntent.setData(Uri.parse("eta-vd://session/private-test-data"));
+        FocusWitness.Rejected rejection = assertThrows(FocusWitness.Rejected.class,
+                () -> FocusWitness.capture(valid, other, 0, 0));
+        assertEquals(FocusWitness.Reason.DATA_CHANGED, rejection.reason);
+        assertFalse(rejection.getMessage().contains("private-test-data"));
+    }
+
+    @Test public void malformedChildStructuresHaveDistinctReasonsWithoutLoggingNames() {
+        assertEquals(FocusWitness.Reason.CHILD_IDS_UNREADABLE, FocusWitness.substructureFailure(1, null, null));
+        assertEquals(FocusWitness.Reason.CHILD_NAMES_LENGTH_MISMATCH,
+                FocusWitness.substructureFailure(1, new int[]{2}, new String[0]));
+        assertEquals(FocusWitness.Reason.CHILD_IDS_DUPLICATE,
+                FocusWitness.substructureFailure(1, new int[]{2, 2}, null));
+        assertEquals(FocusWitness.Reason.CHILD_ID_INVALID,
+                FocusWitness.substructureFailure(1, new int[]{-2}, null));
+        assertEquals(FocusWitness.Reason.CHILD_NAMES_MISSING,
+                FocusWitness.substructureFailure(1, new int[]{2}, null));
+        assertEquals(FocusWitness.Reason.CHILD_NAME_UNKNOWN,
+                FocusWitness.substructureFailure(1, new int[]{2}, new String[]{""}));
+        assertNull(FocusWitness.substructureFailure(1, new int[]{2}, new String[]{"com.example.launcher"}));
+    }
+
     @Test public void markerNameLengthMismatchIsRejected() {
         assertFalse(FocusWitness.focusSubstructureKnown(16,new int[]{16},new String[0]));
     }
