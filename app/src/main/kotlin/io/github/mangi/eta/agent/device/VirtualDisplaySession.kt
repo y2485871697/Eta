@@ -207,9 +207,32 @@ internal object VirtualDisplaySession {
         } catch (_: Exception) { reply(false, "RECOVERY_STATE_UNREADABLE") }
     }
 
+    /** Lists only the authenticated current owner, not Android's unrelated displays. */
+    @Synchronized fun previewDisplays(context: Context): VirtualDisplayPreviewHttpServer.Displays {
+        val result = previewRead(context, null, capture = false)
+        return when (result.error) {
+            "NO_VIRTUAL_SESSION" -> VirtualDisplayPreviewHttpServer.Displays()
+            "" -> VirtualDisplayPreviewHttpServer.Displays(listOf(
+                VirtualDisplayPreviewHttpServer.Display(result.displayId, result.uniqueId, result.phase)))
+            else -> VirtualDisplayPreviewHttpServer.Displays(error = result.error)
+        }
+    }
+
     /** A snapshot only: no start/adoption, GUI observation contract, handoff or release. */
-    @Synchronized fun previewFrame(context: Context): VirtualDisplayPreviewHttpServer.Frame {
+    @Synchronized fun previewFrame(
+        context: Context,
+        selected: VirtualDisplayPreviewHttpServer.Identity? = null,
+    ): VirtualDisplayPreviewHttpServer.Frame = previewRead(context, selected, capture = true)
+
+    /** Called under the Session monitor. A reconnect is borrowed, never installed/adopted. */
+    private fun previewRead(
+        context: Context,
+        selected: VirtualDisplayPreviewHttpServer.Identity?,
+        capture: Boolean,
+    ): VirtualDisplayPreviewHttpServer.Frame {
         fun denied(code: String) = VirtualDisplayPreviewHttpServer.Frame(error = code)
+        if (selected != null && !VirtualDisplayPreviewHttpServer.validIdentity(selected))
+            return denied("PREVIEW_IDENTITY_INVALID")
         val pending = sessions.values.filter { it.phase != "finished" }
         if (pending.size > 1) return denied("OWNER_STATE_UNKNOWN")
         val session = pending.singleOrNull()
@@ -229,11 +252,17 @@ internal object VirtualDisplaySession {
                 borrowed = true
             }
             val owner = client ?: return denied("RECOVERY_UNCERTAIN")
+            val identity = VirtualDisplayPreviewHttpServer.Identity(owner.displayId, owner.uniqueId)
+            if (!VirtualDisplayPreviewHttpServer.validIdentity(identity)) return denied("OWNER_STATE_UNKNOWN")
+            if (selected != null && selected != identity) return denied("PREVIEW_DISPLAY_GONE")
+            fun matchesOwner(response: OwnerResponse): Boolean {
+                val state = response.json ?: return false
+                return response.ok && state.opt("displayId") == identity.displayId &&
+                    state.optString("uniqueId") == identity.uniqueId
+            }
             fun sourcePackages(response: OwnerResponse): Set<String>? {
-                val state = response.json ?: return null
-                if (!response.ok || state.opt("displayId") != owner.displayId ||
-                    state.optString("uniqueId") != owner.uniqueId) return null
-                val packages = state.optJSONArray("sourcePackages") ?: return null
+                if (!matchesOwner(response)) return null
+                val packages = response.json?.optJSONArray("sourcePackages") ?: return null
                 val result = linkedSetOf<String>()
                 for (i in 0 until packages.length()) {
                     val pkg = packages.opt(i) as? String ?: return null
@@ -242,13 +271,20 @@ internal object VirtualDisplaySession {
                 }
                 return result
             }
+            val state = owner.status()
+            if (!matchesOwner(state)) return denied("OWNER_STATE_UNKNOWN")
+            val phase = session?.phase ?: "recovery_pending"
+            if (!capture) return VirtualDisplayPreviewHttpServer.Frame(
+                displayId = identity.displayId, uniqueId = identity.uniqueId, phase = phase)
             val excluded = session?.previewExcludedPackages.orEmpty() + context.packageName
-            val before = sourcePackages(owner.status()) ?: return denied("SCREEN_CONTENT_UNKNOWN")
+            val before = sourcePackages(state) ?: return denied("SCREEN_CONTENT_UNKNOWN")
             if (before.isEmpty()) return denied("NO_FRAME")
             if (before.any { it in excluded }) return denied("SCREENSHOT_EXCLUDED_PACKAGE")
             val shot = owner.snapshot()
             if (!shot.ok) return denied("NO_FRAME")
-            val after = sourcePackages(owner.status()) ?: return denied("SCREEN_CONTENT_UNKNOWN")
+            val afterState = owner.status()
+            if (!matchesOwner(afterState)) return denied("OWNER_STATE_UNKNOWN")
+            val after = sourcePackages(afterState) ?: return denied("SCREEN_CONTENT_UNKNOWN")
             if (after != before || after.any { it in excluded }) return denied("SCREEN_CONTENT_CHANGED")
             val data = shot.json ?: return denied("NO_FRAME")
             val encoded = data.optString("data")
@@ -257,7 +293,7 @@ internal object VirtualDisplaySession {
                 return denied("FRAME_INVALID")
             val png = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
             if (!VirtualDisplayPreviewHttpServer.validPng(png)) return denied("FRAME_INVALID")
-            return VirtualDisplayPreviewHttpServer.Frame(png, owner.displayId, session?.phase ?: "recovery_pending")
+            return VirtualDisplayPreviewHttpServer.Frame(png, identity.displayId, phase, uniqueId = identity.uniqueId)
         } catch (_: Exception) {
             return denied("PREVIEW_UNAVAILABLE")
         } finally {

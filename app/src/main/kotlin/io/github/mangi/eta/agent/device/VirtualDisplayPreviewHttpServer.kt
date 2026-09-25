@@ -15,9 +15,17 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
 /** A separate, revocable viewing capability. Never exposes the owner IPC credential. */
-internal class VirtualDisplayPreviewHttpServer(private val capture: () -> Frame) {
+internal class VirtualDisplayPreviewHttpServer(
+    private val discover: () -> Displays,
+    private val capture: (Identity?) -> Frame,
+) {
+    data class Identity(val displayId: Int, val uniqueId: String)
+    data class Display(val displayId: Int, val uniqueId: String, val phase: String) {
+        val identity: Identity get() = Identity(displayId, uniqueId)
+    }
+    data class Displays(val displays: List<Display> = emptyList(), val error: String = "")
     data class Frame(val png: ByteArray? = null, val displayId: Int = -1,
-        val phase: String = "unknown", val error: String = "")
+        val phase: String = "unknown", val error: String = "", val uniqueId: String = "")
     data class Ticket(val port: Int, val token: String) {
         val viewerUri: String get() = "http://127.0.0.1:3070/#eta-preview=$port.$token"
         override fun toString() = "PreviewTicket(port=$port, credential=redacted)"
@@ -70,26 +78,49 @@ internal class VirtualDisplayPreviewHttpServer(private val capture: () -> Frame)
                 write(socket, decision, "application/json", errorJson(protocolError(decision)), origin)
                 return
             }
+            // Authentication precedes identity parsing and all owner access; queries are never accepted.
+            val route = request.path
+            val selected = try { selectedIdentity(request) } catch (_: IllegalArgumentException) {
+                writeError(socket, "PREVIEW_IDENTITY_INVALID", origin); return
+            }
             if (!captureLock.tryLock()) {
-                write(socket, 429, "application/json", errorJson("PREVIEW_BUSY"), origin); return
+                writeError(socket, "PREVIEW_BUSY", origin); return
             }
             try {
+                if (route == DISPLAYS_PATH) {
+                    val result = try { discover() } catch (_: Exception) { Displays(error = "PREVIEW_UNAVAILABLE") }
+                    if (!running) return
+                    if (result.error.isNotEmpty()) {
+                        writeError(socket, result.error, origin)
+                    } else if (result.displays.size > 1 || result.displays.any { !validIdentity(it.identity) }) {
+                        // This bridge is deliberately scoped to a single authenticated Session owner.
+                        writeError(socket, "OWNER_STATE_UNKNOWN", origin)
+                    } else {
+                        val entries = result.displays.joinToString(",") {
+                            "{\"displayId\":${it.displayId},\"uniqueId\":\"${it.uniqueId}\",\"phase\":\"${safePhase(it.phase)}\"}"
+                        }
+                        write(socket, 200, "application/json",
+                            "{\"ok\":true,\"displays\":[$entries]}".toByteArray(Charsets.UTF_8), origin)
+                    }
+                    return
+                }
                 val now = System.nanoTime()
                 if (lastCaptureNs != 0L && now - lastCaptureNs < 500_000_000L) {
-                    write(socket, 429, "application/json", errorJson("PREVIEW_BUSY"), origin); return
+                    writeError(socket, "PREVIEW_BUSY", origin); return
                 }
                 lastCaptureNs = now
-                val frame = try { capture() } catch (_: Exception) { Frame(error = "PREVIEW_UNAVAILABLE") }
+                val frame = try { capture(selected) } catch (_: Exception) { Frame(error = "PREVIEW_UNAVAILABLE") }
                 if (!running) return
                 val png = frame.png
-                if (png == null || frame.displayId <= 0 || !validPng(png)) {
-                    val code = frame.error.takeIf { it.matches(Regex("[A-Z0-9_]{1,80}")) } ?: "PREVIEW_UNAVAILABLE"
-                    write(socket, if (code == "NO_VIRTUAL_SESSION") 404 else 503,
-                        "application/json", errorJson(code), origin)
-                } else {
-                    val phase = frame.phase.takeIf { it.matches(Regex("[a-z_]{1,32}")) } ?: "unknown"
-                    write(socket, 200, "image/png", png, origin,
-                        "X-Eta-Display-Id: ${frame.displayId}\r\nX-Eta-Phase: $phase\r\n")
+                val actual = Identity(frame.displayId, frame.uniqueId)
+                when {
+                    frame.error.isNotEmpty() -> writeError(socket, frame.error, origin)
+                    !validIdentity(actual) -> writeError(socket, "FRAME_INVALID", origin)
+                    selected != null && selected != actual -> writeError(socket, "PREVIEW_DISPLAY_GONE", origin)
+                    png == null || !validPng(png) -> writeError(socket, "PREVIEW_UNAVAILABLE", origin)
+                    else -> write(socket, 200, "image/png", png, origin,
+                        "X-Eta-Display-Id: ${frame.displayId}\r\n" +
+                        "X-Eta-Display-Unique-Id: ${frame.uniqueId}\r\nX-Eta-Phase: ${safePhase(frame.phase)}\r\n")
                 }
             } finally { captureLock.unlock() }
         } catch (_: Exception) {
@@ -97,15 +128,27 @@ internal class VirtualDisplayPreviewHttpServer(private val capture: () -> Frame)
         } finally { clients.remove(socket); runCatching { socket.close() } }
     }
 
+    private fun writeError(socket: Socket, error: String, origin: String?) {
+        val code = error.takeIf { it.matches(Regex("[A-Z0-9_]{1,80}")) } ?: "PREVIEW_UNAVAILABLE"
+        val status = when (code) {
+            "PREVIEW_IDENTITY_INVALID" -> 400
+            "NO_VIRTUAL_SESSION" -> 404
+            "PREVIEW_DISPLAY_GONE" -> 410
+            "PREVIEW_BUSY" -> 429
+            else -> 503
+        }
+        write(socket, status, "application/json", errorJson(code), origin)
+    }
+
     private fun write(socket: Socket, status: Int, type: String, body: ByteArray, origin: String?, extra: String = "") {
         val payload = if (status == 204) byteArrayOf() else body
-        val reason = when (status) { 200 -> "OK"; 204 -> "No Content"; 401 -> "Unauthorized"
-            403 -> "Forbidden"; 404 -> "Not Found"; 405 -> "Method Not Allowed"
+        val reason = when (status) { 200 -> "OK"; 204 -> "No Content"; 400 -> "Bad Request"; 401 -> "Unauthorized"
+            403 -> "Forbidden"; 404 -> "Not Found"; 405 -> "Method Not Allowed"; 410 -> "Gone"
             429 -> "Too Many Requests"; else -> "Service Unavailable" }
         val cors = if (origin == null) "" else
             "Access-Control-Allow-Origin: $origin\r\nAccess-Control-Allow-Methods: GET, OPTIONS\r\n" +
-            "Access-Control-Allow-Headers: Authorization\r\nAccess-Control-Max-Age: 60\r\n" +
-            "Access-Control-Expose-Headers: X-Eta-Display-Id, X-Eta-Phase\r\n"
+            "Access-Control-Allow-Headers: Authorization, X-Eta-Display-Id, X-Eta-Display-Unique-Id\r\nAccess-Control-Max-Age: 60\r\n" +
+            "Access-Control-Expose-Headers: X-Eta-Display-Id, X-Eta-Display-Unique-Id, X-Eta-Phase\r\n"
         val header = "HTTP/1.1 $status $reason\r\nContent-Type: $type\r\nContent-Length: ${payload.size}\r\n" +
             "Connection: close\r\nCache-Control: no-store, max-age=0\r\nPragma: no-cache\r\n" +
             "X-Content-Type-Options: nosniff\r\nVary: Origin\r\n" + cors + extra + "\r\n"
@@ -114,13 +157,37 @@ internal class VirtualDisplayPreviewHttpServer(private val capture: () -> Frame)
 
     companion object {
         const val MAX_FRAME_BYTES = 6 * 1024 * 1024
+        const val DISPLAYS_PATH = "/eta-preview/displays"
+        const val FRAME_PATH = "/eta-preview/frame"
         val ALLOWED_ORIGINS = setOf("http://127.0.0.1:3070", "http://localhost:3070")
+        private val REQUEST_HEADERS = setOf("authorization", "x-eta-display-id", "x-eta-display-unique-id")
         fun validPng(bytes: ByteArray): Boolean = bytes.size in 8..MAX_FRAME_BYTES &&
             bytes.take(8) == listOf(137, 80, 78, 71, 13, 10, 26, 10).map { it.toByte() }
+        // The owner's generated/read-back Android unique id is opaque, never normalized.
+        // A bounded ASCII alphabet also makes it safe in both JSON and response headers.
+        fun validIdentity(identity: Identity): Boolean = identity.displayId > 0 &&
+            identity.uniqueId.matches(Regex("[A-Za-z0-9:_,.\\-]{1,512}"))
+        private fun safePhase(phase: String): String =
+            phase.takeIf { it.matches(Regex("[a-z_]{1,32}")) } ?: "unknown"
         private fun errorJson(code: String): ByteArray =
             ("{\"ok\":false,\"error\":\"" + code + "\"}").toByteArray(Charsets.UTF_8)
 
+        /** Absent pair is the legacy single-session request; partial/duplicate pairs fail closed. */
+        fun selectedIdentity(request: Request): Identity? {
+            require(request.path == FRAME_PATH || request.path == DISPLAYS_PATH)
+            val rawId = request.headers["x-eta-display-id"]
+            val unique = request.headers["x-eta-display-unique-id"]
+            if (rawId == null && unique == null) return null
+            require(request.path == FRAME_PATH)
+            require(rawId != null && unique != null)
+            require(rawId.matches(Regex("[1-9][0-9]{0,9}")))
+            val identity = Identity(requireNotNull(rawId.toIntOrNull()), unique)
+            require(validIdentity(identity))
+            return identity
+        }
+
         private fun protocolError(status: Int): String = when (status) {
+            400 -> "PREVIEW_IDENTITY_INVALID"
             401 -> "PREVIEW_AUTH_INVALID"
             404 -> "NO_VIRTUAL_SESSION"
             405 -> "PREVIEW_METHOD_NOT_ALLOWED"
@@ -132,18 +199,22 @@ internal class VirtualDisplayPreviewHttpServer(private val capture: () -> Frame)
         fun authorize(request: Request, port: Int, token: String): Int {
             if (request.headers["host"] !in setOf("127.0.0.1:$port", "localhost:$port") ||
                 request.headers["origin"] !in ALLOWED_ORIGINS) return 403
-            if (request.path != "/eta-preview/frame") return 404
+            if (request.path.substringBefore('?') !in setOf(FRAME_PATH, DISPLAYS_PATH)) return 404
             if (request.headers.containsKey("transfer-encoding") ||
                 request.headers["content-length"]?.let { it != "0" } == true) return 403
             if (request.method == "OPTIONS") {
+                if ('?' in request.path) return 400
                 val names = request.headers["access-control-request-headers"].orEmpty()
                     .split(',').map { it.trim().lowercase(Locale.ROOT) }
                 return if (request.headers["access-control-request-method"] == "GET" &&
-                    names.all { it == "authorization" || it.isEmpty() }) 204 else 403
+                    "authorization" in names && names.all { it in REQUEST_HEADERS } &&
+                    names.size == names.toSet().size &&
+                    (("x-eta-display-id" in names) == ("x-eta-display-unique-id" in names))) 204 else 403
             }
             if (request.method != "GET") return 405
-            return if (MessageDigest.isEqual(("Bearer " + token).toByteArray(Charsets.US_ASCII),
-                    request.headers["authorization"].orEmpty().toByteArray(Charsets.US_ASCII))) 200 else 401
+            if (!MessageDigest.isEqual(("Bearer " + token).toByteArray(Charsets.US_ASCII),
+                    request.headers["authorization"].orEmpty().toByteArray(Charsets.US_ASCII))) return 401
+            return if ('?' in request.path) 400 else 200
         }
 
         fun readRequest(input: InputStream): Request {

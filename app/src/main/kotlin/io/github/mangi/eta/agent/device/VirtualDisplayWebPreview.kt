@@ -8,7 +8,10 @@ internal object VirtualDisplayWebPreview {
     @Synchronized fun open(context: Context): String {
         stop()
         val app = context.applicationContext
-        val next = VirtualDisplayPreviewHttpServer { VirtualDisplaySession.previewFrame(app) }
+        val next = VirtualDisplayPreviewHttpServer(
+            discover = { VirtualDisplaySession.previewDisplays(app) },
+            capture = { selected -> VirtualDisplaySession.previewFrame(app, selected) },
+        )
         return try {
             val ticket = next.start()
             server = next
