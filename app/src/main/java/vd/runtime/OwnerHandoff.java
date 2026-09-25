@@ -326,7 +326,7 @@ final class OwnerHandoff {
         return direct!=null ? direct : intFieldOrNull(task,"mActivityType");
     }
     /** No package identity in the base intent or any component field; a malformed value throws. */
-    private static boolean identityFree(Object task)throws Exception {
+    static boolean identityFree(Object task)throws Exception {
         Object rawIntent=field(task,"baseIntent");
         if(rawIntent!=null) {
             if(!(rawIntent instanceof Intent)) return false;
@@ -420,6 +420,7 @@ final class OwnerHandoff {
     static final class HandoffFailure extends OwnerException {
         private final String phase;
         private final boolean sideEffectsAttempted;
+        private final HandoffProgress.Snapshot progress;
         private List<String> focusSamples = Collections.emptyList();
         HandoffFailure withFocusSamples(List<String> samples) {
             List<String> safe = new ArrayList<String>();
@@ -436,11 +437,17 @@ final class OwnerHandoff {
         }
         List<String> focusSamples() { return Collections.unmodifiableList(focusSamples); }
         HandoffFailure(String phase,Throwable cause,boolean sideEffectsAttempted,String summary) {
+            this(phase,cause,sideEffectsAttempted,summary,HandoffProgress.Snapshot.empty());
+        }
+        HandoffFailure(String phase,Throwable cause,boolean sideEffectsAttempted,String summary,
+                HandoffProgress.Snapshot progress) {
             super(sideEffectsAttempted ? HANDOFF_UNCERTAIN : HANDOFF_PREFLIGHT_FAILED,
                     failureDetail(phase,cause,summary));
             this.phase=phase;
             this.sideEffectsAttempted=sideEffectsAttempted;
+            this.progress=progress==null ? HandoffProgress.Snapshot.empty() : progress;
         }
+        HandoffProgress.Snapshot progress() { return progress; }
         String phase() { return phase; }
         boolean sideEffectsAttempted() { return sideEffectsAttempted; }
         /** Only a failure that never crossed the first side effect may be retried. */
@@ -483,6 +490,7 @@ final class OwnerHandoff {
     }
     static JSONObject move(int source,String unique,Map<Integer,Task> owned,JSONArray keep)throws OwnerException {
         JSONArray moved=new JSONArray(),removed=new JSONArray();
+        HandoffProgress progress=new HandoffProgress();
         // Everything up to the anchor launch is read-only; the anchor launch is the first side effect.
         // The phase names a symbolic stage only, so no Intent payload or token can appear in a reply.
         String phase="preflight:display";
@@ -492,9 +500,9 @@ final class OwnerHandoff {
             verifyDisplay(source,unique);
             phase="preflight:selection";
             Set<Integer> selected=new LinkedHashSet<Integer>();
-            if(keep==null) throw new IllegalStateException("taskIds array required");
+            if(keep==null || keep.length()>HandoffProgress.MAX_TASKS) throw new IllegalStateException("taskIds array required and bounded");
             for(int i=0;i<keep.length();i++) {
-                Object n=keep.get(i);if(!(n instanceof Integer)||!selected.add((Integer)n)||!owned.containsKey((Integer)n)) throw new IllegalStateException("invalid taskIds");
+                Object n=keep.get(i);if(!(n instanceof Integer)||((Integer)n)<=0||!selected.add((Integer)n)||!owned.containsKey((Integer)n)) throw new IllegalStateException("invalid taskIds");
             }
             // Each read-only round refreshes BOTH roots and focus. No stale inventory retry.
             OwnerFocusPreflight.Sample preflight=OwnerFocusPreflight.capture(
@@ -509,6 +517,10 @@ final class OwnerHandoff {
             focusSamples=preflight.observations;
             Map<Integer,Object> current=preflight.inventory;
             FocusWitness witness=preflight.witness;
+            phase="preflight:capability";
+            SafeBackgroundHandoff background=new SafeBackgroundHandoff(
+                    new AndroidBackgroundHandoff(source,unique,owned,selected,witness),progress);
+            background.preflight();
             // ---- First side effect: launching the source-display anchor cover. ----
             String anchorUri="eta-vd-anchor://handoff/"+UUID.randomUUID().toString();
             String anchorComponent="io.github.mangi.eta/io.github.mangi.eta.agent.device.VirtualDisplayAnchorActivity";
@@ -530,17 +542,10 @@ final class OwnerHandoff {
             }
             if(anchor==null)throw new IllegalStateException("anchor identity not observed");
             phase="focus";focus(witness);
-            // Fresh tasks only. Default hidden/focusable restoration is an explicit limited-mode assumption.
-            for(Integer id:selected) {
-                Task identity=owned.get(id);verifyDisplay(source,unique);focus(witness);
-                Object t=roots().get(id);identity.check(t,source);
-                phase="hide:"+id;tx(t,true,false);
-                t=roots().get(id);identity.check(t,source);focus(witness);
-                phase="move:"+id;invokeAtm("moveRootTaskToDisplay",new Class<?>[]{int.class,int.class},id.intValue(),0);
-                t=roots().get(id);identity.check(t,0);focus(witness);
-                phase="park:"+id;tx(t,false,false);t=roots().get(id);identity.check(t,0);focus(witness);
-                phase="restore:"+id;tx(t,false,true);identity.check(roots().get(id),0);focus(witness);moved.put(id);
-            }
+            // Fresh tasks only. Hidden/focusable defaults remain the limited-mode assumption.
+            // Each selected task moves bottom via our empty root, never an ON_TOP display move.
+            background.move(new ArrayList<Integer>(selected));
+            for(Integer id:progress.snapshot().completedTaskIds)moved.put(id);
             for(Object t:roots().values()) if(number(t,"displayId")==source) {
                 int id=number(t,"taskId");
                 if(id==anchor.id)continue;
@@ -562,9 +567,14 @@ final class OwnerHandoff {
             return new JSONObject().put("handedOff",true).put("sourceEmpty",true).put("keptTaskIds",moved).put("removedTaskIds",removed)
                     .put("focusSamples",new JSONArray(preflight.observations));
         } catch(Throwable ex) {
-            // Never demote any failure after the anchor launch back to a retryable preflight.
-            if(!sideEffects && ex instanceof HandoffFailure) throw (HandoffFailure)ex;
-            throw new HandoffFailure(phase,ex,sideEffects,"moved="+moved+" removed="+removed)
+            // Preserve the exact failed movement phase and its historical progress. Never demote
+            // any failure after anchor launch, and never clean up or retry an ambiguous apply.
+            if(ex instanceof HandoffFailure && (!sideEffects || ((HandoffFailure)ex).sideEffectsAttempted())) {
+                HandoffFailure failure=(HandoffFailure)ex;
+                if(!focusSamples.isEmpty())failure.withFocusSamples(focusSamples);
+                throw failure;
+            }
+            throw new HandoffFailure(phase,ex,sideEffects,"moved="+moved+" removed="+removed,progress.snapshot())
                     .withFocusSamples(focusSamples);
         }
     }

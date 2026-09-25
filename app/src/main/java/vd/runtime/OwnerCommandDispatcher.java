@@ -50,13 +50,7 @@ final class OwnerCommandDispatcher implements OwnerIpcServer.Dispatcher {
             }
             return OwnerProtocol.fail(request.op, OwnerProtocol.ERROR_UNKNOWN_OP, request.op);
         } catch (OwnerException ex) {
-            JSONObject response = OwnerProtocol.fail(request.op, ex.code, ex.getMessage());
-            if (ex instanceof OwnerHandoff.HandoffFailure) {
-                try {
-                    response.put("focusSamples", new org.json.JSONArray(
-                            ((OwnerHandoff.HandoffFailure) ex).focusSamples()));
-                } catch (Exception ignored) { /* Diagnostics must not change the failure outcome. */ }
-            }
+            JSONObject response = failureResponse(request.op, ex);
             if (LaunchTargetOccupancy.UNKNOWN.equals(ex.code)) {
                 attachDiagnostic(response);
             }
@@ -65,6 +59,20 @@ final class OwnerCommandDispatcher implements OwnerIpcServer.Dispatcher {
             return OwnerProtocol.fail(request.op, OwnerProtocol.ERROR_INTERNAL,
                     unexpected.getClass().getSimpleName());
         }
+    }
+
+    /** Pure wire encoding. Progress is historical only, never a cleanup/retry/release capability. */
+    static JSONObject failureResponse(String op, OwnerException failure) {
+        JSONObject response = OwnerProtocol.fail(op, failure.code, failure.getMessage());
+        if (failure instanceof OwnerHandoff.HandoffFailure) {
+            OwnerHandoff.HandoffFailure handoff = (OwnerHandoff.HandoffFailure) failure;
+            try {
+                response.put("retryable", handoff.retryable());
+                response.put(HandoffProgress.FIELD, handoff.progress().toJson());
+                response.put("focusSamples", new org.json.JSONArray(handoff.focusSamples()));
+            } catch (Exception ignored) { /* Diagnostics must not change the failure outcome. */ }
+        }
+        return response;
     }
 
     /**
