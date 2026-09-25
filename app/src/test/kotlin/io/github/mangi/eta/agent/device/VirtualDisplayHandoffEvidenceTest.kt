@@ -18,6 +18,12 @@ class VirtualDisplayHandoffEvidenceTest {
         "focusSamples" to listOf("Focus_BINDER_CHANGED", "Focus_FOCUS_UNSTABLE"),
     )
 
+    // OwnerProtocol.ok("release", owner.release()) includes the released display identity.
+    private fun release(): Map<String, Any?> = mapOf(
+        "v" to 1, "op" to "release", "ok" to true,
+        "released" to true, "displayId" to 2, "uniqueId" to "owner-unique",
+    )
+
     // OwnerProtocol.ok("status", owner.status()) emits these fields at top level, not in a body.
     private fun status(): Map<String, Any?> = mapOf(
         "v" to 1, "op" to "status", "ok" to true, "ready" to true, "session" to "active",
@@ -182,13 +188,21 @@ class VirtualDisplayHandoffEvidenceTest {
     }
 
     @Test fun releaseReceiptRequiresExactV1DisplayIdentity() {
-        val wire = mapOf<String, Any?>("v" to 1, "op" to "release", "ok" to true,
-            "released" to true, "displayId" to 2, "uniqueId" to "owner-unique")
-        assertTrue(VirtualDisplayHandoffEvidence.released(identity, true, wire::get))
+        val wire = release()
+        assertTrue(VirtualDisplayHandoffEvidence.released(identity, true, true, wire::get))
         for (field in wire.keys)
-            assertFalse(field, VirtualDisplayHandoffEvidence.released(identity, true, (wire - field)::get))
-        assertFalse(VirtualDisplayHandoffEvidence.released(identity.copy(displayId = 3), true, wire::get))
-        assertFalse(VirtualDisplayHandoffEvidence.released(identity.copy(uniqueId = "other"), true, wire::get))
-        assertFalse(VirtualDisplayHandoffEvidence.released(identity, false, wire::get))
+            assertFalse(field, VirtualDisplayHandoffEvidence.released(identity, true, true, (wire - field)::get))
+        assertFalse(VirtualDisplayHandoffEvidence.released(identity.copy(displayId = 3), true, true, wire::get))
+        assertFalse(VirtualDisplayHandoffEvidence.released(identity.copy(uniqueId = "other"), true, true, wire::get))
+        assertFalse(VirtualDisplayHandoffEvidence.released(identity, true, false, wire::get))
+    }
+
+    @Test fun validReleaseReceiptCannotAuthenticateItsOwnConnection() {
+        val wire = release()
+        assertFalse(VirtualDisplayHandoffEvidence.released(
+            identity, authenticatedConnection = false, responseOk = true, field = wire::get))
+        // Liveness after the reply is not required: release shuts down the authenticated owner.
+        assertTrue(VirtualDisplayHandoffEvidence.released(
+            identity, authenticatedConnection = true, responseOk = true, field = wire::get))
     }
 }

@@ -135,6 +135,59 @@ class VirtualDisplayHandoffRetryTest {
         assertFalse(budget.blocked)
     }
 
+    @Test fun cleanNonFocusPreflightStaysPendingWithoutRetryingThisRound() {
+        for (phase in listOf("display", "selection", "inventory", "cancelled")) {
+            val diagnostic = "preflight:$phase:IllegalStateException;moved=[] removed=[]"
+            val budget = VirtualDisplayHandoffRetry.Budget()
+            val events = mutableListOf<String>()
+            val result = VirtualDisplayHandoffRetry.run(budget,
+                { events.add("handoff"); refused(d = diagnostic) },
+                { events.add("status"); VirtualDisplayHandoffRetry.freshStateAllowsRetry(state, state.copy(), selected) },
+                { events.add("delay") }) as VirtualDisplayHandoffRetry.Outcome.Stopped
+            assertEquals(phase, listOf("handoff", "status"), events)
+            assertEquals(VirtualDisplayHandoffRetry.Failure(code, diagnostic), result.failure)
+            assertTrue(phase, result.cleanPreflight)
+            assertEquals("handoff_pending", result.phase)
+            assertEquals(0, budget.remaining)
+            assertFalse(budget.blocked)
+            repeat(2) {
+                val reentry = VirtualDisplayHandoffRetry.run(budget,
+                    { events.add("replayed"); refused() },
+                    { events.add("rechecked"); true }, { events.add("delayed") })
+                    as VirtualDisplayHandoffRetry.Outcome.Stopped
+                assertNull(reentry.failure)
+                assertFalse(reentry.cleanPreflight)
+            }
+            assertEquals(phase, listOf("handoff", "status"), events)
+        }
+    }
+
+    @Test fun nonFocusPreflightNeedsAuthenticationAndFreshUnchangedState() {
+        for (phase in listOf("display", "selection", "inventory", "cancelled")) {
+            for (authenticated in listOf(false, true)) {
+                val budget = VirtualDisplayHandoffRetry.Budget()
+                var calls = 0
+                var reads = 0
+                var delays = 0
+                val result = VirtualDisplayHandoffRetry.run(budget,
+                    { calls++; refused(d = "preflight:$phase:IllegalStateException;moved=[] removed=[]",
+                        authenticated = authenticated) },
+                    { reads++; VirtualDisplayHandoffRetry.freshStateAllowsRetry(
+                        state, state.copy(sourceTaskCount = 4), selected) },
+                    { delays++ }) as VirtualDisplayHandoffRetry.Outcome.Stopped
+                assertEquals(1, calls)
+                assertEquals(if (authenticated) 1 else 0, reads)
+                assertEquals(0, delays)
+                assertFalse(result.cleanPreflight)
+                assertEquals("uncertain", result.phase)
+                assertTrue(budget.blocked)
+                budget.reset()
+                VirtualDisplayHandoffRetry.run(budget, { calls++; refused() }, { true }, {})
+                assertEquals(1, calls)
+            }
+        }
+    }
+
     @Test fun thirdStatusFailureIsUncertainAndCannotBeResetOrReplayed() {
         val budget = VirtualDisplayHandoffRetry.Budget()
         var calls = 0
@@ -187,12 +240,12 @@ class VirtualDisplayHandoffRetryTest {
             refused(d = detail.replace("moved=[]", "moved=[16]")),
             refused(d = detail.replace("removed=[]", "removed=[18]")),
             refused(d = detail.replace("preflight:focus", "anchor:launch")),
-            refused(d = detail.replace("preflight:focus", "preflight:inventory")),
+            refused(d = detail.replace("preflight:focus", "preflight:unknown")),
         )) {
             val budget = VirtualDisplayHandoffRetry.Budget()
             var calls = 0
             val result = VirtualDisplayHandoffRetry.run(budget, { calls++; attempt },
-                { error("must not revalidate non-retryable failure") }, { error("must not delay") })
+                { error("must not revalidate unauthenticated or unproven failure") }, { error("must not delay") })
                 as VirtualDisplayHandoffRetry.Outcome.Stopped
             assertEquals("uncertain", result.phase)
             assertEquals(VirtualDisplayHandoffRetry.Failure(attempt.code, attempt.detail), result.failure)
