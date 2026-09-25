@@ -72,10 +72,15 @@ final class SafeBackgroundHandoff {
                 backend.checkFocus();
                 phase = "complete:" + id;
                 backend.checkStaging(staging);
+                // The focus/staging reads must not mask loss of the selected task identity.
+                backend.checkDestination(id);
                 progress.completed(id);
             }
             phase = "staging:delete";
             backend.checkFocus();
+            // Earlier completed tasks can disappear while later tasks move. Historical progress
+            // is not authorization to clean up when their current identity is no longer proven.
+            for (int id : selected) backend.checkDestination(id);
             backend.deleteStaging(staging);
             backend.checkFocus();
         } catch (Throwable ex) {

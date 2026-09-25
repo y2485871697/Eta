@@ -86,6 +86,20 @@ public class StagingRootGuardTest {
         assertEquals(0, changed.deletes);
     }
 
+    @Test public void lostCookieOrNewChildAtFinalReadPreventsDelete() {
+        for (StagingRootGuard.View changed : Arrays.asList(
+                new StagingRootGuard.View(900, 0, 0, -1, 0, 0, 1, token, binder,
+                        Collections.emptyList(), new int[]{900}, true),
+                new StagingRootGuard.View(900, 0, 0, -1, 0, 0, 1, token, binder,
+                        Collections.singletonList(cookie), new int[]{8}, true))) {
+            Access access = new Access(empty());
+            access.second = changed;
+            assertThrows(IllegalStateException.class, () -> guard().delete(access));
+            assertEquals(2, access.reads);
+            assertEquals(0, access.deletes);
+        }
+    }
+
     @Test public void changedCookieDisplayUserParentOrModePreventsDelete() {
         rejectsWithoutDelete(new StagingRootGuard.View(900, 0, 0, -1, 0, 0, 1, token, binder,
                 Collections.singletonList(new Object()), new int[]{900}, true));
@@ -109,7 +123,7 @@ public class StagingRootGuardTest {
         assertSame(token, access.deletedToken);
     }
 
-    @Test public voidUnverifiedDeleteThrowsWithoutRepeatingDeletion() {
+    @Test public void unverifiedDeleteThrowsWithoutRepeatingDeletion() {
         Access access = new Access(empty());
         access.absent = false;
         assertThrows(IllegalStateException.class, () -> guard().delete(access));

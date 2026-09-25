@@ -27,6 +27,18 @@ public class HandoffProgressTest {
         assertEquals(OwnerHandoff.HANDOFF_UNCERTAIN, wire.getString("error"));
         assertFalse(wire.getBoolean("retryable"));
         assertEquals("move:8:Focus_TASK_CHANGED;moved=[7] removed=[]", wire.getString("message"));
+        assertTrue(wire.get("sideEffectsAttempted") instanceof Boolean);
+        assertTrue(wire.getBoolean("sideEffectsAttempted"));
+        assertTrue(wire.get("handoffPhase") instanceof String);
+        assertEquals("move:8", wire.getString("handoffPhase"));
+        assertEquals("[7,8]", wire.getJSONArray("attemptedTaskIds").toString());
+        assertEquals("[7,8]", wire.getJSONArray("relocatedTaskIds").toString());
+        assertEquals("[7]", wire.getJSONArray("completedTaskIds").toString());
+        for (String name : Arrays.asList("attemptedTaskIds", "relocatedTaskIds", "completedTaskIds")) {
+            assertTrue(wire.get(name) instanceof JSONArray);
+            JSONArray ids = wire.getJSONArray(name);
+            for (int i = 0; i < ids.length(); i++) assertTrue(ids.get(i) instanceof Integer);
+        }
         JSONObject history = wire.getJSONObject("handoffProgress");
         assertEquals(3, history.length());
         assertEquals("[7,8]", history.getJSONArray("mutationAttemptedTaskIds").toString());
@@ -45,6 +57,14 @@ public class HandoffProgressTest {
                     "moved=[] removed=[]");
             JSONObject wire = OwnerCommandDispatcher.failureResponse(OwnerProtocol.OP_HANDOFF, failure);
             assertEquals(!mutated, wire.getBoolean("retryable"));
+            assertTrue(wire.get("sideEffectsAttempted") instanceof Boolean);
+            assertEquals(mutated, wire.getBoolean("sideEffectsAttempted"));
+            assertEquals(mutated ? "anchor:launch" : "preflight:capability",
+                    wire.getString("handoffPhase"));
+            for (String name : Arrays.asList("attemptedTaskIds", "relocatedTaskIds", "completedTaskIds")) {
+                assertTrue(wire.get(name) instanceof JSONArray);
+                assertEquals(0, wire.getJSONArray(name).length());
+            }
             JSONObject history = wire.getJSONObject("handoffProgress");
             assertEquals(0, history.getJSONArray("mutationAttemptedTaskIds").length());
             assertEquals(0, history.getJSONArray("relocatedTaskIds").length());
@@ -93,6 +113,9 @@ public class HandoffProgressTest {
     @Test public void unrelatedFailureDoesNotPretendToHaveHandoffHistory() {
         JSONObject wire = OwnerCommandDispatcher.failureResponse("status",
                 new OwnerException(OwnerProtocol.ERROR_INTERNAL, "example"));
-        assertFalse(wire.has("handoffProgress"));
+        for (String name : Arrays.asList("handoffProgress", "sideEffectsAttempted", "handoffPhase",
+                "attemptedTaskIds", "relocatedTaskIds", "completedTaskIds")) {
+            assertFalse(wire.has(name));
+        }
     }
 }

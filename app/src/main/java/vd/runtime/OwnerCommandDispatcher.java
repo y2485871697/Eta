@@ -68,7 +68,14 @@ final class OwnerCommandDispatcher implements OwnerIpcServer.Dispatcher {
             OwnerHandoff.HandoffFailure handoff = (OwnerHandoff.HandoffFailure) failure;
             try {
                 response.put("retryable", handoff.retryable());
-                response.put(HandoffProgress.FIELD, handoff.progress().toJson());
+                response.put("sideEffectsAttempted", handoff.sideEffectsAttempted());
+                response.put("handoffPhase", OwnerHandoff.sanitizePhase(handoff.phase()));
+                HandoffProgress.Snapshot progress = handoff.progress();
+                response.put("attemptedTaskIds", new org.json.JSONArray(progress.mutationAttemptedTaskIds));
+                response.put("relocatedTaskIds", new org.json.JSONArray(progress.relocatedTaskIds));
+                response.put("completedTaskIds", new org.json.JSONArray(progress.completedTaskIds));
+                // Keep the draft's nested diagnostic for consumers that already read it.
+                response.put(HandoffProgress.FIELD, progress.toJson());
                 response.put("focusSamples", new org.json.JSONArray(handoff.focusSamples()));
             } catch (Exception ignored) { /* Diagnostics must not change the failure outcome. */ }
         }
