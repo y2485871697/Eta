@@ -8,6 +8,7 @@ internal object VirtualDisplayHandoffRetry {
 
     // This is the owner's existing wire detail, not proof by itself. In particular, an anchor
     // launch can fail with empty tallies AFTER the first side effect. Never normalize this match.
+    private val PREFLIGHT_DETAIL = Regex("preflight:(display|selection|inventory|focus|cancelled):[A-Za-z0-9_$]+; ?moved=\\[\\] removed=\\[\\]")
     private val FOCUS_DETAIL = Regex("preflight:focus:[A-Za-z0-9_$]+; ?moved=\\[\\] removed=\\[\\]")
 
     data class OwnerIdentity(val socketName: String, val pid: Long, val displayId: Int, val uniqueId: String) {
@@ -51,13 +52,20 @@ internal object VirtualDisplayHandoffRetry {
         fun consume() { if (hasRemaining()) used++ }
         fun reset() { if (!blocked) used = 0 }
 
+        // A clean non-focus refusal stops this round too, without claiming mutation uncertainty.
+        fun exhaust() { used = limit }
+
         // A later adoption must not turn a possibly applied mutation into another handoff.
-        fun stop() { blocked = true; used = limit }
+        fun stop() { blocked = true; exhaust() }
     }
 
     /** Syntax only: neither empty tallies nor the error code alone authorize replay. */
     fun isRetryable(code: String, detail: String): Boolean =
         code == ERROR_CODE && FOCUS_DETAIL.matches(detail)
+
+    /** Read-only does not imply retryable: only the focus preflight is retried automatically. */
+    private fun isCleanPreflight(code: String, detail: String): Boolean =
+        code == ERROR_CODE && PREFLIGHT_DETAIL.matches(detail)
 
     /**
      * Compare the complete recovery-relevant state, not just a subset of retained tasks. Frame
@@ -116,16 +124,21 @@ internal object VirtualDisplayHandoffRetry {
                 }
                 is Attempt.Refused -> {
                     if (first == null) first = Failure(attempt.code, attempt.detail)
-                    if (!attempt.authenticated || !isRetryable(attempt.code, attempt.detail)) {
+                    if (!attempt.authenticated || !isCleanPreflight(attempt.code, attempt.detail)) {
                         budget.stop()
                         return Outcome.Stopped(Failure(attempt.code, attempt.detail))
                     }
-                    if (budget.hasRemaining() && !sleep(delay, delayForRetry(retryIndex))) {
+                    val retryable = isRetryable(attempt.code, attempt.detail)
+                    if (retryable && budget.hasRemaining() && !sleep(delay, delayForRetry(retryIndex))) {
                         budget.stop(); return Outcome.Stopped(first)
                     }
-                    // Exhaustion alone is not evidence of a clean stop. Re-read after attempt 3.
+                    // Exhaustion or a non-focus refusal alone cannot prove a clean stop.
                     if (!verify(verifyFresh)) { budget.stop(); return Outcome.Stopped(first) }
                     if (Thread.currentThread().isInterrupted) { budget.stop(); return Outcome.Stopped(first) }
+                    if (!retryable) {
+                        budget.exhaust() // Prevent finish/onRunClosed from replaying this round.
+                        return Outcome.Stopped(Failure(attempt.code, attempt.detail), cleanPreflight = true)
+                    }
                     if (!budget.hasRemaining()) return Outcome.Stopped(first, cleanPreflight = true)
                     retryIndex++
                 }

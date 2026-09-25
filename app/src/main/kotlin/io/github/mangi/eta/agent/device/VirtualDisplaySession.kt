@@ -88,7 +88,7 @@ internal object VirtualDisplaySession {
     }
     /** 只转发无歧义的安全细节；绝不回显 token、Intent 转储或数据 URI。 */
     private fun safeOwnerDetail(response: OwnerResponse): String {
-        val raw = response.json?.optString("message").orEmpty()
+        val raw = response.json?.opt("message") as? String ?: return ""
         val collapsed = raw.replace(Regex("[\\p{Cntrl}\\s]+"), " ").trim()
         if (collapsed.isEmpty() || collapsed.length > 180) return ""
         // Only the symbolic handoff phase/type and integer task tallies are allowed.
@@ -132,8 +132,7 @@ internal object VirtualDisplaySession {
             if (s.phase == "finished") return reply(false, "SESSION_FINISHED")
             // A cancelled run can still select delivery tasks and finish through the owner.
             // Do not restore GUI access or reset this run's automatic retry budget.
-            if (VirtualDisplayRecoveryPolicy.canRecoverExistingRun(s.phase, s.closedRun) ||
-                (s.closedRun && s.phase == "handoff_pending")) {
+            if (VirtualDisplayRecoveryPolicy.canRecoverExistingRun(s.phase, s.closedRun)) {
                 s.cleanupOnly = true
                 if (s.kept.isEmpty()) s.packages.values.forEach { s.kept.addAll(it) }
                 return reply(true).put("recovered", true).put("cleanup_only", true).put("phase", s.phase)
@@ -469,10 +468,13 @@ internal object VirtualDisplaySession {
             latest.finishing != handedOff || latest.handoffComplete != handedOff)
             return fail(s, "RELEASE_UNCERTAIN")
         s.handoffBudget.stop() // No second release, even if its response is lost or malformed.
+        // A successful release stops the owner; post-response isAlive is not transport proof.
+        val authenticatedReleaseConnection = c.isAlive
+        if (!authenticatedReleaseConnection) return fail(s, "RELEASE_UNCERTAIN")
         val released = try { c.release() }
             catch (_: InterruptedException) { Thread.currentThread().interrupt(); return fail(s, "RELEASE_UNCERTAIN") }
             catch (_: Exception) { return fail(s, "RELEASE_UNCERTAIN") }
-        if (!VirtualDisplayHandoffEvidence.released(observed.identity,
+        if (!VirtualDisplayHandoffEvidence.released(observed.identity, authenticatedReleaseConnection,
                 released.ok && released.op == VirtualDisplayOwnerProtocol.OP_RELEASE, { released.json?.opt(it) }))
             return fail(s, released.errorCode.ifBlank { "RELEASE_UNCERTAIN" }, safeOwnerDetail(released))
         return clearReleased(ctx, s).put("handedOff", latest.handoffComplete)
@@ -505,7 +507,7 @@ internal object VirtualDisplaySession {
         val c=s.client!!
         try {
             if(tool=="observe_screen") {
-                //观察失败不得保留上一帧的有效坐标：先作废，成功登记新帧后才可再次输入。
+                //观察失败不得保留上一帧的有效坐标：先作废，成功登记新帧后才能再次输入。
                 s.observation.invalidate()
                 val visible=c.status()
                 val packages=body(visible).optJSONArray("sourcePackages")
@@ -561,7 +563,7 @@ internal object VirtualDisplaySession {
                 val live = c.status()
                 if (!live.ok) {
                     s.observation.invalidate()
-                    return text(reply(false, "VIRTUAL_FRAME_UNKNOWN"))
+                    return text(reply(false,"VIRTUAL_FRAME_UNKNOWN"))
                 }
                 s.observation.validateFrame(body(live).optInt("width", 0), body(live).optInt("height", 0))
             }

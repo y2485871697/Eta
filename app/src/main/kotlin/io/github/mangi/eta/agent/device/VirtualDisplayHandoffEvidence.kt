@@ -57,11 +57,13 @@ internal object VirtualDisplayHandoffEvidence {
         return VirtualDisplayHandoffRetry.OwnerState(identity, true, flags, retainedTaskIds.toSet(), count)
     }
 
+    /** The owner exits after release, so authenticate the request connection, not post-reply liveness. */
     fun released(
         identity: VirtualDisplayHandoffRetry.OwnerIdentity,
+        authenticatedConnection: Boolean,
         responseOk: Boolean,
         field: (String) -> Any?,
-    ): Boolean = responseOk && identity.isValid() && envelope(field, "release", true) &&
+    ): Boolean = authenticatedConnection && responseOk && identity.isValid() && envelope(field, "release", true) &&
         field("released") == true && field("displayId") == identity.displayId && field("uniqueId") == identity.uniqueId
 
     private fun envelope(field: (String) -> Any?, op: String, ok: Boolean): Boolean =
