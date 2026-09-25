@@ -19,6 +19,23 @@ class VirtualDisplayRecoveryPolicyTest {
             assertEquals(VirtualDisplayRecoveryPolicy.Action.REFUSE, VirtualDisplayRecoveryPolicy.finishAction(state))
         }
     }
+    @Test fun onlyClosedRecoverablePhasesMayResumeCleanup() {
+        for (phase in listOf("active", "held", "uncertain")) {
+            assertTrue(phase, VirtualDisplayRecoveryPolicy.canRecoverExistingRun(phase, true))
+            assertFalse(phase, VirtualDisplayRecoveryPolicy.canRecoverExistingRun(phase, false))
+        }
+        for (phase in listOf("starting", "finishing", "finished", "unknown", "")) {
+            assertFalse(phase, VirtualDisplayRecoveryPolicy.canRecoverExistingRun(phase, true))
+            assertFalse(phase, VirtualDisplayRecoveryPolicy.canRecoverExistingRun(phase, false))
+        }
+    }
+    @Test fun cleanupEligibilityNeverAuthorizesUncertainMutationReplay() {
+        assertTrue(VirtualDisplayRecoveryPolicy.canRecoverExistingRun("uncertain", true))
+        assertEquals(VirtualDisplayRecoveryPolicy.Action.REFUSE,
+            VirtualDisplayRecoveryPolicy.finishAction(fresh.copy(mutationUncertain=true)))
+        assertEquals(VirtualDisplayRecoveryPolicy.Action.REFUSE,
+            VirtualDisplayRecoveryPolicy.finishAction(fresh.copy(releaseAttempted=true)))
+    }
     @Test fun taskIdentityParsingIsStrict() {
         assertEquals(setOf(16,17), VirtualDisplayRecoveryPolicy.taskIds(listOf(16,17)))
         assertEquals(emptySet<Int>(), VirtualDisplayRecoveryPolicy.taskIds(emptyList<Int>()))

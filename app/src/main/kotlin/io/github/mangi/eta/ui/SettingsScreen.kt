@@ -384,6 +384,7 @@ internal fun SettingsScreen(
             item(key = "section_general") {
                 SmallTitle(stringResource(R.string.settings_general))
                 Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                    VirtualDisplayRecoveryPreference(context)
                     ArrowPreference(
                         title = stringResource(R.string.voice_mode_title),
                         startAction = { PreferenceIcon(icon = Icons.Rounded.RecordVoiceOver) },

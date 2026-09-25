@@ -1468,4 +1468,19 @@
   <string name="tool_delegate_task">Delegate task</string>
   <string name="tool_get_task_result">Get task result</string>
   <string name="tool_cancel_task">Cancel task</string>
+  <string name="vd_recovery_title">Virtual display recovery</string>
+  <string name="vd_recovery_empty">No pending Eta display session</string>
+  <string name="vd_recovery_record">Recovery record: display %1$d · %2$s</string>
+  <string name="vd_recovery_unknown">Recovery state is unknown; no display will be created</string>
+  <string name="vd_recovery_busy">An agent run is still active. Stop it before recovery.</string>
+  <string name="vd_recovery_scope">This page manages Eta session displays. Port 3070 belongs to a separate module and does not report these displays.</string>
+  <string name="vd_recovery_action">Preserve tasks and close</string>
+  <string name="vd_recovery_working">Checking or recovering…</string>
+  <string name="vd_recovery_success">Session recovered and display released</string>
+  <string name="vd_recovery_failed">Recovery did not complete: %1$s</string>
+  <string name="vd_recovery_refresh">Refresh status</string>
+  <string name="vd_recovery_explanation">Move the session tasks to the main display background, then release the empty secondary display. If identity or state cannot be verified, keep the display and show the error. Apps are never force-stopped.</string>
+  <string name="vd_preview_open">Live web preview</string>
+  <string name="vd_preview_stop">Revoke web preview access</string>
+  <string name="vd_preview_note">Read-only local preview with a temporary viewing key. Requires the updated port-3070 web page. Updates while visible; no display is created or controlled.</string>
 </resources>

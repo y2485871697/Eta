@@ -16,6 +16,7 @@ internal object VirtualDisplaySession {
         val kept = linkedSetOf<Int>()
         val packages = linkedMapOf<String, Set<Int>>()
         val observation = VirtualDisplayObservation()
+        val previewExcludedPackages = linkedSetOf<String>()
         var closedRun = false
         var cleanupOnly = false
         var persisted = false
@@ -103,12 +104,18 @@ internal object VirtualDisplaySession {
         return if (cleared) reply(true).put("released", true)
         else reply(false, "RECOVERY_RECORD_CLEAR_FAILED").put("released", true)
     }
-    @Synchronized fun start(context: Context, runId: String): JSONObject {
+    @Synchronized fun start(context: Context, runId: String, createIfMissing: Boolean = true): JSONObject {
         recoveryContext = context.applicationContext
         if (runId.isBlank()) return reply(false, "RUN_ID_REQUIRED")
         sessions[runId]?.let { s ->
             if (s.phase == "finished") return reply(false, "SESSION_FINISHED")
-            // Do not turn a held owner into an active GUI session.
+            // A cancelled run can still select delivery tasks and finish through the owner.
+            // Do not restore GUI access or reset this run's automatic retry budget.
+            if (VirtualDisplayRecoveryPolicy.canRecoverExistingRun(s.phase, s.closedRun)) {
+                s.cleanupOnly = true
+                if (s.kept.isEmpty()) s.packages.values.forEach { s.kept.addAll(it) }
+                return reply(true).put("recovered", true).put("cleanup_only", true).put("phase", s.phase)
+            }
             return if (s.phase == "active") reply(true).put("phase", s.phase)
             else reply(false, "RECOVERY_REQUIRED").put("phase", s.phase)
         }
@@ -124,9 +131,12 @@ internal object VirtualDisplaySession {
             s.handoffBudget.reset()
             return reply(true).put("recovered", true).put("cleanup_only", true).put("phase", s.phase)
         }
+        val saved = try { recoveryPrefs(context) } catch (_: Exception) { return reply(false, "RECOVERY_STATE_UNREADABLE") }
+        if (!createIfMissing && runCatching { saved.all.isEmpty() }.getOrDefault(false)) {
+            return reply(false, "NO_VIRTUAL_SESSION")
+        }
         val s = Session()
         sessions[runId] = s
-        val saved = try { recoveryPrefs(context) } catch (_: Exception) { return fail(s, "RECOVERY_STATE_UNREADABLE") }
         val boot = bootId() ?: return fail(s, "BOOT_ID_UNAVAILABLE")
         try {
             val hasRecord = saved.all.isNotEmpty()
@@ -159,6 +169,11 @@ internal object VirtualDisplaySession {
                 return body(state).put("recovered", true).put("cleanup_only", true).put("run_id", runId)
             }
         } catch (_: Exception) { return fail(s, "RECOVERY_STATE_UNREADABLE") }
+        // Manual recovery must never create a display merely to close it.
+        if (!createIfMissing) {
+            sessions.remove(runId)
+            return reply(false, "NO_VIRTUAL_SESSION")
+        }
         return when (val started = VirtualDisplayOwnerClient.start(context, AndroidAgentLogger)) {
             is OwnerStartResult.Failed -> fail(s, started.errorCode)
             is OwnerStartResult.Ready -> {
@@ -175,6 +190,104 @@ internal object VirtualDisplaySession {
             }
         }
     }
+    /** Read only app-owned metadata; never treat the unrelated port-3070 daemon as this owner. */
+    @Synchronized fun recoveryStatus(context: Context): JSONObject {
+        return try {
+            val pending = sessions.values.filter { it.phase != "finished" }
+            val saved = recoveryPrefs(context)
+            if (pending.isEmpty() && saved.all.isEmpty()) return reply(true).put("present", false)
+            val s = pending.singleOrNull()
+            val busy = pending.any { !it.closedRun }
+            reply(true).put("present", true).put("manager", "eta_owner")
+                .put("displayId", s?.client?.displayId ?: saved.getInt("display", -1))
+                .put("phase", s?.phase ?: "recovery_pending")
+                .put("busy", busy).put("recoverable", !busy && pending.size <= 1)
+                .put("lastError", s?.receipt?.optString("error").orEmpty())
+                .put("lastDetail", s?.receipt?.optString("message").orEmpty())
+        } catch (_: Exception) { reply(false, "RECOVERY_STATE_UNREADABLE") }
+    }
+
+    /** A snapshot only: no start/adoption, GUI observation contract, handoff or release. */
+    @Synchronized fun previewFrame(context: Context): VirtualDisplayPreviewHttpServer.Frame {
+        fun denied(code: String) = VirtualDisplayPreviewHttpServer.Frame(error = code)
+        val pending = sessions.values.filter { it.phase != "finished" }
+        if (pending.size > 1) return denied("OWNER_STATE_UNKNOWN")
+        val session = pending.singleOrNull()
+        var borrowed = false
+        var client = session?.client?.takeIf { it.isAlive }
+        try {
+            if (client == null) {
+                val saved = recoveryPrefs(context)
+                if (saved.all.isEmpty()) return denied(if (session == null) "NO_VIRTUAL_SESSION" else "RECOVERY_UNCERTAIN")
+                val boot = bootId() ?: return denied("BOOT_ID_UNAVAILABLE")
+                if (saved.getString("boot", null) != boot) return denied("RECOVERY_UNCERTAIN")
+                client = VirtualDisplayOwnerClient.reconnect(AndroidAgentLogger,
+                    saved.getString("socket", "").orEmpty(), saved.getLong("pid", -1),
+                    saved.getInt("display", -1), saved.getString("unique", "").orEmpty(),
+                    saved.getString("token", "").orEmpty(), saved.getString("run", "").orEmpty())
+                    ?: return denied("RECOVERY_UNCERTAIN")
+                borrowed = true
+            }
+            val owner = client ?: return denied("RECOVERY_UNCERTAIN")
+            fun sourcePackages(response: OwnerResponse): Set<String>? {
+                val state = response.json ?: return null
+                if (!response.ok || state.opt("displayId") != owner.displayId ||
+                    state.optString("uniqueId") != owner.uniqueId) return null
+                val packages = state.optJSONArray("sourcePackages") ?: return null
+                val result = linkedSetOf<String>()
+                for (i in 0 until packages.length()) {
+                    val pkg = packages.opt(i) as? String ?: return null
+                    if (pkg.isBlank()) return null
+                    result.add(pkg)
+                }
+                return result
+            }
+            val excluded = session?.previewExcludedPackages.orEmpty() + context.packageName
+            val before = sourcePackages(owner.status()) ?: return denied("SCREEN_CONTENT_UNKNOWN")
+            if (before.isEmpty()) return denied("NO_FRAME")
+            if (before.any { it in excluded }) return denied("SCREENSHOT_EXCLUDED_PACKAGE")
+            val shot = owner.snapshot()
+            if (!shot.ok) return denied("NO_FRAME")
+            val after = sourcePackages(owner.status()) ?: return denied("SCREEN_CONTENT_UNKNOWN")
+            if (after != before || after.any { it in excluded }) return denied("SCREEN_CONTENT_CHANGED")
+            val data = shot.json ?: return denied("NO_FRAME")
+            val encoded = data.optString("data")
+            if (data.opt("displayId") != owner.displayId || data.optString("format") != "png" ||
+                encoded.length !in 1..(VirtualDisplayPreviewHttpServer.MAX_FRAME_BYTES * 4 / 3 + 16))
+                return denied("FRAME_INVALID")
+            val png = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+            if (!VirtualDisplayPreviewHttpServer.validPng(png)) return denied("FRAME_INVALID")
+            return VirtualDisplayPreviewHttpServer.Frame(png, owner.displayId, session?.phase ?: "recovery_pending")
+        } catch (_: Exception) {
+            return denied("PREVIEW_UNAVAILABLE")
+        } finally {
+            // Closing a borrowed read connection never releases the display or its owner.
+            if (borrowed) client?.close()
+        }
+    }
+
+    /** Called only by the settings recovery button, not by automatic run cleanup. */
+    @Synchronized fun recoverAndFinishManually(context: Context): JSONObject {
+        val state = recoveryStatus(context)
+        if (!state.optBoolean("ok")) return state
+        if (!state.optBoolean("present")) return reply(false, "NO_VIRTUAL_SESSION")
+        if (!state.optBoolean("recoverable")) return reply(false, "VIRTUAL_SESSION_BUSY")
+        // A failed reconnect may leave only an in-memory placeholder. Keep the persisted
+        // capability intact, but allow the next explicit attempt to authenticate it again.
+        val previous = sessions.entries.singleOrNull { it.value.phase != "finished" }
+        if (previous != null && previous.value.client == null) sessions.remove(previous.key)
+        val runId = "manual-vd-recovery-" + java.util.UUID.randomUUID()
+        try {
+            val restored = start(context, runId, createIfMissing = false)
+            if (!restored.optBoolean("ok")) return restored
+            return finish(runId, context)
+        } finally {
+            // There is no Agent run to close this manual operation. Even failed start/finish
+            // must leave recovery available instead of permanently reporting BUSY.
+            sessions[runId]?.let { it.closedRun = true; it.cleanupOnly = true }
+        }
+    }
+
     @Synchronized fun keep(runId: String, args: JSONObject): JSONObject {
         val s = sessions[runId] ?: return reply(false, "NO_VIRTUAL_SESSION")
         if (s.phase != "active" && !s.cleanupOnly) return reply(false, "SESSION_NOT_ACTIVE")
@@ -212,7 +325,7 @@ internal object VirtualDisplaySession {
             val hasRecord = runCatching { recoveryPrefs(ctx).all.isNotEmpty() }.getOrDefault(true)
             val held = sessions.values.any { it.closedRun && it.phase != "finished" }
             if (!hasRecord && !held) return reply(false, "NO_VIRTUAL_SESSION")
-            val recovered = start(ctx, runId)
+            val recovered = start(ctx, runId, createIfMissing = false)
             if (!recovered.optBoolean("ok")) return recovered
         }
         val s = sessions[runId] ?: return reply(false, "NO_VIRTUAL_SESSION")
@@ -297,6 +410,7 @@ internal object VirtualDisplaySession {
         if(sessions[runId]==null && tool !in setOf("launch_app","observe_screen"))return text(reply(false,"NO_VIRTUAL_SESSION"))
         if(sessions[runId]==null){val created=start(context,runId);if(!created.optBoolean("ok"))return text(created)}
         val s=sessions[runId]?:return text(reply(false,"NO_VIRTUAL_SESSION"))
+        s.previewExcludedPackages.addAll(excludedPackages)
         if(s.phase!="active" || s.cleanupOnly || !s.persisted)return text(reply(false,"SESSION_NOT_ACTIVE"))
         val c=s.client!!
         try {

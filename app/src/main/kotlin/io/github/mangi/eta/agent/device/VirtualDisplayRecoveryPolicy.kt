@@ -11,6 +11,10 @@ internal object VirtualDisplayRecoveryPolicy {
         f.handoffComplete || f.finishing -> Action.REFUSE
         else -> Action.HANDOFF
     }
+    /** Recovery is cleanup-only; it never makes an interrupted run GUI-active again. */
+    fun canRecoverExistingRun(phase: String, closedRun: Boolean): Boolean =
+        closedRun && phase in setOf("active", "held", "uncertain")
+
     fun taskIds(raw: List<*>): Set<Int>? {
         val ids = linkedSetOf<Int>()
         for (value in raw) {

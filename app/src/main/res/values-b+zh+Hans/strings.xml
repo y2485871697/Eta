@@ -1442,4 +1442,19 @@
   <string name="tool_delegate_task">委派子代理</string>
   <string name="tool_get_task_result">查询子代理结果</string>
   <string name="tool_cancel_task">取消子代理</string>
+  <string name="vd_recovery_title">副屏恢复</string>
+  <string name="vd_recovery_empty">没有待恢复的代鱼副屏会话</string>
+  <string name="vd_recovery_record">恢复记录：副屏 %1$d · %2$s</string>
+  <string name="vd_recovery_unknown">无法读取恢复状态，不会新建副屏</string>
+  <string name="vd_recovery_busy">Agent 任务仍在运行，请先停止任务再恢复</string>
+  <string name="vd_recovery_scope">本页管理代鱼的会话副屏。127.0.0.1:3070 属于独立模块，不会显示这类副屏。</string>
+  <string name="vd_recovery_action">保留任务并关闭</string>
+  <string name="vd_recovery_working">正在检查或恢复…</string>
+  <string name="vd_recovery_success">会话恢复完成，副屏已释放</string>
+  <string name="vd_recovery_failed">恢复未完成：%1$s</string>
+  <string name="vd_recovery_refresh">刷新状态</string>
+  <string name="vd_recovery_explanation">将本会话任务交付到主屏后台，确认副屏为空后关闭。身份或状态无法验证时，保留副屏并显示错误，不会强杀应用。</string>
+  <string name="vd_preview_open">网页实时预览</string>
+  <string name="vd_preview_stop">停止网页预览授权</string>
+  <string name="vd_preview_note">只读本机画面，使用临时查看授权，需要配套新版 3070 网页。网页可见时持续刷新，不会新建或控制副屏。</string>
 </resources>

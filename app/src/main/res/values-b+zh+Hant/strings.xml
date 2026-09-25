@@ -1442,4 +1442,19 @@
   <string name="tool_delegate_task">委派子代理</string>
   <string name="tool_get_task_result">查詢子代理結果</string>
   <string name="tool_cancel_task">取消子代理</string>
+  <string name="vd_recovery_title">副螢幕復原</string>
+  <string name="vd_recovery_empty">沒有待復原的代魚副螢幕工作階段</string>
+  <string name="vd_recovery_record">復原記錄：副螢幕 %1$d · %2$s</string>
+  <string name="vd_recovery_unknown">無法讀取復原狀態，不會新建副螢幕</string>
+  <string name="vd_recovery_busy">Agent 任務仍在執行，請先停止任務再復原</string>
+  <string name="vd_recovery_scope">本頁管理代魚的工作階段副螢幕。127.0.0.1:3070 屬於獨立模組，不會顯示這類副螢幕。</string>
+  <string name="vd_recovery_action">保留任務並關閉</string>
+  <string name="vd_recovery_working">正在檢查或復原…</string>
+  <string name="vd_recovery_success">工作階段復原完成，副螢幕已釋放</string>
+  <string name="vd_recovery_failed">復原未完成：%1$s</string>
+  <string name="vd_recovery_refresh">重新整理狀態</string>
+  <string name="vd_recovery_explanation">將本工作階段任務交付到主螢幕背景，確認副螢幕為空後關閉。身分或狀態無法驗證時，保留副螢幕並顯示錯誤，不會強制停止應用程式。</string>
+  <string name="vd_preview_open">網頁即時預覽</string>
+  <string name="vd_preview_stop">停止網頁預覽授權</string>
+  <string name="vd_preview_note">唯讀本機畫面，使用暫時查看授權，需要配套新版 3070 網頁。網頁可見時持續重新整理，不會新建或控制副螢幕。</string>
 </resources>
