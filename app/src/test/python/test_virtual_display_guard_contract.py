@@ -40,8 +40,17 @@ class VirtualDisplayGuardContractTest(unittest.TestCase):
                       '            field("sourceState") != (if (count == 0) "empty" else "occupied")) return null',state)
         self.assertIn('field("v") == 1 && field("op") == op && field("ok") == ok',evidence)
         self.assertIn('setOf("RECOVERY_UNCERTAIN", "OWNER_STATE_UNKNOWN")',session)
-        self.assertIn('&& priorCode.isNotBlank() && priorCode != "RECOVERY_UNCERTAIN") {\n'
-                      '            s.phase = "uncertain"\n            return prior!!',session)
+        preserved = session.split('private fun failPreservingPrior(', 1)[1].split('private fun safeOwnerDetail(', 1)[0]
+        self.assertIn('s.handoffBudget.stop()', preserved)
+        self.assertIn('prior?.takeIf { !it.optBoolean("ok") }', preserved)
+        self.assertIn('&& priorCode.isNotBlank())', preserved)
+        self.assertIn('s.phase = "uncertain"', preserved)
+        self.assertIn('return VirtualDisplayHandoffDiagnostics.preservedReceipt(prior!!)', preserved)
+        diagnostic = (app/"src/main/kotlin/io/github/mangi/eta/agent/device/VirtualDisplayHandoffDiagnostics.kt").read_text()
+        self.assertIn('fun preservedReceipt(receipt: JSONObject): JSONObject = JSONObject(receipt.toString())', diagnostic)
+        self.assertIn('"receipt_provenance" to "preserved_receipt"', diagnostic)
+        self.assertIn('"fresh_attempt" to false', diagnostic)
+        self.assertIn('"location_evidence_fresh" to false', diagnostic)
 
 class VirtualDisplayLaunchFlagContractTest(unittest.TestCase):
     def test_owner_launches_new_task_plus_multiple_task_without_new_document(self):
