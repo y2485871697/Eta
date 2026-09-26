@@ -24,7 +24,8 @@ import android.os.Process;
  * session intermediates. It is not a framework-level external-launch fence; no user process is killed.
  */
 public final class VirtualDisplayOwner {
-    private static final int MAX_IMAGES = 2;
+    // One retained static image plus two slots needed by acquireLatestImage to discard old frames.
+    private static final int MAX_IMAGES = 3;
     private static final int MAX_SNAPSHOT_BYTES = 6 * 1024 * 1024;
     private static final int MAX_OUTPUT_CHARS = 2000;
     private static final int MAX_COORDINATE = 100_000;
@@ -278,6 +279,9 @@ public final class VirtualDisplayOwner {
             maxBytes = MAX_SNAPSHOT_BYTES;
         }
         maxBytes = Math.min(maxBytes, MAX_SNAPSHOT_BYTES);
+        // Drain a pending frame now, not after this command returns to the listener's looper.
+        // Metadata-only requests acquire images but never copy or encode their pixels.
+        frames.refresh(created.reader);
         if (!frames.hasFrame()) {
             throw new OwnerException(OwnerProtocol.ERROR_NO_FRAME, "no frame");
         }
@@ -289,6 +293,8 @@ public final class VirtualDisplayOwner {
             out.put("format", "png");
             if (include) {
                 OwnerFrameStore.Snapshot snapshot = frames.encodePng(maxBytes);
+                out.put("frameCount", snapshot.frameCount);
+                out.put("timestampNs", snapshot.timestampNs);
                 out.put("width", snapshot.width);
                 out.put("height", snapshot.height);
                 out.put("bytes", snapshot.png.length);
@@ -349,8 +355,18 @@ public final class VirtualDisplayOwner {
             Object g=c.getMethod("getInstance").invoke(null);
             if(c.getMethod("getDisplayInfo",int.class).invoke(g,created.displayId)!=null)throw new IllegalStateException("display remains");
         } catch(Exception e) {throw new OwnerException("RELEASE_UNCERTAIN",e.getClass().getSimpleName());}
-        frames.clear(); created.reader.close();
+        // Verification, not reader cleanup or reply delivery, is the terminal authority.
+        // Preserve it even if teardown throws: the dispatcher/IPC must still end this owner.
         released = true;
+        try {
+            frames.clear();
+        } finally {
+            try {
+                created.reader.setOnImageAvailableListener(null, null);
+            } finally {
+                created.reader.close();
+            }
+        }
         JSONObject out = new JSONObject();
         try {
             out.put("released", true);

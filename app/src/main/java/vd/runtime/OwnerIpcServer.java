@@ -51,6 +51,7 @@ final class OwnerIpcServer {
     private final Runnable onStop;
 
     private final Object activeLock = new Object();
+    private final AtomicBoolean quitPosted = new AtomicBoolean();
     private Connection activeConnection;
     private volatile boolean mutationUncertain;
     private volatile boolean stopped;
@@ -147,7 +148,7 @@ final class OwnerIpcServer {
                 }
                 serve();
             } catch (IOException ignored) {
-                // peer vanished; the session is simply gone
+                // Transport loss alone must not release or terminate the display.
             } finally {
                 if (claimed) {
                     synchronized (activeLock) {
@@ -195,22 +196,27 @@ final class OwnerIpcServer {
                     writeLine(out, OwnerProtocol.fail(request.op, "SESSION_UNCERTAIN", "mutation outcome unknown"));
                     return;
                 }
-                JSONObject response = execute(request);
-                if (OwnerProtocol.OP_STATUS.equals(request.op)) {
-                    try { response.put("mutationUncertain", mutationUncertain || response.optBoolean("mutationUncertain", false)); }
-                    catch (org.json.JSONException ex) { throw new IOException("status serialization failed"); }
-                }
-                try { writeLine(socket, out, response); }
-                catch (IOException ex) { mutationUncertain = true; throw ex; }
-                if (dispatcher.shouldStop()) {
-                    stopAndQuit();
-                    return;
+                OwnerReleaseCompletion completion = new OwnerReleaseCompletion();
+                try {
+                    JSONObject response = execute(request, completion);
+                    if (OwnerProtocol.OP_STATUS.equals(request.op)) {
+                        try { response.put("mutationUncertain", mutationUncertain || response.optBoolean("mutationUncertain", false)); }
+                        catch (org.json.JSONException ex) { throw new IOException("status serialization failed"); }
+                    }
+                    try { writeLine(socket, out, response); }
+                    catch (IOException ex) { mutationUncertain = true; throw ex; }
+                } finally {
+                    // Success, failed flush and abandoned waiters all complete the delivery attempt.
+                    // If dispatch is still running, it will observe this and stop only after release
+                    // is verified. The existing write watchdog bounds a stalled response attempt.
+                    if (completion.responseFinished()) stopAndQuit();
                 }
             }
         }
 
         /** Runs the op on the owner looper and waits for its response. */
-        private JSONObject execute(OwnerProtocol.Request request) throws IOException {
+        private JSONObject execute(OwnerProtocol.Request request,
+                final OwnerReleaseCompletion completion) throws IOException {
             final ResultBox box = new ResultBox(request.payload.optLong("timeoutMs",15000L));
             Runnable action = new Runnable() {
                 @Override
@@ -219,14 +225,20 @@ final class OwnerIpcServer {
                         if (box.cancelled || SystemClock.elapsedRealtime() >= box.deadline) { box.cancelled=true; return; }
                         box.started = true;
                     }
-                    JSONObject response;
                     try {
-                        response = dispatcher.dispatch(request);
-                    } catch (Throwable unexpected) {
-                        response = OwnerProtocol.fail(request.op, OwnerProtocol.ERROR_INTERNAL,
-                                unexpected.getClass().getSimpleName());
+                        JSONObject response;
+                        try {
+                            response = dispatcher.dispatch(request);
+                        } catch (Throwable unexpected) {
+                            response = OwnerProtocol.fail(request.op, OwnerProtocol.ERROR_INTERNAL,
+                                    unexpected.getClass().getSimpleName());
+                        }
+                        box.complete(response);
+                    } finally {
+                        // A running release may finish after its waiter timed out/disconnected.
+                        // Response delivery is not evidence of release; only the owner is.
+                        if (completion.dispatchFinished(dispatcher.shouldStop())) stopAndQuit();
                     }
-                    box.complete(response);
                 }
             };
             boolean posted = handler.post(action);
@@ -243,6 +255,7 @@ final class OwnerIpcServer {
         }
 
         private void stopAndQuit() {
+            if (!dispatcher.shouldStop() || !quitPosted.compareAndSet(false, true)) return;
             stop();
             handler.post(new Runnable() {
                 @Override

@@ -85,10 +85,10 @@ public final class VirtualDisplayOwnerMain {
                     new Runnable() {
                         @Override
                         public void run() {
-                            // The IPC server posts this on the owner looper only after the release
-                            // reply has been flushed to the peer, so the peer already has its
-                            // answer. Only a verified release may end the process: exiting while
-                            // tasks remain would tear the display down with them.
+                            // IPC posts this only after release is verified and the response
+                            // attempt finishes, including a failed reply or abandoned waiter.
+                            // Only verified release may end the process: exiting while tasks
+                            // remain would tear the display down with them.
                             if (!owner.isReleased()) {
                                 print(STOPPED_PREFIX + " displayId=" + owner.displayId()
                                         + " released=false");
