@@ -141,6 +141,7 @@ internal fun SettingsScreen(
     currentModelId: String? = null,
 ) {
     val coroutineScope = rememberCoroutineScope()
+    val taskBackendInstalled = rememberTaskBackendInstalled()
     val capabilities = rememberDeviceCapabilities()
     val enhancementHistory = remember(context.applicationContext) { EnhancementSettingsHistory(context) }
     var hasConnectedFramework by remember { mutableStateOf(enhancementHistory.hasConnected) }
@@ -384,7 +385,6 @@ internal fun SettingsScreen(
             item(key = "section_general") {
                 SmallTitle(stringResource(R.string.settings_general))
                 Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                    VirtualDisplayRecoveryPreference(context)
                     ArrowPreference(
                         title = stringResource(R.string.voice_mode_title),
                         startAction = { PreferenceIcon(icon = Icons.Rounded.RecordVoiceOver) },
@@ -443,7 +443,7 @@ internal fun SettingsScreen(
                         onClick = { onNavigate(AppRoute.Tools) },
                     )
 
-                    if (io.github.mangi.eta.agent.device.AgentTaskSurface.settingsEntryVisible()) {
+                    if (taskBackendInstalled == true) {
                         ArrowPreference(
                             title = stringResource(R.string.agent_task_surface_title),
                             summary = stringResource(

@@ -26,6 +26,12 @@ internal object AgentRuntimeResultStore {
      * 返回 false 表示同一 run 已先收到 ACK，不应在 ACK 之后重新写回待交付队列。
      */
     fun add(context: Context, completedRun: AgentRuntimeWire.CompletedRun): Boolean {
+        val stableRunId = completedRun.result.runId.ifBlank { completedRun.handoff.id }
+        // Avoid encoding a potentially large transcript for an already delivered run.
+        synchronized(deliveryLock) {
+            pruneAcknowledgements(System.currentTimeMillis())
+            if (recentlyAcknowledgedRunIds.containsKey(stableRunId)) return false
+        }
         val appContext = context.applicationContext
         val entity = completedRun.toEntity()
         synchronized(deliveryLock) {
@@ -103,6 +109,7 @@ internal object AgentRuntimeResultStore {
             reasoningContent = result.reasoningContent,
             transcriptJson = AgentConversationCodec.encodeTranscriptForStorage(result.transcript),
             createdAt = createdAt,
+            virtualDeliveryCompleted = result.virtualDeliveryCompleted,
         )
     }
 
@@ -120,6 +127,7 @@ internal object AgentRuntimeResultStore {
                 content = content,
                 error = error,
                 reasoningContent = reasoningContent,
+                virtualDeliveryCompleted = virtualDeliveryCompleted,
                 transcript = legacyCompatibleTranscript(
                     raw = transcriptJson,
                     ok = ok,

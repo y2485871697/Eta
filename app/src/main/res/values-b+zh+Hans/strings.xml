@@ -1458,4 +1458,5 @@
   <string name="vd_preview_stop">停止网页预览授权</string>
   <string name="vd_preview_note">只读本机画面，使用临时查看授权，需要配套新版 3070 网页。网页可见时持续刷新，不会新建或控制副屏。</string>
   <string name="vd_preview_control_open">网页预览与手动关闭</string>
+  <string name="system_notice_completed">已完成</string>
 </resources>

@@ -4047,7 +4047,7 @@ internal class AgentAppState(
                 if (stoppedDuringRetry) SystemNoticeCode.RuntimeFailed else SystemNoticeCode.Stopped,
                 detail = if (stoppedDuringRetry) "已停止等待接口重试" else null,
             )
-            result.ok && result.content.isNotBlank() -> completeLatestAssistantMessage(
+            result.ok && (result.content.isNotBlank() || VirtualCompletionNotice.confirmed(result)) -> completeLatestAssistantMessage(
                 runId,
                 fallbackContent = result.content,
             )
@@ -4059,6 +4059,9 @@ internal class AgentAppState(
                 SystemNoticeCode.RuntimeFailed,
                 result.error,
             )
+        }
+        if (stoppedDuringRetry == null) {
+            updateMessages(runId) { VirtualCompletionNotice.append(it, runId, result) }
         }
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
@@ -4451,6 +4454,7 @@ internal class AgentAppState(
                                 SystemNoticeCode.ModelRetry -> R.string.system_notice_model_retry
                                 SystemNoticeCode.RuntimeFailed -> R.string.system_notice_runtime_failed
                                 SystemNoticeCode.Interrupted -> R.string.system_notice_interrupted
+                                SystemNoticeCode.Completed -> R.string.system_notice_completed
                             },
                         )
                         is ThinkingMessageUi -> appContext.getString(R.string.conversation_preview_reasoning)

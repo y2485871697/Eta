@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.overlay
 
+import io.github.mangi.eta.agent.device.AgentTaskSurfaceMode
 import io.github.mangi.eta.agent.runtime.AgentEvent
 
 /**
@@ -8,9 +9,24 @@ import io.github.mangi.eta.agent.runtime.AgentEvent
  * Chat, reasoning, shell diagnostics, file reads, skill reads and app search
  * all have good homes in the main conversation UI. The global overlay is
  * reserved for tools that actively inspect or drive the foreground Android
- * interface.
+ * interface. Tool names alone cannot distinguish foreground and virtual runs;
+ * runtime callers must also pass the originating session's frozen surface mode.
  */
 internal object AgentOverlayVisibilityPolicy {
+    fun allowsOverlay(taskSurfaceMode: AgentTaskSurfaceMode): Boolean =
+        taskSurfaceMode == AgentTaskSurfaceMode.FOREGROUND
+
+    fun shouldRevealFor(event: AgentEvent, taskSurfaceMode: AgentTaskSurfaceMode): Boolean =
+        allowsOverlay(taskSurfaceMode) && shouldRevealFor(event)
+
+    fun shouldDismissEntrySurfaceFor(event: AgentEvent, taskSurfaceMode: AgentTaskSurfaceMode): Boolean =
+        allowsOverlay(taskSurfaceMode) && shouldDismissEntrySurfaceFor(event)
+
+    fun shouldShowResultCard(
+        taskSurfaceMode: AgentTaskSurfaceMode,
+        hasExecutedForegroundTool: Boolean,
+    ): Boolean = allowsOverlay(taskSurfaceMode) && hasExecutedForegroundTool
+
     fun shouldRevealFor(event: AgentEvent): Boolean = when (event) {
         is AgentEvent.AssistantBlockStart ->
             event.kind == AgentEvent.AssistantBlockKind.TOOL_CALL &&
@@ -48,8 +64,10 @@ internal object AgentOverlayVisibilityPolicy {
     internal fun shouldRecordForegroundExecution(
         event: AgentEvent,
         entrySurfaceReady: Boolean,
+        taskSurfaceMode: AgentTaskSurfaceMode = AgentTaskSurfaceMode.FOREGROUND,
     ): Boolean =
-        entrySurfaceReady &&
+        allowsOverlay(taskSurfaceMode) &&
+            entrySurfaceReady &&
             event is AgentEvent.ToolStarted &&
             event.name.isForegroundOperationTool()
 

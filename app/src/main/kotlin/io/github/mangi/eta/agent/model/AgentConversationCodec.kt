@@ -375,35 +375,38 @@ internal object AgentConversationCodec {
         messages: List<AgentModelClient.ConversationMessage>,
         maxChars: Int,
     ): String {
-        val bounded = messages.map(::sanitizeMessage).toMutableList()
-        var encoded = json.encodeToString(bounded)
-        if (encoded.length <= maxChars) return encoded
-        // Only the latest in-flight turn is protected. Older turns may still be dropped so a
-        // large existing conversation cannot block saving a new one.
+        val bounded = messages.map(::sanitizeMessage)
+        // Store lengths only; discarded histories never need a combined JSON string.
+        // Json uses compact output, so arrays add two brackets and n-1 commas.
+        val prefix = LongArray(bounded.size + 1)
+        bounded.forEachIndexed { index, message ->
+            prefix[index + 1] = prefix[index] + json.encodeToString(message).length + 1L
+        }
+        fun suffixLength(start: Int): Long =
+            if (start == bounded.size) 2L else prefix.last() - prefix[start] + 1L
+        if (suffixLength(0) <= maxChars) return json.encodeToString(bounded)
         val protectedTurnId = bounded.lastOrNull { it.turnId.isNotBlank() }?.turnId.orEmpty()
         val protectedCount = if (protectedTurnId.isBlank()) 0 else bounded.indexOfFirst { it.turnId == protectedTurnId }
             .let { start -> if (start < 0) 0 else bounded.size - start }
         if (protectedCount > 0) {
-            val protectedEncoded = json.encodeToString(bounded.takeLast(protectedCount))
-            require(protectedEncoded.length <= maxChars) {
+            require(suffixLength(bounded.size - protectedCount) <= maxChars) {
                 "受保护会话超过持久化容量上限；未截断或丢弃原消息，请压缩历史后重试"
             }
         }
 
-        val notice = AgentModelClient.ConversationMessage(
-            role = "system",
-            content = COMPACTION_NOTICE,
-        )
+        val notice = AgentModelClient.ConversationMessage(role = "system", content = COMPACTION_NOTICE)
+        val noticeLength = json.encodeToString(notice).length.toLong()
         val keep = protectedCount.coerceAtLeast(1)
-        while (bounded.size > keep) {
-            bounded.removeAt(0)
-            while (bounded.size > keep && bounded.firstOrNull()?.role == "tool") bounded.removeAt(0)
-            encoded = json.encodeToString(listOf(notice) + bounded)
-            if (encoded.length <= maxChars) return encoded
+        var start = 0
+        while (bounded.size - start > keep) {
+            start++
+            while (bounded.size - start > keep && bounded[start].role == "tool") start++
+            if (suffixLength(start) + noticeLength + 1L <= maxChars) {
+                return json.encodeToString(listOf(notice) + bounded.subList(start, bounded.size))
+            }
         }
         if (protectedCount > 0) {
-            encoded = json.encodeToString(bounded)
-            if (encoded.length <= maxChars) return encoded
+            if (suffixLength(start) <= maxChars) return json.encodeToString(bounded.subList(start, bounded.size))
             error("受保护会话超过持久化容量上限；未截断或丢弃原消息，请压缩历史后重试")
         }
 

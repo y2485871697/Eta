@@ -74,6 +74,7 @@ internal class AgentRuntimeRunExecutor(
         var localTools: AgentLocalTools? = null
         var deliveryFailure: String? = null
         var modelCompleted = false
+        var virtualDeliveryCompleted = false
         var toolsBinding: AgentRunController.ResourceBinding? = null
         var children: SubAgentCoordinator? = null
         var childBinding: AgentRunController.ResourceBinding? = null
@@ -133,8 +134,7 @@ internal class AgentRuntimeRunExecutor(
                     McpRunSnapshot.EMPTY
                 }
             }
-            val runSurface = runCatching { io.github.mangi.eta.agent.device.AgentTaskSurface.stored() }
-                .getOrDefault(io.github.mangi.eta.agent.device.AgentTaskSurfaceMode.ASK)
+            val runSurface = session.taskSurfaceMode
             val runVirtualDisplay = runSurface == io.github.mangi.eta.agent.device.AgentTaskSurfaceMode.BACKGROUND
             val mcpTools = JSONArray().also(mcpSnapshot::appendModelTools)
             val executor = AgentLocalTools(
@@ -404,6 +404,11 @@ internal class AgentRuntimeRunExecutor(
             if (modelCompleted && !cancelled && !runController.isCancelled) {
                 try {
                     val receipt = localTools?.completeVirtualDelivery()
+                    virtualDeliveryCompleted =
+                        session.taskSurfaceMode == io.github.mangi.eta.agent.device.AgentTaskSurfaceMode.BACKGROUND &&
+                        receipt != null && receipt.opt("ok") == true && receipt.opt("handedOff") == true &&
+                        receipt.opt("released") == true
+
                     if (receipt != null && (!receipt.optBoolean("ok") || receipt.opt("released") != true)) {
                         deliveryFailure = receipt.optString("error", "AUTO_FINISH_FAILED")
                     }
@@ -421,6 +426,10 @@ internal class AgentRuntimeRunExecutor(
             val message = "副屏自动回迁/释放未完成（$code）；会话已保留，不能视为交付成功。"
             result = result.copy(ok = false, content = result.content + "\n\n" + message, error = message)
         }
+        result = result.copy(
+            virtualDeliveryCompleted = result.ok && virtualDeliveryCompleted &&
+                !cancelled && !runController.isCancelled,
+        )
         // Stopped runs use the same durable outbox path as successful/failed runs.
         val completedRequest = runCatching { snapshotRequest(request) }
             .getOrElse { throwable ->

@@ -74,6 +74,53 @@ class AgentRuntimeResultStoreTest {
     }
 
     @Test
+    fun acknowledgedResultSkipsTranscriptEncodingIncludingFallbackRunId() {
+        for (blankResultId in listOf(false, true)) {
+            val runId = "ack-no-encode-${System.nanoTime()}"
+            val unreadableTranscript = object : AbstractList<AgentModelClient.ConversationMessage>() {
+                override val size: Int get() = 1
+                override fun get(index: Int): AgentModelClient.ConversationMessage =
+                    error("Acknowledged transcript must not be read")
+            }
+            val completed = AgentRuntimeWire.CompletedRun(
+                handoff = AgentRuntimeWire.EntryHandoff(runId, "agent_ui", "conversation-1"),
+                result = AgentRuntimeWire.RunResult(
+                    runId = if (blankResultId) "" else runId,
+                    ok = true, content = "obsolete", transcript = unreadableTranscript,
+                ),
+                createdAt = System.currentTimeMillis(),
+            )
+            AgentRuntimeResultStore.remove(context, runId)
+            assertFalse(AgentRuntimeResultStore.add(context, completed))
+            assertTrue(AgentRuntimeResultStore.list(context).none { it.result.runId == runId })
+        }
+    }
+
+    @Test
+    fun acknowledgementDuringEncodingStillPreventsLateWriteBack() {
+        val runId = "ack-during-encode-${System.nanoTime()}"
+        var acknowledged = false
+        val transcript = object : AbstractList<AgentModelClient.ConversationMessage>() {
+            override val size: Int get() = 1
+            override fun get(index: Int): AgentModelClient.ConversationMessage {
+                if (!acknowledged) {
+                    acknowledged = true
+                    AgentRuntimeResultStore.remove(context, runId)
+                }
+                return AgentModelClient.ConversationMessage("assistant", "delivered")
+            }
+        }
+        val completed = AgentRuntimeWire.CompletedRun(
+            handoff = AgentRuntimeWire.EntryHandoff(runId, "agent_ui", "conversation-1"),
+            result = AgentRuntimeWire.RunResult(runId, true, "delivered", transcript = transcript),
+            createdAt = System.currentTimeMillis(),
+        )
+        assertFalse(AgentRuntimeResultStore.add(context, completed))
+        assertTrue(acknowledged)
+        assertTrue(AgentRuntimeResultStore.list(context).none { it.result.runId == runId })
+    }
+
+    @Test
     fun saveAndLoadPreservesTranscript() {
         val runId = "transcript-${System.nanoTime()}"
         val transcript = listOf(

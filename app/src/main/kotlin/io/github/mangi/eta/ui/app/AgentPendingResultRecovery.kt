@@ -55,6 +55,7 @@ internal object AgentPendingResultRecovery {
                     message is AgentMessageUi && message.id.assistantRound(runId) == round
                 }
             } ?: 0
+            val partial = messages.getOrNull(assistantIndex) as? AgentMessageUi
             val completedMessage: AgentChatMessageUi = when {
                 content != null -> AgentMessageUi(
                     id = resultId,
@@ -68,6 +69,8 @@ internal object AgentPendingResultRecovery {
                     generatedAtMillis = (messages.getOrNull(assistantIndex) as? AgentMessageUi)?.generatedAtMillis
                         ?: generatedAtMillis?.takeIf { it > 0L },
                 )
+                VirtualCompletionNotice.confirmed(result) && partial != null && partial.content.isNotBlank() ->
+                    partial.copy(isStreaming = false)
                 result.ok -> SystemNoticeMessageUi(
                     id = resultId,
                     code = SystemNoticeCode.EmptyResult,
@@ -78,7 +81,6 @@ internal object AgentPendingResultRecovery {
                     detail = result.error,
                 )
             }
-            val partial = messages.getOrNull(assistantIndex) as? AgentMessageUi
             if (!result.ok && partial != null && partial.content.isNotBlank()) {
                 messages[assistantIndex] = partial.copy(isStreaming = false)
                 messages += completedMessage.copyWithId(interruptedNoticeId(runId))
@@ -93,7 +95,7 @@ internal object AgentPendingResultRecovery {
                 messages = mergeSupplements(
                     runId = runId,
                     supplements = listOfNotNull(promptSupplement) + supplements,
-                    messages = messagesWithResult,
+                    messages = VirtualCompletionNotice.append(messagesWithResult, runId, result),
                     beforeLatestAssistant = true,
                 ),
                 history = history.state.history,

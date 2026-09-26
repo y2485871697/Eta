@@ -53,6 +53,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
@@ -598,20 +600,32 @@ internal fun AgentConversationMessages(
     val timelineEntries = remember(visibleMessages) {
         StreamPerformanceDiagnostics.measure("timeline.project", visibleMessages.size.toLong()) { visibleMessages.toTimelineEntries() }
     }
-    LaunchedEffect(scrollToMessageId, timelineEntries) {
-        val target = scrollToMessageId ?: return@LaunchedEffect
-        val index = timelineEntries.indexOfFirst { entry ->
-            when (entry) {
-                is AgentTimelineEntry.Message -> entry.message.id == target
-                is AgentTimelineEntry.WorkProcess ->
-                    entry.key == target || entry.messages.any { it.id == target }
-            }
+    val expansionSaver = remember {
+        listSaver<Map<String, Boolean>, String>(
+            save = { value -> value.flatMap { (key, expanded) -> listOf(key, expanded.toString()) } },
+            restore = { value -> value.chunked(2).filter { it.size == 2 }.associate { it[0] to (it[1] == "true") } },
+        )
+    }
+    var workExpansionOverrides by rememberSaveable(stateSaver = expansionSaver) {
+        mutableStateOf<Map<String, Boolean>>(emptyMap())
+    }
+    LaunchedEffect(timelineEntries) {
+        val activeKeys = timelineEntries.filterIsInstance<AgentTimelineEntry.WorkProcess>().mapTo(mutableSetOf()) { it.key }
+        if (workExpansionOverrides.keys.any { it !in activeKeys }) {
+            workExpansionOverrides = workExpansionOverrides.filterKeys { it in activeKeys }
         }
+    }
+    val timelineRows = remember(timelineEntries, workExpansionOverrides, isStreaming) {
+        timelineEntries.toLazyTimelineRows(workExpansionOverrides, isStreaming)
+    }
+    LaunchedEffect(scrollToMessageId, timelineRows) {
+        val target = scrollToMessageId ?: return@LaunchedEffect
+        val index = timelineRows.indexOfFirst { it.containsMessageId(target) }
         if (index >= 0) {
             onBottomAnchorChanged(false)
             scrollState.animateScrollToItem(index)
             onScrollToMessageConsumed()
-        } else if (timelineEntries.isNotEmpty()) {
+        } else if (timelineRows.isNotEmpty()) {
             onScrollToMessageConsumed()
         }
     }
@@ -649,8 +663,8 @@ internal fun AgentConversationMessages(
     val telemetry = LocalAgentContextTelemetry.current
     val compressingChildren = telemetry.children.filter { it.isCompacting }
     val compressingItemCount = if (isCompressingContext || isWaitingForCompression || compressingChildren.isNotEmpty()) 1 else 0
-    val bottomItemIndex = timelineEntries.size + compressingItemCount
-    val userMessageTargets = remember(timelineEntries) { timelineEntries.userMessageIndices() }
+    val bottomItemIndex = timelineRows.size + compressingItemCount
+    val userMessageTargets = remember(timelineRows) { timelineRows.lazyUserMessageIndices() }
     val directionThreshold = with(LocalDensity.current) { 12.dp.toPx() }
     val directionTracker = remember(scrollState, directionThreshold) {
         ConversationNavigationDirectionTracker(directionThreshold)
@@ -725,10 +739,10 @@ internal fun AgentConversationMessages(
     var isBottomSettling by remember { mutableStateOf(isStreaming) }
     LaunchedEffect(scrollState) {
         snapshotFlow {
-            val tail = currentVisibleMessages.value.lastOrNull() as? AgentMessageUi
-            val rendering = tail?.let { message ->
-                streamingMarkdownStates[message.id]?.revealedContent != message.content
-            } == true
+            val rendering = hasPendingAssistantReveal(currentVisibleMessages.value) { message ->
+                val retained = streamingMarkdownStates[message.id]
+                retained != null && retained.revealedContent != message.content
+            }
             arrayOf(currentStreaming.value, currentAnchor.value, rendering, isUserScrolling)
         }
             .distinctUntilChanged { old, new -> old.contentEquals(new) }
@@ -890,8 +904,6 @@ internal fun AgentConversationMessages(
     // 滚动层保持整屏，输入器作为后绘制浮层；输入器高度进入列表的
     // afterContentPadding，确保跟到底部时最后一行停在输入器上方。
     Box(modifier = modifier.clipToBounds()) {
-        val trailingWorkKey =
-            (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
         val speechPrefaces = remember(visibleMessages, finalResultMessageIds) {
             StreamPerformanceDiagnostics.measure("timeline.prefaces", visibleMessages.size.toLong()) {
                 visibleTurnSpeechPrefaces(visibleMessages, finalResultMessageIds)
@@ -934,12 +946,22 @@ internal fun AgentConversationMessages(
             overscrollEffect = null,
         ) {
             items(
-                items = timelineEntries,
+                items = timelineRows,
                 key = { it.key },
-                contentType = { if (it is AgentTimelineEntry.Message) "message" else "work-process" },
+                contentType = { row ->
+                    when (row) {
+                        is AgentTimelineRow.Message -> "message"
+                        is AgentTimelineRow.WorkHeader -> "work-header"
+                        is AgentTimelineRow.WorkStep -> when (row.message) {
+                            is ToolActivityMessageUi -> "work-tool"
+                            is ThinkingMessageUi -> "work-thinking"
+                            else -> "work-summary"
+                        }
+                    }
+                },
             ) { entry ->
                 when (entry) {
-                    is AgentTimelineEntry.Message -> {
+                    is AgentTimelineRow.Message -> {
                         val message = entry.message
                         ChatMessageItem(
                             message = message,
@@ -981,31 +1003,32 @@ internal fun AgentConversationMessages(
                         )
                     }
 
-                    is AgentTimelineEntry.WorkProcess -> {
-                        entry.messages.forEach { message ->
-                            if (message is ThinkingMessageUi && message.isStreaming) {
-                                streamingMarkdownStates.getOrPut(message.id) {
-                                    StreamingMarkdownState()
-                                }
-                            }
-                        }
-
-                        AgentWorkProcess(
-                            id = entry.key,
-                            messages = entry.messages,
-                            onOpenBrowser = onOpenBrowser,
-                            currentBrowserMessageId = currentBrowserMessageId,
-                            retainedStreamingStates = streamingMarkdownStates,
+                    is AgentTimelineRow.WorkHeader -> {
+                        AgentWorkProcessHeader(
+                            messages = entry.group.messages,
                             isPaused = isPaused,
-                            isTrailing = entry.key == trailingWorkKey,
-                            turnStreaming = isStreaming,
-                            // Keep this modifier stable. Attaching fadeIn only after the run
-                            // ends replays appearance on the already-visible answer.
-                            modifier = Modifier.animateItem(
-                                fadeInSpec = tween(durationMillis = 180),
-                                placementSpec = null,
-                                fadeOutSpec = null,
-                            ),
+                            expanded = entry.expanded,
+                            onToggle = {
+                                workExpansionOverrides = workExpansionOverrides + (entry.key to !entry.expanded)
+                            },
+                        )
+                    }
+                    is AgentTimelineRow.WorkStep -> {
+                        val message = entry.message
+                        val retainedState = if (message is ThinkingMessageUi &&
+                            (message.isStreaming || streamingMarkdownStates.containsKey(message.id))) {
+                            streamingMarkdownStates.getOrPut(message.id) { StreamingMarkdownState() }
+                        } else null
+                        ChatMessageItem(
+                            message = message,
+                            actions = messageActions,
+                            retainedStreamingState = retainedState,
+                            showBrowserShortcut = message is ToolActivityMessageUi &&
+                                message.id == currentBrowserMessageId,
+                            enableLivePreview = !isStreaming,
+                            compact = true,
+                            isPaused = isPaused,
+                            modifier = Modifier.padding(horizontal = 20.dp),
                         )
                     }
                 }
