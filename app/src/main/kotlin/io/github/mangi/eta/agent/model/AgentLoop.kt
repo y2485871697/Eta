@@ -185,6 +185,7 @@ internal class AgentLoop(
             supplementStartsNewBlock = false
             continuingInterruptedRequest = false
             hasSentRequest = true
+            lastUsage = null // A new request must not inherit missing fields from the preceding bill.
             val completedRound = try {
                 modelRetry.complete(
                     initialRound = round,
@@ -195,8 +196,17 @@ internal class AgentLoop(
                     controller = runController,
                     onEvent = onEvent,
                     onProviderEvent = { attemptRound, providerEvent ->
+                        if (providerEvent is ProviderEvent.RequestStarted) lastUsage = null
                         if (providerEvent is ProviderEvent.Usage) {
-                            lastUsage = providerEvent.usage
+                            val previous = lastUsage
+                            val incoming = providerEvent.usage
+                            lastUsage = AgentTokenUsage(
+                                contextTokens = incoming.contextTokens ?: previous?.contextTokens,
+                                inputTokens = incoming.inputTokens ?: previous?.inputTokens,
+                                outputTokens = incoming.outputTokens ?: previous?.outputTokens,
+                                reasoningTokens = incoming.reasoningTokens ?: previous?.reasoningTokens,
+                                cachedTokens = incoming.cachedTokens ?: previous?.cachedTokens,
+                            )
                         }
                         continuationReasoning.visibleEvent(providerEvent)?.let { visibleEvent ->
                             if (visibleEvent is ProviderEvent.BlockDelta &&

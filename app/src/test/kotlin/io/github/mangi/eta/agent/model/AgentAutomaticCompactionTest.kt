@@ -37,6 +37,23 @@ class AgentAutomaticCompactionTest {
 
     // --- Billing-driven automatic summarization -------------------------------------------------
 
+    @Test fun partialOutputUsagePreservesSameRequestInputAndAllowsRealCorrection() {
+        for (corrected in listOf(false, true)) {
+            val frames = mutableListOf(AgentTokenUsage(outputTokens = 20))
+            if (corrected) frames += AgentTokenUsage(inputTokens = AUTO_PRESSURE - 1)
+            val provider = ScriptedProvider(listOf({ _, _ -> assistant(promptTokens = AUTO_PRESSURE) }), frames)
+            val events = mutableListOf<AgentEvent>()
+            var summaries = 0
+            runLoop(smallHistory(), provider, events, compactHistory = { source, policy ->
+                summaries++
+                summarize(source, policy)
+            })
+            assertEquals(if (corrected) 0 else 1, summaries)
+            assertEquals(1, provider.requests.size)
+            assertFalse(events.filterIsInstance<AgentEvent.UsageReceived>().any { it.projected })
+        }
+    }
+
     @Test fun missingBilledUsageNeverTriggersAutomaticCompaction() {
         // The local history is already above 80%, yet with no billed usage there is no decision.
         val messages = largeHistory()
@@ -594,6 +611,7 @@ class AgentAutomaticCompactionTest {
 
     private class ScriptedProvider(
         private val responses: List<(ProviderRequest, AgentRunController) -> JSONObject>,
+        private val usageFrames: List<AgentTokenUsage> = emptyList(),
     ) : AgentProviderClient {
         override val id = "automatic-compaction-test"
         override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
@@ -607,6 +625,7 @@ class AgentAutomaticCompactionTest {
             reply.optJSONObject("usage")?.let {
                 onEvent(ProviderEvent.Usage(AgentTokenUsage(inputTokens = it.getInt("prompt_tokens"))))
             }
+            usageFrames.forEach { onEvent(ProviderEvent.Usage(it)) }
             return ProviderResponse(reply)
         }
     }
