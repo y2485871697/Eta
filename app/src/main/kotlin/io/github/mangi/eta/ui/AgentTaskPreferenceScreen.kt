@@ -9,6 +9,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Layers
+import io.github.mangi.eta.ui.components.ArrowPreference
+import io.github.mangi.eta.ui.components.PreferenceIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
@@ -21,7 +26,12 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 
 @Composable
-internal fun AgentTaskPreferenceScreen(onBack: () -> Unit) {
+internal fun AgentTaskPreferenceScreen(onBack: () -> Unit, onOpenRecovery: () -> Unit) {
+    val moduleInstalled = rememberTaskBackendInstalled()
+    if (moduleInstalled != true) {
+        LaunchedEffect(moduleInstalled) { if (moduleInstalled == false) onBack() }
+        return
+    }
     val view = LocalView.current
     var selected by remember { mutableStateOf(AgentTaskSurface.stored()) }
     // A navigation destination must draw its own full-page background and top bar.
@@ -57,6 +67,16 @@ internal fun AgentTaskPreferenceScreen(onBack: () -> Unit) {
                         },
                     )
                 }
+            }
+        }
+        item(key = "virtual_display_recovery") {
+            Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+                ArrowPreference(
+                    title = stringResource(R.string.vd_recovery_title),
+                    summary = stringResource(R.string.vd_recovery_explanation),
+                    startAction = { PreferenceIcon(Icons.Rounded.Layers) },
+                    onClick = onOpenRecovery,
+                )
             }
         }
         item(key = "agent_task_hint") {

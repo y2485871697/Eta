@@ -3,16 +3,19 @@ package io.github.mangi.eta.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -21,32 +24,36 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.device.VirtualDisplaySession
 import io.github.mangi.eta.agent.device.VirtualDisplayWebPreview
-import io.github.mangi.eta.ui.components.ArrowPreference
-import io.github.mangi.eta.ui.components.MiuixDialogActions
-import io.github.mangi.eta.ui.components.PreferenceIcon
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.window.WindowDialog
 
-/** A user-operated recovery surface; never starts an owner or falls back to port 3070. */
+/** Read-only on entry; user actions retain the original authenticated recovery safeguards. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun VirtualDisplayRecoveryPreference(
-    context: Context,
+internal fun VirtualDisplayRecoveryScreen(
+    onBack: () -> Unit,
+    context: Context = LocalContext.current,
     readStatus: (Context) -> JSONObject = VirtualDisplaySession::recoveryStatus,
     recover: (Context) -> JSONObject = VirtualDisplaySession::recoverAndFinishManually,
 ) {
+    val installed = rememberTaskBackendInstalled()
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
-    var showing by remember { mutableStateOf(false) }
     var previewRunning by remember { mutableStateOf(VirtualDisplayWebPreview.isRunning()) }
     var working by remember { mutableStateOf(false) }
     var state by remember { mutableStateOf<JSONObject?>(null) }
     var result by remember { mutableStateOf<JSONObject?>(null) }
+
+    LaunchedEffect(installed, working) {
+        if (installed == false && !working) {
+            VirtualDisplayWebPreview.stop()
+            previewRunning = false
+            onBack()
+        }
+    }
 
     fun refresh() {
         if (working) return
@@ -74,6 +81,12 @@ internal fun VirtualDisplayRecoveryPreference(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // The external browser only pauses this page. Revoke preview on actual disposal,
+    // not ON_PAUSE/ON_STOP, so opening the viewer does not kill its own connection.
+    DisposableEffect(Unit) {
+        onDispose { VirtualDisplayWebPreview.stop() }
+    }
+
     val snapshot = state
     val summary = when {
         snapshot == null -> stringResource(R.string.vd_recovery_working)
@@ -83,21 +96,27 @@ internal fun VirtualDisplayRecoveryPreference(
         else -> stringResource(R.string.vd_recovery_record, snapshot.optInt("displayId", -1),
             snapshot.optString("phase", "recovery_pending"))
     }
-    ArrowPreference(
-        title = stringResource(R.string.vd_recovery_title),
-        summary = summary,
-        startAction = { PreferenceIcon(icon = Icons.Rounded.Layers) },
-        onClick = { showing = true; refresh() },
-    )
-
-    if (showing) WindowDialog(
-        show = true,
-        title = stringResource(R.string.vd_recovery_title),
-        summary = stringResource(R.string.vd_recovery_explanation),
-        onDismissRequest = { if (!working) showing = false },
-    ) {
-        Column(modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    BackHandler(enabled = working) { /* Do not abandon an in-flight recovery action. */ }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.vd_recovery_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack, enabled = !working) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back))
+                    }
+                },
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+    ) { insets ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(insets)
+                .verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(stringResource(R.string.vd_recovery_explanation), style = MaterialTheme.typography.bodyMedium)
             Text(summary)
             Text(stringResource(R.string.vd_recovery_scope))
             val lastError = snapshot?.optString("lastError").orEmpty()
@@ -115,14 +134,18 @@ internal fun VirtualDisplayRecoveryPreference(
                 }
             }
             Text(stringResource(R.string.vd_preview_note))
-            TextButton(text = stringResource(R.string.vd_preview_open),
-                enabled = !working && snapshot?.optBoolean("present") == true,
+            Button(
+                enabled = installed == true && !working && snapshot?.optBoolean("present") == true,
                 onClick = {
                     if (!working) {
                         working = true
                         scope.launch {
                             try {
                                 val uri = withContext(Dispatchers.IO) { VirtualDisplayWebPreview.open(context) }
+                                val stillInstalled = withContext(Dispatchers.IO) {
+                                    io.github.mangi.eta.agent.device.AgentTaskSurface.moduleInstalled()
+                                }
+                                check(stillInstalled) { "Backend module removed" }
                                 previewRunning = true
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri))
                                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -137,22 +160,45 @@ internal fun VirtualDisplayRecoveryPreference(
                             } finally { working = false }
                         }
                     }
-                })
-            if (previewRunning) TextButton(text = stringResource(R.string.vd_preview_stop),
+                }) { Text(stringResource(R.string.vd_preview_open)) }
+            OutlinedButton(
+                enabled = installed == true && !working && snapshot?.optBoolean("present") == true,
+                onClick = {
+                    if (!working) {
+                        working = true
+                        scope.launch {
+                            try {
+                                val uri = withContext(Dispatchers.IO) { VirtualDisplayWebPreview.openWithManualClose(context) }
+                                val stillInstalled = withContext(Dispatchers.IO) {
+                                    io.github.mangi.eta.agent.device.AgentTaskSurface.moduleInstalled()
+                                }
+                                check(stillInstalled) { "Backend module removed" }
+                                previewRunning = true
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            } catch (ex: CancellationException) {
+                                VirtualDisplayWebPreview.stop()
+                                previewRunning = false
+                                throw ex
+                            } catch (_: Exception) {
+                                VirtualDisplayWebPreview.stop()
+                                previewRunning = false
+                                result = JSONObject().put("ok", false).put("error", "WEB_PREVIEW_OPEN_FAILED")
+                            } finally { working = false }
+                        }
+                    }
+                }) { Text(stringResource(R.string.vd_preview_control_open)) }
+            if (previewRunning) OutlinedButton(
                 enabled = !working, onClick = {
                     VirtualDisplayWebPreview.stop()
                     previewRunning = false
-                })
-            TextButton(text = stringResource(R.string.vd_recovery_refresh),
-                enabled = !working, onClick = { refresh() })
-            MiuixDialogActions(
-                modifier = Modifier.padding(top = 4.dp),
-                confirmText = stringResource(if (working) R.string.vd_recovery_working else R.string.vd_recovery_action),
-                cancelEnabled = !working,
-                confirmEnabled = !working && snapshot != null && snapshot.optBoolean("ok") &&
+                }) { Text(stringResource(R.string.vd_preview_stop)) }
+            OutlinedButton(
+                enabled = installed == true && !working, onClick = { refresh() }) { Text(stringResource(R.string.vd_recovery_refresh)) }
+            Button(
+                enabled = installed == true && !working && snapshot != null && snapshot.optBoolean("ok") &&
                     snapshot.optBoolean("present") && snapshot.optBoolean("recoverable"),
-                onCancel = { showing = false },
-                onConfirm = {
+                onClick = {
                     if (!working) {
                         working = true
                         result = null
@@ -169,7 +215,9 @@ internal fun VirtualDisplayRecoveryPreference(
                         }
                     }
                 },
-            )
+            ) {
+                Text(stringResource(if (working) R.string.vd_recovery_working else R.string.vd_recovery_action))
+            }
         }
     }
 }

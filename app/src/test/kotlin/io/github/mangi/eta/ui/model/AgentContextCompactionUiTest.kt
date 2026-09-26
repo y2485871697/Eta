@@ -8,7 +8,7 @@ import org.junit.Test
 
 class AgentContextCompactionUiTest {
     @Test
-    fun pendingPruningThenSummaryFailureKeepsLatestBillInsteadOfOldNineteenPercentBaseline() {
+    fun pendingPruningThenSummaryFailureRetainsLatestMeasuredBill() {
         val messages = listOf<AgentChatMessageUi>(
             ContextCompactedMessageUi("old", compactedCount = 10, summary = "old summary",
                 baselineTokens = 51_680),
@@ -23,7 +23,7 @@ class AgentContextCompactionUiTest {
     }
 
     @Test
-    fun pendingPruningWithoutLiveBillKeepsExistingUsageSource() {
+    fun pendingPruningWithoutCloudBillRemainsUnknown() {
         val messages = listOf<AgentChatMessageUi>(
             ContextCompactedMessageUi("old", compactedCount = 10, summary = "old summary",
                 baselineTokens = 51_680),

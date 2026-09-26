@@ -5,6 +5,12 @@ import org.junit.Test
 import org.json.JSONArray
 import org.json.JSONObject
 
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class AgentRequestBudgetPolicyTest {
     @Test fun onlyInitialAndPostCompactionBoundariesMayEstimate() {
         val policy = AgentRequestBudgetPolicy()

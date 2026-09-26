@@ -20,7 +20,7 @@ class VirtualDisplayRecoveryPolicyTest {
         }
     }
     @Test fun onlyClosedRecoverablePhasesMayResumeCleanup() {
-        for (phase in listOf("active", "held", "uncertain")) {
+        for (phase in listOf("active", "held", "uncertain", "handoff_pending")) {
             assertTrue(phase, VirtualDisplayRecoveryPolicy.canRecoverExistingRun(phase, true))
             assertFalse(phase, VirtualDisplayRecoveryPolicy.canRecoverExistingRun(phase, false))
         }
@@ -30,11 +30,14 @@ class VirtualDisplayRecoveryPolicyTest {
         }
     }
     @Test fun cleanupEligibilityNeverAuthorizesUncertainMutationReplay() {
-        assertTrue(VirtualDisplayRecoveryPolicy.canRecoverExistingRun("uncertain", true))
-        assertEquals(VirtualDisplayRecoveryPolicy.Action.REFUSE,
-            VirtualDisplayRecoveryPolicy.finishAction(fresh.copy(mutationUncertain=true)))
-        assertEquals(VirtualDisplayRecoveryPolicy.Action.REFUSE,
-            VirtualDisplayRecoveryPolicy.finishAction(fresh.copy(releaseAttempted=true)))
+        for (phase in listOf("uncertain", "handoff_pending")) {
+            assertTrue(VirtualDisplayRecoveryPolicy.canRecoverExistingRun(phase, true))
+            for (state in listOf(null, fresh.copy(finishing=true),
+                fresh.copy(mutationUncertain=true), fresh.copy(releaseAttempted=true))) {
+                assertEquals(phase, VirtualDisplayRecoveryPolicy.Action.REFUSE,
+                    VirtualDisplayRecoveryPolicy.finishAction(state))
+            }
+        }
     }
     @Test fun taskIdentityParsingIsStrict() {
         assertEquals(setOf(16,17), VirtualDisplayRecoveryPolicy.taskIds(listOf(16,17)))

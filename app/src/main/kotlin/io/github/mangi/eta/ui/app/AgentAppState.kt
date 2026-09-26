@@ -758,7 +758,8 @@ internal class AgentAppState(
             ?.runIds
             .orEmpty()
         val locallyObservedRunIds = withContext(Dispatchers.Main) {
-            runJobs.keys + runConversationIds.keys
+            // Conversation bindings route events; only subscriber jobs prove local observation.
+            runJobs.keys.toSet()
         }
         val plan = AgentRunRecoveryCoordinator.plan(
             checkpoints = checkpoints,
@@ -920,10 +921,9 @@ internal class AgentAppState(
                     recoverRuntimeRuns()
                 }
                 AgentRuntimeClient.AttachOutcome.Unavailable -> withContext(Dispatchers.Main) {
-                    if (runJobs.remove(runId) != null) {
-                        setConversationStreaming(runId, false)
-                        refreshConversationSummaries()
-                    }
+                    // Losing the subscriber is not evidence that Runtime stopped the run.
+                    // Keep its trace and binding until foreground recovery can query Runtime.
+                    runJobs.remove(runId)
                 }
             }
         }
@@ -2142,7 +2142,7 @@ internal class AgentAppState(
                 currentInput = prompt,
                 pendingImages = images,
                 selectedModel = runModelOption,
-                billedContextTokens = billedPromptTokens(state),
+                billedContextTokens = if (history == state.history) billedPromptTokens(state) else null,
                 requestOverheadTokens = runOverhead,
                 billedOverheadTokens = runBilledOverhead,
             ).contextTokens
@@ -3894,10 +3894,9 @@ internal class AgentAppState(
             AgentContextCompactionUi.isPruningOnly(current.history, event.history, event.compressorLabel)) {
             updateConversation(conversationId, current.copy(
                 history = event.history,
-                livePromptTokens = null,
+                livePromptTokens = AgentContextCompactionUi.pendingPruningUsage(current.livePromptTokens, current.messages),
             ))
-            // Summary is still pending. Retain the last measured usage even if it fails;
-            // only successful summary application or a new provider bill replaces it.
+            // Retain the last cloud bill while the summary is pending; do not estimate usage.
             persistConversations()
             return
         }
@@ -4033,7 +4032,7 @@ internal class AgentAppState(
                 if (stoppedDuringRetry) SystemNoticeCode.RuntimeFailed else SystemNoticeCode.Stopped,
                 detail = if (stoppedDuringRetry) "已停止等待接口重试" else null,
             )
-            result.ok && result.content.isNotBlank() -> completeLatestAssistantMessage(
+            result.ok && (result.content.isNotBlank() || VirtualCompletionNotice.confirmed(result)) -> completeLatestAssistantMessage(
                 runId,
                 fallbackContent = result.content,
             )
@@ -4045,6 +4044,9 @@ internal class AgentAppState(
                 SystemNoticeCode.RuntimeFailed,
                 result.error,
             )
+        }
+        if (stoppedDuringRetry == null) {
+            updateMessages(runId) { VirtualCompletionNotice.append(it, runId, result) }
         }
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
@@ -4128,6 +4130,7 @@ internal class AgentAppState(
     }
 
     private fun updateLivePromptTokens(runId: String, tokens: Int?) {
+        if (stoppingRuns.containsKey(runId)) return
         if (tokens == null || tokens <= 0 || runId in invalidatedUsageRuns) return
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return
@@ -4428,6 +4431,7 @@ internal class AgentAppState(
                                 SystemNoticeCode.ModelRetry -> R.string.system_notice_model_retry
                                 SystemNoticeCode.RuntimeFailed -> R.string.system_notice_runtime_failed
                                 SystemNoticeCode.Interrupted -> R.string.system_notice_interrupted
+                                SystemNoticeCode.Completed -> R.string.system_notice_completed
                             },
                         )
                         is ThinkingMessageUi -> appContext.getString(R.string.conversation_preview_reasoning)

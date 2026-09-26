@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SkillRegistryEntity::class,
         McpServerEntity::class,
     ],
-    version = 29,
+    version = 30,
     exportSchema = false,
 )
 internal abstract class EtaDatabase : RoomDatabase() {
@@ -70,6 +70,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_26_27,
                         MIGRATION_27_28,
                         MIGRATION_28_29,
+                        MIGRATION_29_30,
                     )
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
@@ -169,6 +170,18 @@ internal abstract class EtaDatabase : RoomDatabase() {
                     "ALTER TABLE model_providers ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'api_key'",
                 )
             }
+        }
+
+        // Version 29 existed in two development lines. Preserve either receipt type.
+        internal val MIGRATION_29_30 = Migration(29, 30) { database ->
+            fun addColumnIfMissing(table: String, column: String, definition: String) {
+                if (!tableHasColumn(database, table, column)) {
+                    database.execSQL("ALTER TABLE $table ADD COLUMN $column $definition")
+                }
+            }
+            addColumnIfMissing("conversation_context_checkpoints", "cloud_usage_json", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing("runtime_results", "virtual_delivery_completed", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing("runtime_archive_runs", "virtual_delivery_completed", "INTEGER NOT NULL DEFAULT 0")
         }
 
         internal val MIGRATION_27_28 = Migration(27, 28) { database ->

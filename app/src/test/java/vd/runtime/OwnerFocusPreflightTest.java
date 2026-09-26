@@ -50,13 +50,15 @@ public class OwnerFocusPreflightTest {
         public Map<Integer, Object> roots() {
             return frames.get(Math.min(reads++, frames.size() - 1)).inventory;
         }
-        public Object focusedRoot() throws Exception {
+        public FocusWitness focusedWitness(Map<Integer, Object> inventory) throws Exception {
             focusReads++;
             if (interruptedFocus) throw new InterruptedException();
             if (focusReads == interruptAt) Thread.currentThread().interrupt();
             if (unreadableFocus) throw new IllegalAccessException("private reflection detail");
             clock += advanceOnFocus;
-            return frames.get(Math.min(reads - 1, frames.size() - 1)).focus;
+            Object focused = frames.get(Math.min(reads - 1, frames.size() - 1)).focus;
+            Object listed = focused == null ? null : inventory.get(OwnerHandoff.number(focused, "taskId"));
+            return FocusWitness.capture(focused, listed, 0, 0);
         }
         public long nanoTime() { return clock; }
     }

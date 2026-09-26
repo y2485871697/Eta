@@ -1,0 +1,82 @@
+name: Preview Gateway CI
+
+"on":
+  push:
+    paths:
+      - 'tools/vd-preview-gateway/**'
+      - 'scripts/build-vd-preview-gateway.sh'
+      - 'docs/vd-preview-gateway/**'
+      - '.github/workflows/vd-preview-gateway.yml'
+  pull_request:
+    paths:
+      - 'tools/vd-preview-gateway/**'
+      - 'scripts/build-vd-preview-gateway.sh'
+      - 'docs/vd-preview-gateway/**'
+      - '.github/workflows/vd-preview-gateway.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vd-preview-gateway-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      GOFLAGS: ''
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Verify installed Node and Go versions
+        run: |
+          set -euo pipefail
+          node --version
+          node --eval 'if (Number(process.versions.node.split(".")[0]) < 18) throw new Error("Node.js >= 18 is required")'
+          go_version="$(go env GOVERSION)"
+          printf 'Installed Go: %s\n' "$go_version"
+          if ! printf '%s\n' "$go_version" | awk -F. '
+              /^go[0-9]+\.[0-9]+/ {
+                  sub(/^go/, "", $1)
+                  if ($1 + 0 > 1 || ($1 + 0 == 1 && $2 + 0 >= 22)) valid = 1
+              }
+              END { exit !valid }
+          '; then
+              echo '::error::Go >= 1.22 is required'
+              exit 1
+          fi
+
+      - name: Build ARM64 gateway and run Go and Node tests
+        run: ./scripts/build-vd-preview-gateway.sh
+
+      - name: Vet gateway
+        working-directory: tools/vd-preview-gateway
+        run: go vet ./...
+
+      - name: Verify artifact contents and hashes
+        working-directory: build/vd-preview-gateway-arm64
+        run: |
+          set -euo pipefail
+          for file in vd_server LICENSE README.md SOURCE_COMMIT.txt BUILD-INFO.txt SHA256SUMS; do
+            test -s "$file"
+          done
+          sha256sum --check --strict SHA256SUMS
+
+      - name: Upload ARM64 gateway bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: vd-preview-gateway-arm64
+          path: build/vd-preview-gateway-arm64/
+          if-no-files-found: error
+          retention-days: 7

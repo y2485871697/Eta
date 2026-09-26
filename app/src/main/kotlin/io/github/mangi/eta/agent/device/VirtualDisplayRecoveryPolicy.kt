@@ -11,9 +11,13 @@ internal object VirtualDisplayRecoveryPolicy {
         f.handoffComplete || f.finishing -> Action.REFUSE
         else -> Action.HANDOFF
     }
-    /** Recovery is cleanup-only; it never makes an interrupted run GUI-active again. */
+    /**
+     * Recovery is cleanup-only; it never makes an interrupted run GUI-active again.
+     * Eligibility does not authorize handoff/release: finish must revalidate fresh owner evidence
+     * and the existing retry budget, including for a clean handoff_pending session.
+     */
     fun canRecoverExistingRun(phase: String, closedRun: Boolean): Boolean =
-        closedRun && phase in setOf("active", "held", "uncertain")
+        closedRun && phase in setOf("active", "held", "uncertain", "handoff_pending")
 
     fun taskIds(raw: List<*>): Set<Int>? {
         val ids = linkedSetOf<Int>()

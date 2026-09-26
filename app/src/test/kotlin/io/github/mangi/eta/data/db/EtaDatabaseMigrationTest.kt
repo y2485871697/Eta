@@ -22,7 +22,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class EtaDatabaseMigrationTest {
     @Test
-    fun migration6To18PreservesDataAndMovesBoundedConversationContext() {
+    fun migration6To30PreservesDataAndMovesBoundedConversationContext() {
         val context = RuntimeEnvironment.getApplication() as Context
         val databaseName = "migration-${UUID.randomUUID()}.db"
         createVersion6Database(context, databaseName)
@@ -66,6 +66,7 @@ class EtaDatabaseMigrationTest {
                 EtaDatabase.MIGRATION_26_27,
                 EtaDatabase.MIGRATION_27_28,
                 EtaDatabase.MIGRATION_28_29,
+                EtaDatabase.MIGRATION_29_30,
             )
             .build()
         } catch (error: Throwable) {
@@ -92,6 +93,8 @@ class EtaDatabaseMigrationTest {
             val retainedCheckpoint = runBlocking(Dispatchers.IO) {
                 database.conversationDao().contextCheckpoint("conv-1")
             }
+            assertEquals("", retainedCheckpoint?.cloudUsageJson)
+            assertEquals(30, database.openHelper.readableDatabase.version)
             val oversizedCheckpoint = runBlocking(Dispatchers.IO) {
                 database.conversationDao().contextCheckpoint("conv-oversized")
             }
@@ -116,8 +119,10 @@ class EtaDatabaseMigrationTest {
 
             assertEquals("保留的结果", result.content)
             assertEquals("[]", result.transcriptJson)
+            assertEquals(false, result.virtualDeliveryCompleted)
             assertEquals("保留的归档", archive.content)
             assertEquals("[]", archive.transcriptJson)
+            assertEquals(false, archive.virtualDeliveryCompleted)
             assertEquals("[]", archive.userImagePreviewsJson)
             assertEquals(
                 setOf("conv-1", "conv-enabled", "conv-custom-empty", "conv-oversized"),
@@ -209,6 +214,96 @@ class EtaDatabaseMigrationTest {
             } finally {
                 helper.close()
             }
+        }
+    }
+
+    @Test
+    fun migration28To30PreservesReceiptsAndDefaults() {
+        checkReceiptMigration(28, false, false)
+    }
+
+    @Test
+    fun bothVersion29VariantsMigrateWithoutLosingReceipts() {
+        for ((cloud, delivery) in listOf(true to false, false to true, true to true)) {
+            checkReceiptMigration(29, cloud, delivery)
+        }
+    }
+
+    private fun checkReceiptMigration(version: Int, cloud: Boolean, delivery: Boolean) {
+        val context = RuntimeEnvironment.getApplication() as Context
+        val name = "receipts-${UUID.randomUUID()}.db"
+        createVersion6Database(context, name)
+        try {
+            val legacy = FrameworkSQLiteOpenHelperFactory().create(
+                SupportSQLiteOpenHelper.Configuration.builder(context).name(name)
+                    .callback(object : SupportSQLiteOpenHelper.Callback(version) {
+                        override fun onCreate(db: SupportSQLiteDatabase) = error("Missing legacy fixture")
+                        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+                            check(oldVersion == 6)
+                            for (migration in listOf(
+                                EtaDatabase.MIGRATION_6_7,
+                                EtaDatabase.MIGRATION_7_8,
+                                EtaDatabase.MIGRATION_8_9,
+                                EtaDatabase.MIGRATION_9_10,
+                                EtaDatabase.MIGRATION_10_11,
+                                EtaDatabase.MIGRATION_11_12,
+                                EtaDatabase.MIGRATION_12_13,
+                                EtaDatabase.MIGRATION_13_14,
+                                EtaDatabase.MIGRATION_14_15,
+                                EtaDatabase.MIGRATION_15_16,
+                                EtaDatabase.MIGRATION_16_17,
+                                EtaDatabase.MIGRATION_17_18,
+                                EtaDatabase.MIGRATION_18_19,
+                                EtaDatabase.MIGRATION_19_20,
+                                EtaDatabase.MIGRATION_20_21,
+                                EtaDatabase.MIGRATION_21_22,
+                                EtaDatabase.MIGRATION_22_23,
+                                EtaDatabase.MIGRATION_23_24,
+                                EtaDatabase.MIGRATION_24_25,
+                                EtaDatabase.MIGRATION_25_26,
+                                EtaDatabase.MIGRATION_26_27,
+                                EtaDatabase.MIGRATION_27_28,
+                            )) migration.migrate(db)
+                        }
+                    }).build(),
+            )
+            try {
+                val db = legacy.writableDatabase
+                if (cloud) {
+                    EtaDatabase.MIGRATION_28_29.migrate(db)
+                    db.execSQL("UPDATE conversation_context_checkpoints SET cloud_usage_json = ?", arrayOf<Any>("preserved-cloud"))
+                }
+                if (delivery) {
+                    for (table in listOf("runtime_results", "runtime_archive_runs")) {
+                        db.execSQL("ALTER TABLE $table ADD COLUMN virtual_delivery_completed INTEGER NOT NULL DEFAULT 0")
+                        db.execSQL("UPDATE $table SET virtual_delivery_completed = 1")
+                    }
+                }
+            } finally {
+                legacy.close()
+            }
+            val database = Room.databaseBuilder(context, EtaDatabase::class.java, name)
+                .allowMainThreadQueries()
+                .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
+                .addMigrations(EtaDatabase.MIGRATION_28_29, EtaDatabase.MIGRATION_29_30)
+                .build()
+            try {
+                assertEquals(30, database.openHelper.writableDatabase.version)
+                runBlocking(Dispatchers.IO) {
+                    val result = database.runtimeRunDao().runtimeResults().single()
+                    val archive = database.runtimeRunDao().archivedRuns().single().run
+                    val checkpoint = database.conversationDao().contextCheckpoint("conv-1")
+                    assertEquals("保留的结果", result.content)
+                    assertEquals("保留的归档", archive.content)
+                    assertEquals(delivery, result.virtualDeliveryCompleted)
+                    assertEquals(delivery, archive.virtualDeliveryCompleted)
+                    assertEquals(if (cloud) "preserved-cloud" else "", checkpoint?.cloudUsageJson)
+                }
+            } finally {
+                database.close()
+            }
+        } finally {
+            context.deleteDatabase(name)
         }
     }
 

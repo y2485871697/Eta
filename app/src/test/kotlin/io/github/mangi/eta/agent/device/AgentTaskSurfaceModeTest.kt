@@ -59,11 +59,11 @@ class AgentTaskSurfaceModeTest {
     }
 
     @Test
-    fun settingsStayReachableWhenStoredBackgroundOrAskHasNoModule() {
-        assertTrue(AgentTaskSurface.settingsEntryVisible(moduleInstalled = false, stored = AgentTaskSurfaceMode.BACKGROUND))
-        assertTrue(AgentTaskSurface.settingsEntryVisible(moduleInstalled = false, stored = AgentTaskSurfaceMode.ASK))
-        assertTrue(AgentTaskSurface.settingsEntryVisible(moduleInstalled = true, stored = AgentTaskSurfaceMode.FOREGROUND))
-        assertTrue(AgentTaskSurface.settingsEntryVisible(moduleInstalled = false, stored = AgentTaskSurfaceMode.FOREGROUND))
+    fun taskPreferenceEntryRequiresInstalledBackendRegardlessOfStoredMode() {
+        AgentTaskSurfaceMode.entries.forEach { mode ->
+            assertFalse(AgentTaskSurface.settingsEntryVisible(moduleInstalled = false, stored = mode))
+            assertTrue(AgentTaskSurface.settingsEntryVisible(moduleInstalled = true, stored = mode))
+        }
     }
 
     @Test

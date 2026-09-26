@@ -64,7 +64,8 @@ enum class SystemNoticeCode(val wireValue: String) {
     EmptyResult("empty_result"),
     RuntimeFailed("runtime_failed"),
     ModelRetry("model_retry"),
-    Interrupted("interrupted");
+    Interrupted("interrupted"),
+    Completed("completed");
 
     companion object {
         fun fromWireValue(value: String): SystemNoticeCode? = entries.firstOrNull {

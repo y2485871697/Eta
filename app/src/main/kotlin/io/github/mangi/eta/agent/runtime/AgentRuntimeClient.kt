@@ -103,12 +103,16 @@ internal class AgentRuntimeClient(
             return resultRef.get() ?: AgentRuntimeWire.RunResult("", false, "", "Agent Runtime 未返回结果")
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
+            // A client waiter detaching does not own the remote run's lifetime.
             runCatching {
-                val cancelMessage = Message.obtain(null, AgentRuntimeWire.MSG_CANCEL)
-                cancelMessage.data = AgentRuntimeWire.ackBundle(request.runId)
-                serviceMessenger.send(cancelMessage)
+                if (isStopRequested()) {
+                    val cancelMessage = Message.obtain(null, AgentRuntimeWire.MSG_CANCEL)
+                    cancelMessage.data = AgentRuntimeWire.ackBundle(request.runId)
+                    serviceMessenger.send(cancelMessage)
+                }
             }
-            return AgentRuntimeWire.RunResult("", false, "", "Agent Runtime 等待被中断")
+            // Detachment is not a terminal runtime result; let the caller handle interruption.
+            throw interrupted
         } catch (throwable: Throwable) {
             logger.warn("Agent runtime start request failed: type=${throwable.safeLogType()}")
             return AgentRuntimeWire.RunResult(

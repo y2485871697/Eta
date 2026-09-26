@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="referrer" content="no-referrer">
+    <title>虚拟副屏监控</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { height: 100%; }
+        /* The page never scrolls: the header/controls/footer keep their intrinsic
+           height and the snapshot box absorbs whatever vertical space is left, so
+           the phone frame always fits the viewer's browser viewport. Using dvh
+           (with a vh fallback) keeps that true while the mobile URL bar hides/shows. */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f1117;
+            color: #e6edf3;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 12px;
+        }
+        .header {
+            flex: 0 0 auto;
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .status-text {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #58a6ff;
+        }
+        .controls {
+            flex: 0 0 auto;
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .source-controls { flex-wrap: wrap; gap: 8px; }
+        .source-controls label { display: flex; align-items: center; gap: 8px; width: 100%; font-size: 0.85rem; }
+        .source-controls label[hidden] { display: none; }
+        select {
+            flex: 1;
+            min-width: 0;
+            padding: 6px;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            background: #161b22;
+            color: #e6edf3;
+        }
+        button {
+            flex: 1;
+            padding: 10px 0;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: opacity 0.2s;
+        }
+        button:active { opacity: 0.75; }
+        button:disabled { opacity: 0.5; cursor: default; }
+        .btn-refresh {
+            background: #238636;
+            color: #ffffff;
+            border-color: #2ea043;
+        }
+        .btn-stop {
+            background: #b62324;
+            color: #ffffff;
+            border-color: #da3633;
+        }
+        .btn-start {
+            background: #238636;
+            color: #ffffff;
+            border-color: #2ea043;
+        }
+        /* flex-basis 0 (not auto) keeps the box's content-driven size out of the
+           flex calculation, so its height is exactly the leftover space and the
+           image below can resolve height:100% against a definite box. */
+        .screen-box {
+            position: relative;
+            flex: 1 1 0;
+            min-height: 0;
+            width: min(90vw, 360px);
+            background: #000000;
+            border: 2px solid #30363d;
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #snapshot-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+            pointer-events: none;
+        }
+        #empty-tip {
+            color: #8b949e;
+            font-size: 0.9rem;
+            text-align: center;
+            line-height: 1.6;
+        }
+        .footer-note {
+            flex: 0 0 auto;
+            margin-top: 10px;
+            font-size: 0.75rem;
+            color: #8b949e;
+            text-align: center;
+        }
+        /* Very short viewports (landscape / split screen): give up the fixed
+           layout and let the page scroll, so the buttons can never be squeezed out. */
+        @media (max-height: 520px) {
+            body { height: auto; min-height: 100vh; overflow: auto; }
+            .screen-box { flex: 0 0 auto; min-height: 240px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div id="status-display" class="status-text" role="status" aria-live="polite">检测状态中...</div>
+    </div>
+
+    <div class="controls source-controls">
+        <label for="preview-mode">模式
+            <select id="preview-mode" onchange="changePreviewMode()">
+                <option value="module">模块副屏</option>
+                <option value="eta">代鱼副屏（只读）</option>
+            </select>
+        </label>
+        <label id="eta-display-controls" for="eta-display" hidden>Display 编号
+            <select id="eta-display" onchange="etaSelectDisplay()" disabled>
+                <option value="">未连接代鱼预览</option>
+            </select>
+        </label>
+    </div>
+
+    <div class="controls">
+        <button class="btn-refresh" onclick="refreshSnapshot()">手动刷新</button>
+        <button id="btn-toggle" class="btn-stop" onclick="toggleScreen()">关闭副屏</button>
+    </div>
+
+    <div class="screen-box">
+        <img id="snapshot-img" alt="副屏快照" />
+        <div id="empty-tip">副屏未启动</div>
+    </div>
+
+    <div class="footer-note">两种模式均为手动刷新。代鱼预览请从代鱼副屏入口打开。</div>
+
+    <script>
+        // Consume and erase the capability before parsing it or making any request.
+        // It never goes to Go, a query string, storage, logs, or an <img> URL.
+        let etaRequested = false;
+        let etaConfig = (() => {
+            const fragment = location.hash.slice(1);
+            if (!fragment.startsWith('eta-preview')) return null;
+            etaRequested = true;
+            history.replaceState(null, '', location.pathname + location.search);
+            // Treat the preview-only bearer as opaque, not as an owner IPC token.
+            const match = /^eta-preview=([0-9]{1,5})[.]([A-Za-z0-9._~+/-]+=*)(?:&eta_control=([a-f0-9]{64}))?$/.exec(fragment);
+            if (!match || +match[1] < 1 || +match[1] > 65535 ||
+                !['http://127.0.0.1:3070', 'http://localhost:3070'].includes(location.origin)) return null;
+            return { port: +match[1], token: match[2], controlToken: match[3] || null };
+        })();
+
+        const statusEl = document.getElementById('status-display');
+        const imgEl = document.getElementById('snapshot-img');
+        const tipEl = document.getElementById('empty-tip');
+        const toggleEl = document.getElementById('btn-toggle');
+        const modeEl = document.getElementById('preview-mode');
+        const displayEl = document.getElementById('eta-display');
+        const displayControlsEl = document.getElementById('eta-display-controls');
+        const footerEl = document.querySelector('.footer-note');
+
+        // The legacy target always comes from /api/status, NEVER an Eta display ID.
+        // 'unreachable' stays distinct from 'stopped', so it cannot offer a start.
+        let screenState = 'unreachable';
+        let toggling = false;
+        let previewMode = etaRequested ? 'eta' : 'module';
+        let etaDisplays = [], etaSelected = null;
+        let etaCloseBusy = false;
+        const etaUnconfirmed = new Set();
+        const etaIdentityKey = d => JSON.stringify([d.displayId, d.uniqueId]);
+        let etaUnavailable = etaRequested
+            ? '预览链接无效，请从代鱼副屏入口重新打开'
+            : '未连接代鱼预览，请从代鱼副屏入口打开';
+        let requestGeneration = 0, requestAbort = null, moduleImage = null, etaObjectUrl = null;
+        const frameLimit = 6 * 1024 * 1024;
+        const phaseLabels = { active: '运行中', held: '保留中', uncertain: '异常保留',
+            recovery_pending: '待恢复', finishing: '交接中' };
+
+        function clearFrame() {
+            imgEl.removeAttribute('src');
+            imgEl.style.display = 'none';
+            tipEl.style.display = 'block';
+            if (etaObjectUrl) URL.revokeObjectURL(etaObjectUrl);
+            etaObjectUrl = null;
+        }
+        function showMessage(message, color = '#8b949e') {
+            statusEl.textContent = message;
+            statusEl.style.color = color;
+            tipEl.textContent = message;
+        }
+        function cancelRequests() {
+            requestGeneration++;
+            if (requestAbort) requestAbort.abort();
+            requestAbort = null;
+            if (moduleImage) {
+                moduleImage.onload = moduleImage.onerror = null;
+                moduleImage.removeAttribute('src');
+                moduleImage = null;
+            }
+            clearFrame();
+        }
+        function beginRequest() {
+            cancelRequests();
+            requestAbort = new AbortController();
+            return { generation: requestGeneration, controller: requestAbort };
+        }
+        function isCurrent(generation, mode) {
+            return generation === requestGeneration && previewMode === mode;
+        }
+        function sameDisplay(a, b) {
+            return a && b && a.displayId === b.displayId && a.uniqueId === b.uniqueId;
+        }
+        function renderDisplays(placeholder = '请选择副屏') {
+            displayEl.replaceChildren();
+            const empty = document.createElement('option');
+            empty.value = ''; empty.textContent = placeholder;
+            displayEl.appendChild(empty);
+            etaDisplays.forEach((display, index) => {
+                const option = document.createElement('option');
+                option.value = String(index);
+                option.textContent = 'Display ' + display.displayId + ' · ' +
+                    (phaseLabels[display.phase] || display.phase || '状态未知');
+                displayEl.appendChild(option);
+            });
+            const selectedIndex = etaDisplays.findIndex(display => sameDisplay(display, etaSelected));
+            displayEl.value = selectedIndex < 0 ? '' : String(selectedIndex);
+            displayEl.disabled = etaCloseBusy || etaDisplays.length === 0;
+        }
+        function renderToggle() {
+            if (previewMode === 'eta') {
+                const authorized = Boolean(etaConfig && etaConfig.controlToken);
+                const uncertain = etaSelected && etaUnconfirmed.has(etaIdentityKey(etaSelected));
+                toggleEl.className = 'btn-stop';
+                toggleEl.disabled = !authorized || !etaSelected || etaCloseBusy || Boolean(uncertain);
+                toggleEl.textContent = !authorized ? '只读 · 不控制副屏' : etaCloseBusy
+                    ? '正在核验关闭…' : uncertain ? '关闭结果未确认' : '手动关闭空副屏';
+            } else if (screenState === 'running') {
+                toggleEl.className = 'btn-stop';
+                toggleEl.textContent = '关闭副屏';
+                toggleEl.disabled = toggling;
+            } else if (screenState === 'stopped') {
+                toggleEl.className = 'btn-start';
+                toggleEl.textContent = '开启副屏';
+                toggleEl.disabled = toggling;
+            } else {
+                toggleEl.className = 'btn-start';
+                toggleEl.textContent = '服务未连接';
+                toggleEl.disabled = true;
+            }
+        }
+        function renderMode() {
+            modeEl.value = previewMode;
+            displayControlsEl.hidden = previewMode !== 'eta';
+            footerEl.textContent = previewMode === 'eta'
+                ? (etaConfig && etaConfig.controlToken ? '已授权手动关闭 · 仅关闭身份和空屏状态已核实的代鱼副屏 · 不强杀或自动重试' : '代鱼只读预览 · 手动刷新列表和画面 · 手动关闭请从代鱼的「网页预览与手动关闭」入口授权')
+                : '模块画面为手动刷新。代鱼会话请切换到「代鱼副屏（只读）」。';
+            renderToggle();
+        }
+        function changePreviewMode() {
+            if (etaCloseBusy) { modeEl.value = previewMode; return; }
+            cancelRequests();
+            previewMode = modeEl.value === 'eta' ? 'eta' : 'module';
+            // Do not reuse a legacy status after spending time in Eta mode.
+            screenState = 'unreachable';
+            renderMode();
+            return refreshSnapshot();
+        }
+
+        async function etaFetch(path, controller, identityHeaders = {}) {
+            const response = await fetch('http://127.0.0.1:' + etaConfig.port + path, {
+                method: 'GET', mode: 'cors', headers: {
+                    ...identityHeaders, Authorization: 'Bearer ' + etaConfig.token
+                },
+                cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
+                signal: controller.signal
+            });
+            if (response.status === 401) throw new Error('ETA_AUTH');
+            if (response.status === 410) throw new Error('ETA_GONE');
+            if (response.status !== 200) throw new Error(path === '/eta-preview/displays'
+                ? 'ETA_LIST_UNAVAILABLE' : 'ETA_FRAME_UNAVAILABLE');
+            return response;
+        }
+        async function etaReadPng(response) {
+            if ((response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'image/png')
+                throw new Error('ETA_FRAME_INVALID');
+            const size = response.headers.get('Content-Length');
+            if (size !== null && (!/^[0-9]+$/.test(size) || +size > frameLimit))
+                throw new Error('ETA_FRAME_INVALID');
+            if (!response.body || !response.body.getReader) throw new Error('ETA_FRAME_INVALID');
+            const reader = response.body.getReader();
+            const chunks = [];
+            let total = 0;
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    total += value.byteLength;
+                    if (total > frameLimit) throw new Error('ETA_FRAME_INVALID');
+                    chunks.push(value);
+                }
+            } finally { await reader.cancel().catch(() => {}); }
+            const blob = new Blob(chunks, { type: 'image/png' });
+            const signature = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+            if (signature.length !== 8 || ![137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => signature[i] === v))
+                throw new Error('ETA_FRAME_INVALID');
+            return blob;
+        }
+        async function etaLoadFrame(selected, generation, controller) {
+            showMessage('代鱼副屏 · Display ' + selected.displayId + ' · 正在读取画面…', '#58a6ff');
+            // Eta binds frame identity through headers, not query parameters.
+            const response = await etaFetch('/eta-preview/frame', controller, {
+                'X-Eta-Display-Id': String(selected.displayId),
+                'X-Eta-Display-Unique-Id': selected.uniqueId
+            });
+            if (!isCurrent(generation, 'eta')) return;
+            // Both headers must be exposed by Eta's CORS policy. Missing headers
+            // fail closed too: Android may recycle a numeric display ID.
+            if (response.headers.get('X-Eta-Display-Id') !== String(selected.displayId) ||
+                response.headers.get('X-Eta-Display-Unique-Id') !== selected.uniqueId)
+                throw new Error('ETA_IDENTITY');
+            const blob = await etaReadPng(response);
+            if (!isCurrent(generation, 'eta') || !sameDisplay(selected, etaSelected)) return;
+            etaObjectUrl = URL.createObjectURL(blob);
+            imgEl.src = etaObjectUrl;
+            try { await imgEl.decode(); }
+            catch (_) { throw new Error('ETA_FRAME_INVALID'); }
+            if (!isCurrent(generation, 'eta') || !sameDisplay(selected, etaSelected)) return;
+            imgEl.style.display = 'block'; tipEl.style.display = 'none';
+            showMessage('代鱼副屏 · Display ' + selected.displayId + ' · ' +
+                (phaseLabels[selected.phase] || selected.phase || '状态未知') + ' · 只读快照', '#7ee787');
+        }
+        function etaShowError(error) {
+            clearFrame();
+            const messages = {
+                ETA_AUTH: '代鱼预览授权已失效（401），请从代鱼副屏入口重新打开',
+                ETA_GONE: '代鱼副屏或预览会话已关闭（410），请手动刷新列表或重新打开入口',
+                ETA_IDENTITY: '副屏身份不匹配，已拒绝显示；请手动刷新列表',
+                ETA_LIST_UNAVAILABLE: '无法获取代鱼副屏列表，请确认代鱼预览已开启后手动刷新',
+                ETA_LIST_INVALID: '代鱼副屏列表响应无效，请手动刷新或重新打开入口',
+                ETA_FRAME_UNAVAILABLE: '所选代鱼副屏暂无可用画面，请手动刷新',
+                ETA_FRAME_INVALID: '代鱼画面不是有效的 PNG 或超过大小限制'
+            };
+            if (error.message === 'ETA_AUTH' || error.message === 'ETA_GONE' ||
+                error.message === 'ETA_LIST_UNAVAILABLE' || error.message === 'ETA_LIST_INVALID') {
+                etaDisplays = []; etaSelected = null; renderDisplays('列表不可用');
+            }
+            if (error.message === 'ETA_AUTH') {
+                etaConfig = null;
+                etaUnavailable = messages.ETA_AUTH;
+            }
+            showMessage(messages[error.message] || (error.name === 'AbortError'
+                ? '代鱼预览请求超时，请手动刷新'
+                : '无法连接代鱼预览，请检查代鱼和浏览器跨域授权后手动刷新'), '#f85149');
+        }
+        // One bounded request per user action (or initial entry); no polling,
+        // automatic retries, visibility-based refresh, or legacy fallback.
+        async function etaRefresh(reloadList = true) {
+            if (previewMode !== 'eta' || etaCloseBusy) return;
+            const { generation, controller } = beginRequest();
+            if (!etaConfig) {
+                etaDisplays = []; etaSelected = null; renderDisplays('未连接代鱼预览');
+                showMessage(etaUnavailable, '#d29922'); return;
+            }
+            const timeout = setTimeout(() => controller.abort(), 8000);
+            try {
+                if (reloadList) {
+                    showMessage('正在读取代鱼副屏列表…', '#58a6ff');
+                    const response = await etaFetch('/eta-preview/displays', controller);
+                    if (!isCurrent(generation, 'eta')) return;
+                    const data = await response.json();
+                    if (!isCurrent(generation, 'eta')) return;
+                    if (!data || data.ok !== true || !Array.isArray(data.displays) ||
+                        data.displays.some(display => !display || !Number.isInteger(display.displayId) ||
+                            display.displayId <= 0 || display.displayId > 2147483647 ||
+                            typeof display.uniqueId !== 'string' || display.uniqueId.length === 0 ||
+                            typeof display.phase !== 'string') ||
+                        new Set(data.displays.map(display => display.displayId)).size !== data.displays.length)
+                        throw new Error('ETA_LIST_INVALID');
+                    const previous = etaSelected;
+                    etaDisplays = data.displays;
+                    etaSelected = previous ? etaDisplays.find(display => sameDisplay(display, previous)) || null
+                        : etaDisplays[0] || null;
+                    renderDisplays(etaDisplays.length ? '请选择副屏' : '暂无副屏');
+                    renderToggle();
+                    if (!etaDisplays.length) {
+                        showMessage('代鱼当前没有可预览的副屏（列表为空）', '#d29922'); return;
+                    }
+                    if (!etaSelected) {
+                        showMessage('原选副屏已关闭或身份已变化，请重新选择 Display', '#d29922'); return;
+                    }
+                }
+                if (etaSelected) await etaLoadFrame(etaSelected, generation, controller);
+                else showMessage('请选择代鱼副屏 Display', '#d29922');
+            } catch (error) {
+                if (isCurrent(generation, 'eta')) etaShowError(error);
+            } finally {
+                clearTimeout(timeout);
+                if (requestAbort === controller) requestAbort = null;
+                renderToggle();
+            }
+        }
+        function etaSelectDisplay() {
+            if (etaCloseBusy) { renderDisplays(); return; }
+            if (previewMode !== 'eta') return;
+            etaSelected = displayEl.value === '' ? null : etaDisplays[Number(displayEl.value)] || null;
+            renderToggle();
+            return etaRefresh(false);
+        }
+
+        async function etaClosePost(path, selected, controller, nonce = null) {
+            const headers = {
+                Authorization: 'Bearer ' + etaConfig.token,
+                'X-Eta-Control-Token': etaConfig.controlToken,
+                'X-Eta-Display-Id': String(selected.displayId),
+                'X-Eta-Display-Unique-Id': selected.uniqueId
+            };
+            if (nonce !== null) headers['X-Eta-Close-Nonce'] = nonce;
+            const response = await fetch('http://127.0.0.1:' + etaConfig.port + path, {
+                method: 'POST', mode: 'cors', headers, signal: controller.signal,
+                cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'
+            });
+            if (![200, 409, 503].includes(response.status) ||
+                (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'application/json')
+                throw new Error('CLOSE_RESPONSE_UNAVAILABLE');
+            const length = response.headers.get('Content-Length');
+            if (length !== null && (!/^[0-9]+$/.test(length) || +length > 8192)) throw new Error('CLOSE_RESPONSE_INVALID');
+            const data = await response.json();
+            if (!data || JSON.stringify(data).length > 8192 ||
+                !['prepared', 'blocked', 'closed_confirmed', 'closed_unconfirmed'].includes(data.outcome) ||
+                typeof data.reason !== 'string' || !/^[A-Z0-9_]{0,100}$/.test(data.reason))
+                throw new Error('CLOSE_RESPONSE_INVALID');
+            if ((data.outcome === 'prepared' || data.outcome === 'closed_confirmed') && response.status !== 200)
+                throw new Error('CLOSE_RESPONSE_INVALID');
+            return data;
+        }
+
+        async function etaManualClose() {
+            if (previewMode !== 'eta' || etaCloseBusy || !etaConfig || !etaConfig.controlToken || !etaSelected) return;
+            const selected = { ...etaSelected };
+            const identityKey = etaIdentityKey(selected);
+            if (etaUnconfirmed.has(identityKey)) return;
+            etaCloseBusy = true;
+            const { generation, controller } = beginRequest();
+            const started = Date.now();
+            const timeout = setTimeout(() => controller.abort(), 15000);
+            let dispatched = false;
+            renderDisplays(); renderToggle(); modeEl.disabled = true;
+            try {
+                showMessage('正在核验 Display ' + selected.displayId + ' 的身份与空屏状态…', '#58a6ff');
+                const prepared = await etaClosePost('/eta-preview/close/prepare', selected, controller);
+                if (!isCurrent(generation, 'eta') || !sameDisplay(selected, etaSelected) || controller.signal.aborted) return;
+                if (prepared.outcome === 'blocked') {
+                    showMessage('未关闭：' + (prepared.reason || '状态不允许关闭'), '#d29922'); return;
+                }
+                if (prepared.outcome !== 'prepared' || typeof prepared.nonce !== 'string' ||
+                    !/^[A-Za-z0-9_-]{1,128}$/.test(prepared.nonce) || !Number.isInteger(prepared.expiresInMs) ||
+                    prepared.expiresInMs <= 0 || prepared.expiresInMs > 30000) throw new Error('CLOSE_RESPONSE_INVALID');
+                const preparedAt = Date.now();
+                if (!window.confirm('确认关闭代鱼 Display ' + selected.displayId + '？系统将再次核验空屏，不会迁移任务或强杀进程。')) {
+                    showMessage('已取消关闭，副屏保持不变', '#8b949e'); return;
+                }
+                if (!isCurrent(generation, 'eta') || !sameDisplay(selected, etaSelected) || controller.signal.aborted ||
+                    Date.now() - started >= 15000 || Date.now() - preparedAt >= prepared.expiresInMs) {
+                    showMessage('关闭确认已过期，未发送关闭请求', '#d29922'); return;
+                }
+                dispatched = true;
+                etaUnconfirmed.add(identityKey); // Set before sending; cancellation cannot make retry safe.
+                const result = await etaClosePost('/eta-preview/close/commit', selected, controller, prepared.nonce);
+                if (!isCurrent(generation, 'eta') || !sameDisplay(selected, etaSelected)) return;
+                if (result.outcome === 'closed_confirmed') {
+                    etaUnconfirmed.delete(identityKey);
+                    etaDisplays = etaDisplays.filter(d => !sameDisplay(d, selected));
+                    etaSelected = null; clearFrame(); renderDisplays('副屏已关闭');
+                    showMessage('已确认 Display ' + selected.displayId + ' 和所属进程均已关闭' +
+                        (result.reason ? '；恢复记录清理未完成：' + result.reason : ''), '#7ee787');
+                } else if (result.outcome === 'blocked') {
+                    etaUnconfirmed.delete(identityKey);
+                    showMessage('未关闭：' + (result.reason || '状态不允许关闭'), '#d29922');
+                } else {
+                    showMessage('关闭结果未确认，已停止重试；请到代鱼查看恢复状态', '#f85149');
+                }
+            } catch (_) {
+                if (isCurrent(generation, 'eta')) showMessage(dispatched
+                    ? '关闭结果未确认，已停止重试；请到代鱼查看恢复状态'
+                    : '关闭核验失败，未发送关闭请求；请检查授权或重新打开入口', '#f85149');
+            } finally {
+                clearTimeout(timeout);
+                if (requestAbort === controller) requestAbort = null;
+                etaCloseBusy = false; modeEl.disabled = false;
+                renderDisplays(); renderToggle();
+            }
+        }
+
+        async function updateStatus(generation, controller) {
+            if (!isCurrent(generation, 'module')) return;
+            try {
+                const res = await fetch('/api/status', { signal: controller.signal, cache: 'no-store' });
+                if (!res.ok) throw new Error('STATUS_UNAVAILABLE');
+                const data = await res.json();
+                if (!isCurrent(generation, 'module')) return;
+                if (data.status === 'running') {
+                    const did = data.display_id !== undefined ? data.display_id : data.displayId;
+                    showMessage('模块副屏: 运行中 (Display ' + did + ')', '#7ee787');
+                    screenState = 'running';
+                } else if (data.status === 'stopped') {
+                    showMessage('模块副屏: 已休眠', '#f85149');
+                    clearFrame();
+                    tipEl.textContent = '副屏未启动';
+                    screenState = 'stopped';
+                } else throw new Error('STATUS_INVALID');
+            } catch (_) {
+                if (!isCurrent(generation, 'module')) return;
+                showMessage('无法连接服务', '#f85149');
+                screenState = 'unreachable';
+            }
+            renderToggle();
+            return screenState;
+        }
+        async function refreshSnapshot() {
+            if (etaCloseBusy) return;
+            if (previewMode === 'eta') return etaRefresh();
+            const { generation, controller } = beginRequest();
+            // /api/screenshot starts the legacy display on demand. Never call it
+            // for Eta or until the MODULE status has confirmed it is running.
+            if (await updateStatus(generation, controller) !== 'running' || !isCurrent(generation, 'module')) return;
+            showMessage('正在截取快照...', '#58a6ff');
+            const img = new Image();
+            moduleImage = img;
+            img.onload = () => {
+                if (!isCurrent(generation, 'module')) return;
+                imgEl.src = img.src;
+                imgEl.style.display = 'block';
+                tipEl.style.display = 'none';
+                updateStatus(generation, controller);
+            };
+            img.onerror = () => {
+                if (isCurrent(generation, 'module')) showMessage('获取快照失败', '#f85149');
+            };
+            img.src = '/api/screenshot?t=' + Date.now();
+        }
+
+        // start/stop remain module-only and synchronous on the server. Selecting
+        // Eta never sends its identity (or bearer) through any legacy command.
+        async function toggleScreen() {
+            if (previewMode === 'eta') return etaManualClose();
+            if (previewMode !== 'module' || toggling || screenState === 'unreachable') return;
+            toggling = true;
+            const { generation, controller } = beginRequest();
+            toggleEl.disabled = true;
+            const wasRunning = screenState === 'running';
+            toggleEl.textContent = wasRunning ? '正在关闭...' : '正在开启...';
+            try {
+                await fetch(wasRunning ? '/api/stop' : '/api/start', { method: 'POST', signal: controller.signal });
+            } catch (_) {}
+            toggling = false;
+            if (!isCurrent(generation, 'module')) return;
+            renderToggle();
+            await refreshSnapshot();
+        }
+
+        window.addEventListener('pagehide', () => {
+            cancelRequests();
+            if (previewMode === 'eta') showMessage('代鱼预览已暂停，请手动刷新');
+        });
+        renderMode();
+        refreshSnapshot();
+    </script>
+</body>
+</html>

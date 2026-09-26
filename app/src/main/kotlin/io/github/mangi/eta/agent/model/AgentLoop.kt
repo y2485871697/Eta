@@ -559,7 +559,7 @@ internal class AgentLoop(
         val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
         // 80% schedules ordinary automatic summaries, not recovery from a hard limit.
         // A soft no-op must not replace the real archive/summary failure on a later pause.
-        if (!manualBudgetAttempt && !hardPressure && reportedRequestTokens() < AgentContextCompactor.autoPressureTokens(window)) {
+        if (!manualBudgetAttempt && !hardPressure && decisionTokens < AgentContextCompactor.autoPressureTokens(window)) {
             return false
         }
         val compressConfig = budgetCompressModelConfig?.let { model ->

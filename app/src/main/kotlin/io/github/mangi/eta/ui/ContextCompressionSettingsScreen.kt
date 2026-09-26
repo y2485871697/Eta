@@ -113,7 +113,12 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text(stringResource(R.string.ui_auto_compress_context_title), style = MaterialTheme.typography.bodyLarge)
+                        // Material content in a Miuix Card needs an explicit themed foreground.
+                        Text(
+                            text = stringResource(R.string.ui_auto_compress_context_title),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
                         Text(
                             text = stringResource(R.string.ui_auto_compress_context_summary),
                             style = MaterialTheme.typography.bodySmall,
@@ -186,6 +191,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                             Text(
                                 text = stringResource(R.string.ui_compress_model_title),
                                 style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
                                 text = selectedCompressModel?.displayName
@@ -194,7 +200,11 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Icon(Icons.Rounded.ChevronRight, contentDescription = null)
+                        Icon(
+                            imageVector = Icons.Rounded.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

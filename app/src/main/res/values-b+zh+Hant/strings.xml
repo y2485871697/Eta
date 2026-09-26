@@ -1457,4 +1457,6 @@
   <string name="vd_preview_open">網頁即時預覽</string>
   <string name="vd_preview_stop">停止網頁預覽授權</string>
   <string name="vd_preview_note">唯讀本機畫面，使用暫時查看授權，需要配套新版 3070 網頁。網頁可見時持續重新整理，不會新建或控制副螢幕。</string>
+  <string name="vd_preview_control_open">網頁預覽與手動關閉</string>
+  <string name="system_notice_completed">已完成</string>
 </resources>

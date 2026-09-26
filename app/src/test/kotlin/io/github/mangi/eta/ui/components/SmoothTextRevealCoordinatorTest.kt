@@ -17,6 +17,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -65,10 +67,13 @@ class SmoothTextRevealCoordinatorTest {
         val laterKey = RevealBlockKey(100)
         val earlierNode = attach(coordinator, earlierKey, "早先的思考正文")
         attach(coordinator, laterKey, "随后到达的工具输出内容")
+        val earlierSnapshot = coordinator.drawSnapshot(earlierKey)!!
 
         coordinator.detach(earlierKey, earlierNode)
 
-        assertEquals(7f, coordinator.drawSnapshot(earlierKey)!!.progress, 0f)
+        assertNull(coordinator.drawSnapshot(earlierKey))
+        // The lightweight record survives even though its layout has been released.
+        assertEquals(7f, earlierSnapshot.progress, 0f)
         assertTrue(earlierKey in coordinator.started.value)
         assertFalse(coordinator.drained.value)
         val clock = TestFrameClock()
@@ -87,13 +92,89 @@ class SmoothTextRevealCoordinatorTest {
     }
 
     @Test
+    fun sameStateReattachRestoresReleasedLayoutWithoutAnotherLayoutCallback() {
+        val coordinator = SmoothTextRevealCoordinator()
+        val key = RevealBlockKey(0)
+        val text = "已有文字"
+        val state = SmoothTextRevealState(key, coordinator)
+        val node = SmoothTextRevealNode(state)
+        val textLayout = layout(text)
+        state.attach(node)
+        state.onTextLayout(text, textLayout)
+        val snapshot = coordinator.drawSnapshot(key)!!
+        val boundaries = snapshot.boundaries
+        assertEquals(0f, snapshot.progress, 0f)
+
+        state.detach(node)
+
+        assertNull(coordinator.drawSnapshot(key))
+        assertEquals(4f, snapshot.progress, 0f)
+        assertSame(boundaries, snapshot.boundaries)
+        assertTrue(coordinator.drained.value)
+        assertTrue(key in coordinator.started.value)
+
+        // Compose may reuse the state without issuing onTextLayout for unchanged text.
+        state.attach(node)
+
+        val reattached = coordinator.drawSnapshot(key)!!
+        assertSame(snapshot, reattached)
+        assertSame(textLayout, reattached.layoutResult)
+        assertSame(boundaries, reattached.boundaries)
+        assertEquals(4f, reattached.progress, 0f)
+        assertTrue(coordinator.drained.value)
+    }
+
+    @Test
+    fun recreatedStateWithSameTextAcceptsFreshLayoutWithoutReplaying() {
+        val coordinator = SmoothTextRevealCoordinator()
+        val key = RevealBlockKey(0)
+        val text = "已有文字"
+        val oldNode = attach(coordinator, key, text)
+        val boundaries = coordinator.drawSnapshot(key)!!.boundaries
+        coordinator.detach(key, oldNode)
+        assertNull(coordinator.drawSnapshot(key))
+
+        val state = SmoothTextRevealState(key, coordinator)
+        state.attach(SmoothTextRevealNode(state))
+        assertNull(coordinator.drawSnapshot(key))
+        val freshLayout = layout(text).copy()
+        state.onTextLayout(text, freshLayout)
+
+        val snapshot = coordinator.drawSnapshot(key)!!
+        assertSame(freshLayout, snapshot.layoutResult)
+        assertSame(boundaries, snapshot.boundaries)
+        assertEquals(4f, snapshot.progress, 0f)
+        assertTrue(coordinator.drained.value)
+    }
+
+    @Test
     fun reattachedBlockKeepsCompletedPrefixAndAnimatesOnlyNewText() {
         val coordinator = SmoothTextRevealCoordinator()
         val key = RevealBlockKey(0)
         val oldNode = attach(coordinator, key, "已有文字")
 
         coordinator.detach(key, oldNode)
+        assertNull(coordinator.drawSnapshot(key))
         assertTrue(coordinator.drained.value)
+        attach(coordinator, key, "已有文字和新增文字")
+
+        val snapshot = coordinator.drawSnapshot(key)!!
+        assertEquals(4f, snapshot.progress, 0f)
+        assertEquals(9, snapshot.boundaries.lastIndex)
+        assertFalse(coordinator.drained.value)
+    }
+
+    @Test
+    fun restoredBlockReattachDoesNotTreatAppendedTextAsFirstHistoricalLayout() {
+        val coordinator = SmoothTextRevealCoordinator()
+        coordinator.restoreHistoryThrough(100)
+        coordinator.resumeAnimationsAfterCatchUp()
+        val key = RevealBlockKey(20)
+        val oldNode = attach(coordinator, key, "已有文字")
+        assertEquals(4f, coordinator.drawSnapshot(key)!!.progress, 0f)
+
+        coordinator.detach(key, oldNode)
+        assertNull(coordinator.drawSnapshot(key))
         attach(coordinator, key, "已有文字和新增文字")
 
         val snapshot = coordinator.drawSnapshot(key)!!
@@ -124,12 +205,15 @@ class SmoothTextRevealCoordinatorTest {
         val key = RevealBlockKey(0)
         val oldNode = attach(coordinator, key, "原始内容")
         val replacementNode = attach(coordinator, key, "替换后的完整内容")
+        val replacementLayout = coordinator.drawSnapshot(key)!!.layoutResult
 
         coordinator.detach(key, oldNode)
 
+        assertSame(replacementLayout, coordinator.drawSnapshot(key)!!.layoutResult)
         assertEquals(0f, coordinator.drawSnapshot(key)!!.progress, 0f)
         assertFalse(coordinator.drained.value)
         coordinator.detach(key, replacementNode)
+        assertNull(coordinator.drawSnapshot(key))
         assertTrue(coordinator.drained.value)
     }
 

@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -34,8 +35,11 @@ internal fun ModelFeatureSettingsScreen(feature: ModelFeature, onBack: () -> Uni
     }
     MiuixScaffoldPage(title = title, onBack = onBack) {
         item {
-            Text(stringResource(if (vision) R.string.vision_feature_description else R.string.title_feature_description),
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
+            Text(
+                stringResource(if (vision) R.string.vision_feature_description else R.string.title_feature_description),
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                color = MaterialTheme.colorScheme.onBackground,
+            )
             Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                 SwitchPreference(
                     title = stringResource(R.string.model_feature_custom),
@@ -53,8 +57,11 @@ internal fun ModelFeatureSettingsScreen(feature: ModelFeature, onBack: () -> Uni
                         onClick = { picker = true },
                     )
                 } else {
-                    Text(stringResource(if (vision) R.string.vision_feature_off else R.string.title_feature_default),
-                        modifier = Modifier.padding(16.dp))
+                    Text(
+                        stringResource(if (vision) R.string.vision_feature_off else R.string.title_feature_default),
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
             }
         }
