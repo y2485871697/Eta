@@ -31,7 +31,7 @@ internal enum class AgentTaskSurfaceMode(val wire: String, val labelRes: Int) {
 /**
  * 前台保持直接在当前屏幕执行。
  * 后台，以及本阶段无法安全跨 run 询问的 ASK，都明确拒绝。
- * 设置入口在模块存在，或用户还存着后台/询问时可见，以便改回前台。
+ * 设置入口仅在后端模块已安装时可见；不改变已保存的执行模式。
  */
 internal object AgentTaskSurface {
     const val PREF_KEY = "agent_task_surface"
@@ -82,8 +82,8 @@ internal object AgentTaskSurface {
 
     fun settingsEntryVisible(): Boolean = settingsEntryVisible(moduleInstalled(), stored())
 
-    fun settingsEntryVisible(moduleInstalled: Boolean, stored: AgentTaskSurfaceMode): Boolean =
-        true
+    fun settingsEntryVisible(moduleInstalled: Boolean, @Suppress("UNUSED_PARAMETER") stored: AgentTaskSurfaceMode): Boolean =
+        moduleInstalled
 
     fun settingsSummaryRes(stored: AgentTaskSurfaceMode): Int = when (stored) {
         AgentTaskSurfaceMode.FOREGROUND -> stored.labelRes

@@ -24,6 +24,9 @@ sealed interface AppRoute : NavKey {
     data object AgentTaskPreference : AppRoute
 
     @Serializable
+    data object VirtualDisplayRecovery : AppRoute
+
+    @Serializable
     data object Haptics : AppRoute
 
     @Serializable
