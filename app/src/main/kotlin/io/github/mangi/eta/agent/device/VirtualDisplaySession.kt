@@ -28,6 +28,7 @@ internal object VirtualDisplaySession {
         var handoffSelection: Set<Int>? = null
         // Bounded history survives a held-session adoption; includes successful later attempts.
         val handoffAttempts = JSONArray()
+        var handoffDiagnostics: VirtualDisplayHandoffDiagnostics.Failure? = null
     }
     private val sessions = linkedMapOf<String, Session>()
     private var recoveryContext: Context? = null
@@ -70,7 +71,9 @@ internal object VirtualDisplaySession {
     private fun fail(s: Session, code: String, detail: String = ""): JSONObject {
         s.handoffBudget.stop()
         s.phase = "uncertain"
-        return reply(false, code, detail).withHandoffAttempts(s).also { s.receipt = it }
+        return VirtualDisplayHandoffDiagnostics.annotate(
+            reply(false, code, detail).withHandoffAttempts(s), s.handoffDiagnostics, uncertain = true,
+        ).also { s.receipt = it }
     }
     /**
      * finish 可能被重入。首次失败往往携带具体诊断（例如 owner 的 HANDOFF_PREFLIGHT_FAILED）；
@@ -80,9 +83,9 @@ internal object VirtualDisplaySession {
         s.handoffBudget.stop()
         val prior = s.receipt
         val priorCode = prior?.takeIf { !it.optBoolean("ok") }?.optString("error").orEmpty()
-        if (code in setOf("RECOVERY_UNCERTAIN", "OWNER_STATE_UNKNOWN") && priorCode.isNotBlank() && priorCode != "RECOVERY_UNCERTAIN") {
+        if (code in setOf("RECOVERY_UNCERTAIN", "OWNER_STATE_UNKNOWN") && priorCode.isNotBlank()) {
             s.phase = "uncertain"
-            return prior!!
+            return VirtualDisplayHandoffDiagnostics.preservedReceipt(prior!!)
         }
         return fail(s, code)
     }
@@ -102,6 +105,8 @@ internal object VirtualDisplaySession {
     }
 
     private fun recordHandoff(s: Session, response: OwnerResponse, completed: Boolean) {
+        val diagnostics = VirtualDisplayHandoffDiagnostics.sanitizeFailure(response.json)
+        s.handoffDiagnostics = diagnostics
         val rawSamples = response.json?.optJSONArray("focusSamples")
         val samples = JSONArray()
         if (rawSamples != null) for (i in 0 until minOf(rawSamples.length(), 4)) {
@@ -109,11 +114,11 @@ internal object VirtualDisplaySession {
             if (token.length <= 80 && token.matches(Regex("OK|Focus_[A-Z_]+"))) samples.put(token)
         }
         if (s.handoffAttempts.length() >= 6) s.handoffAttempts.remove(0)
-        s.handoffAttempts.put(JSONObject()
+        s.handoffAttempts.put(VirtualDisplayHandoffDiagnostics.annotate(JSONObject()
             .put("ok", completed)
-            .put("error", if (completed) "" else response.errorCode.ifBlank { "HANDOFF_UNCERTAIN" })
+            .put("error", if (completed) "" else VirtualDisplayHandoffDiagnostics.safeHandoffError(response.errorCode))
             .put("message", if (completed) "" else safeOwnerDetail(response))
-            .put("focusSamples", samples))
+            .put("focusSamples", samples), diagnostics))
     }
 
     private fun clearReleased(context: Context?, s: Session): JSONObject {
@@ -384,7 +389,9 @@ internal object VirtualDisplaySession {
             if (!recovered.optBoolean("ok")) return recovered
         }
         val s = sessions[runId] ?: return reply(false, "NO_VIRTUAL_SESSION")
-        if (s.phase == "finished") return s.receipt ?: reply(true).put("already_finished", true).put("released", true)
+        if (s.phase == "finished") return s.receipt?.let {
+            if (it.opt("ok") == false) VirtualDisplayHandoffDiagnostics.preservedReceipt(it) else it
+        } ?: reply(true).put("already_finished", true).put("released", true)
         // An ambiguous attempt must not reach either handoff OR release, even after adoption.
         if (s.handoffBudget.blocked || Thread.currentThread().isInterrupted)
             return failPreservingPrior(s, "RECOVERY_UNCERTAIN")
@@ -412,7 +419,8 @@ internal object VirtualDisplaySession {
             if (!s.handoffBudget.hasRemaining()) {
                 // Same round: still a FAILURE, never another handoff/release or a budget reset.
                 // The status above is fresh; cached diagnostics alone cannot keep this pending.
-                if (s.phase == "handoff_pending" && s.receipt?.opt("ok") == false) return s.receipt!!
+                if (s.phase == "handoff_pending" && s.receipt?.opt("ok") == false)
+                    return VirtualDisplayHandoffDiagnostics.preservedReceipt(s.receipt!!)
                 return failPreservingPrior(s, "RECOVERY_UNCERTAIN")
             }
             s.handoffState = before
@@ -453,9 +461,13 @@ internal object VirtualDisplaySession {
                     // ambiguity. Unknown/unauthenticated/post-anchor outcomes remain uncertain.
                     val failure = outcome.failure
                     s.phase = outcome.phase
-                    return (if (failure != null) reply(false, failure.code, failure.detail).withHandoffAttempts(s)
-                        else s.receipt ?: reply(false, "HANDOFF_UNCERTAIN"))
-                        .also { s.receipt = it }
+                    val receipt = if (failure != null) reply(false,
+                        VirtualDisplayHandoffDiagnostics.safeHandoffError(failure.code), failure.detail).withHandoffAttempts(s)
+                        else s.receipt?.let(VirtualDisplayHandoffDiagnostics::preservedReceipt)
+                            ?: reply(false, "HANDOFF_UNCERTAIN").withHandoffAttempts(s)
+                    return VirtualDisplayHandoffDiagnostics.annotate(
+                        receipt, s.handoffDiagnostics, uncertain = !outcome.cleanPreflight,
+                    ).also { s.receipt = it }
                 }
             }
         }
