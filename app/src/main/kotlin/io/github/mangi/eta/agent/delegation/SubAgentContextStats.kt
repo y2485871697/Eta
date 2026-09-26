@@ -82,7 +82,7 @@ internal class SubAgentContextTracker(initial: SubAgentContextStats) {
             is AgentEvent.UsageReceived -> {
                 if (!event.projected) billedRounds[event.round] = event.usage
                 val tokens = event.usage.occupancyTokens()
-                value.copy(contextTokens = tokens ?: value.contextTokens, projected = false,
+                value.copy(contextTokens = tokens, projected = false,
                     inputTokens = billedRounds.values.sumOf { (it.inputTokens ?: 0).toLong() },
                     outputTokens = billedRounds.values.sumOf { (it.outputTokens ?: 0).toLong() },
                     afterCompactionTokens = if (awaitingCompactedUsage) tokens else value.afterCompactionTokens)

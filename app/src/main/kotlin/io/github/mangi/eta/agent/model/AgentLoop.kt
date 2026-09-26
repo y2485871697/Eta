@@ -196,7 +196,7 @@ internal class AgentLoop(
                     onEvent = onEvent,
                     onProviderEvent = { attemptRound, providerEvent ->
                         if (providerEvent is ProviderEvent.Usage) {
-                            if (providerEvent.usage.occupancyTokens() != null) lastUsage = providerEvent.usage
+                            lastUsage = providerEvent.usage
                         }
                         continuationReasoning.visibleEvent(providerEvent)?.let { visibleEvent ->
                             if (visibleEvent is ProviderEvent.BlockDelta &&
@@ -485,7 +485,7 @@ internal class AgentLoop(
         // Storage pressure alone is not a server context measurement.
         val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
         if (!manualBudgetAttempt && !overflowPending &&
-            reportedRequestTokens() < AgentContextCompactor.autoPressureTokens(window)) return false
+            reportedRequestTokens() <= AgentCompressionBoundary.inputLimit(window, AgentCompressionBoundary.outputReserve(config))) return false
         val history = historyForCompaction()
         val cut = compactionStart(history)
         if (cut <= 0) return false

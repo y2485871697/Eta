@@ -86,7 +86,7 @@ internal object AgentContextCompactor {
         if (contextWindow <= 0) return false
         val cut = AgentCompressionBoundary.selectStart(history, contextWindow)
         if (cut <= 0 || cut >= history.size) return false
-        val estimated = estimatedTokens ?: history.sumOf { AgentContextBudget.countMessage(it) }
+        val estimated = estimatedTokens?.takeIf { it > 0 } ?: return false
         return estimated >= contextWindow.toLong() * thresholdPercent / 100
     }
 
@@ -105,7 +105,7 @@ internal object AgentContextCompactor {
     ): List<AgentModelClient.ConversationMessage>? {
         val historyStart = systemCount.coerceIn(0, messages.length())
         val history = (historyStart until messages.length()).map { AgentConversationCodec.fromJsonObject(messages.getJSONObject(it)) }
-        val estimated = estimatedTokens ?: AgentContextBudget.estimate(messages)
+        val estimated = estimatedTokens?.takeIf { it > 0 } ?: return null
         if (!shouldCompress(history, contextWindow, config.keepRecentMessages, estimatedTokens = estimated)) {
             return null
         }
