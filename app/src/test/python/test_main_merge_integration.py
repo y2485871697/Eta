@@ -32,7 +32,7 @@ class MainMergeIntegrationTest(unittest.TestCase):
         source = (ROOT / 'ui/app/AgentAppState.kt').read_text()
         self.assertNotIn('resetLiveUsageForRequest(', source)
         self.assertNotIn('runCloudUsage', source)
-        self.assertIn('AgentContextCompactionUi.pendingPruningUsage(current.livePromptTokens, current.messages)', source)
+        self.assertIn('AgentContextCompactionUi.pendingPruningUsage(current.livePromptTokens, current.messages, current.livePromptIsProjected)', source)
         update = source.split('private fun updateLivePromptTokens(', 1)[1][:650]
         self.assertIn('stoppingRuns.containsKey(runId)', update)
         self.assertIn('runId in invalidatedUsageRuns', update)

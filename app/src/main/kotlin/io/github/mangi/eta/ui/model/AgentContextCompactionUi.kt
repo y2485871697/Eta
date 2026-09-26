@@ -8,8 +8,9 @@ internal object AgentContextCompactionUi {
     /** Pruning may commit before a manual summary fails. Until a new bill or a successful
      * summary baseline arrives, keep the latest measured occupancy instead of falling back
      * to a historical compaction marker. This is the last bill, not a pruning estimate. */
-    internal fun pendingPruningUsage(livePromptTokens: Int?, messages: List<AgentChatMessageUi>): Int? =
-        livePromptTokens?.takeIf { it > 0 } ?: latestBilledContextTokens(messages)
+    internal fun pendingPruningUsage(livePromptTokens: Int?, messages: List<AgentChatMessageUi>,
+        livePromptIsProjected: Boolean = false): Int? =
+        livePromptTokens?.takeIf { !livePromptIsProjected && it > 0 } ?: latestBilledContextTokens(messages)
 
     fun applyMarker(
         messages: List<AgentChatMessageUi>,

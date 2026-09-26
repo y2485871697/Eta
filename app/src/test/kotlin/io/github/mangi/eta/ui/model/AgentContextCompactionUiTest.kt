@@ -23,6 +23,16 @@ class AgentContextCompactionUiTest {
     }
 
     @Test
+    fun pendingPruningNeverPromotesProjectedUsageToCloudBill() {
+        val messages = listOf<AgentChatMessageUi>(
+            AgentMessageUi(id = "billed", content = "done", usage = TokenUsageUi(inputTokens = 1000)),
+        )
+        assertEquals(1000, AgentContextCompactionUi.pendingPruningUsage(1500, messages, true))
+        assertEquals(null, AgentContextCompactionUi.pendingPruningUsage(1500, emptyList(), true))
+        assertEquals(1200, AgentContextCompactionUi.pendingPruningUsage(1200, messages, false))
+    }
+
+    @Test
     fun pendingPruningWithoutCloudBillRemainsUnknown() {
         val messages = listOf<AgentChatMessageUi>(
             ContextCompactedMessageUi("old", compactedCount = 10, summary = "old summary",

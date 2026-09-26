@@ -3902,7 +3902,7 @@ internal class AgentAppState(
             AgentContextCompactionUi.isPruningOnly(current.history, event.history, event.compressorLabel)) {
             updateConversation(conversationId, current.copy(
                 history = event.history,
-                livePromptTokens = AgentContextCompactionUi.pendingPruningUsage(current.livePromptTokens, current.messages),
+                livePromptTokens = AgentContextCompactionUi.pendingPruningUsage(current.livePromptTokens, current.messages, current.livePromptIsProjected),
                 livePromptIsProjected = false,
             ))
             // Retain the last cloud bill while the summary is pending; do not estimate usage.
