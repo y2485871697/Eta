@@ -28,7 +28,7 @@ internal class AgentModelRetry(
             controller.throwIfCancelled()
             onEvent(AgentEvent.RoundStarted(round, request.messages.length()))
             var toolDeliveryPossible = false
-            var callbackFailed = false
+            var callbackFailure: Exception? = null
             var sawCompleted = false
             var sawVisibleText = false
             try {
@@ -55,12 +55,13 @@ internal class AgentModelRetry(
                     try {
                         onProviderEvent(round, event)
                     } catch (failure: Exception) {
-                        callbackFailed = true
+                        callbackFailure = failure
                         throw failure
                     }
                 }
                 return Result(round, response)
             } catch (failure: Exception) {
+                callbackFailure?.let { throw it }
                 controller.throwIfCancelled()
                 // 还没吐出可见正文就被 steering/暂停打断：当作空助手回合，Loop 继续同一 run。
                 // 已有可见正文时必须由 Provider 带回部分内容，这里不能用空消息盖掉。
@@ -81,7 +82,7 @@ internal class AgentModelRetry(
                         ),
                     )
                 }
-                if (callbackFailed || Thread.currentThread().isInterrupted) throw failure
+                if (Thread.currentThread().isInterrupted) throw failure
                 val classified = AgentModelFailure.transport(failure) ?: throw failure
                 val reasonDetail = AgentHttpFailureDiagnostics.safe(classified.message.orEmpty(), listOf(request.config.apiKey), 600)
                 // Log the first failure, including terminal/non-retryable responses, before scheduling retries.
@@ -102,7 +103,7 @@ internal class AgentModelRetry(
                 ) {
                     throw classified
                 }
-                if (envelopeRejected && envelopeRetries >= ResponsesToolEnvelopeRecovery.MAX_RETRIES) {
+                if (envelopeRetries >= ResponsesToolEnvelopeRecovery.MAX_RETRIES) {
                     throw AgentModelFailure(
                         classified.code, false,
                         "工具封装 JSON 校验连续失败，已纠错重试 ${ResponsesToolEnvelopeRecovery.MAX_RETRIES} 次，停止自动重试；未执行被拒绝的工具调用。",
@@ -119,14 +120,14 @@ internal class AgentModelRetry(
                     )
                 }
                 if (envelopeRejected) {
-                    envelopeRetries += 1
                     // Always start from the original history: one hint, never accumulated
                     // rejected generations, fabricated tool results, or guessed JSON fixes.
                     attemptRequest = ResponsesToolEnvelopeRecovery.corrected(request)
                 }
+                if (envelopeRejected || envelopeRetries > 0) envelopeRetries += 1
                 retries += 1
                 val delayMs = BASE_DELAY_MS shl (retries - 1)
-                onEvent(AgentEvent.ModelRetryScheduled(round, retries, MAX_RETRIES, delayMs.toInt(), classified.code, reasonDetail))
+                onEvent(AgentEvent.ModelRetryScheduled(round, if (envelopeRetries > 0) envelopeRetries else retries, if (envelopeRetries > 0) ResponsesToolEnvelopeRecovery.MAX_RETRIES else MAX_RETRIES, delayMs.toInt(), classified.code, reasonDetail))
                 waitBeforeRetry(controller, delayMs)
                 controller.throwIfCancelled()
                 // 展示保留失败尝试，模型上下文与最终推理摘要只接纳成功尝试。

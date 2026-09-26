@@ -23,7 +23,7 @@ internal object ResponsesToolEnvelopeRecovery {
     fun matches(error: JSONObject?, status: Int? = null): Boolean {
         if (error == null || (status != null && status !in setOf(400, 422, 500))) return false
         val codes = listOf(
-            error.optString("code"), error.optString("type"),
+            error.optString("code"), error.optString("type").takeUnless { it == "error" }.orEmpty(),
             error.optJSONObject("metadata")?.optString("error_type").orEmpty(),
         )
         return codes.all { it in validationCodes } &&
@@ -31,34 +31,39 @@ internal object ResponsesToolEnvelopeRecovery {
     }
 
     const val CORRECTION =
-        "The previous generation was rejected by the client-tool transport JSON validator " +
-            "before any tool call was delivered. Generate a fresh tool call for the same request. " +
-            "The transport code must contain exactly one serialized JSON client-tool envelope: " +
-            "{\"name\":\"CATALOG_NAME\",\"arguments\":{...}}. Use an actual supported catalog name " +
-            "and an arguments object, not a JSON string. Do not emit OfficeJS, JavaScript, " +
-            "Markdown fences, multiple envelopes, or multiple calls. Correctly JSON-escape " +
-            "all quotes, backslashes, newlines, carriage returns, and tabs inside string values, " +
-            "including nested code strings. Do not execute, repair, or reuse the rejected JSON."
+        "The preceding generation failed the client-tool JSON validator. Generate one fresh " +
+            "tool call using the supplied tool catalog and its required serialization. " +
+            "Use only one call with short arguments. Do not emit OfficeJS, JavaScript wrappers, " +
+            "Markdown fences, or multiple envelopes. Escape string contents as valid JSON. " +
+            "Split long scripts into small file writes followed by a short execution command. " +
+            "Do not reconstruct or execute the rejected JSON."
 
     fun corrected(request: ProviderRequest): ProviderRequest {
         // Deep-copy only this attempt's history. Do not persist the hint or a rejected call.
         val messages = JSONArray(request.messages.toString())
+        if (OpenAiRequestMessages.responsesInstructions(messages).isBlank() && request.config.systemPrompt.isNotBlank()) {
+            messages.put(JSONObject().put("role", "system").put("content", request.config.systemPrompt))
+        }
         messages.put(JSONObject().put("role", "developer").put("content", CORRECTION))
         return request.copy(messages = messages)
     }
 
     /** One instance per HTTP request. Inspect raw frames before callbacks or parsing tools. */
-    class DeliveryGuard {
+    class DeliveryGuard(private val allowCorrection: Boolean = true) {
         var toolDeliveryPossible = false
             private set
 
         fun observe(event: JSONObject) {
-            inspectOutput(event)
-            event.optJSONObject("response")?.let(::inspectOutput)
+            inspectEnvelope(event)
             val type = event.optString("type")
             when (type) {
                 "response.output_item.added", "response.output_item.done" ->
                     inspectItem(event.optJSONObject("item"))
+                "response.output_text.delta", "response.output_text.done",
+                "response.refusal.delta", "response.refusal.done" -> {
+                    if (listOf("delta", "text", "refusal").any { event.optString(it).isNotEmpty() }) toolDeliveryPossible = true
+                }
+                "response.content_part.added", "response.content_part.done" -> inspectPart(event.optJSONObject("part"))
                 in nonToolEvents -> Unit
                 // Argument deltas/done without an item, custom/hosted tools, and unknown
                 // event types all fail closed, even when the normal parser ignores them.
@@ -76,9 +81,31 @@ internal object ResponsesToolEnvelopeRecovery {
             for (index in 0 until output.length()) inspectItem(output.optJSONObject(index))
         }
 
+        fun inspectEnvelope(envelope: JSONObject) {
+            inspectOutput(envelope)
+            if (envelope.has("response")) {
+                val response = envelope.optJSONObject("response")
+                if (response == null) toolDeliveryPossible = true else inspectOutput(response)
+            }
+        }
+
         private fun inspectItem(item: JSONObject?) {
-            if (item?.optString("type") !in setOf("message", "reasoning")) {
-                toolDeliveryPossible = true
+            when (item?.optString("type")) {
+                "reasoning" -> Unit
+                "message" -> {
+                    val parts = item.optJSONArray("content")
+                    if (parts == null) toolDeliveryPossible = true
+                    else for (i in 0 until parts.length()) inspectPart(parts.optJSONObject(i))
+                }
+                else -> toolDeliveryPossible = true
+            }
+        }
+
+        private fun inspectPart(part: JSONObject?) {
+            when (part?.optString("type")) {
+                "output_text" -> if (part.optString("text").isNotEmpty()) toolDeliveryPossible = true
+                "refusal" -> toolDeliveryPossible = true
+                else -> toolDeliveryPossible = true
             }
         }
 
@@ -96,7 +123,7 @@ internal object ResponsesToolEnvelopeRecovery {
                 message = classified.message.orEmpty(),
                 cause = classified,
                 diagnostic = classified.diagnostic,
-                envelopeCorrectionAllowed = correction && !toolDeliveryPossible,
+                envelopeCorrectionAllowed = correction && classified.envelopeCorrectionAllowed && allowCorrection && !toolDeliveryPossible,
             )
         }
     }
