@@ -1864,7 +1864,7 @@ internal class AgentAppState(
     private fun keepRecentFor(): Int = AgentContextCompactor.keepRecentFor()
 
     private fun billedPromptTokens(state: AgentChatHomeUiState): Int? =
-        state.livePromptTokens ?: latestBilledContextTokens(state.messages)
+        state.livePromptTokens
 
     private fun compressionContextWindow(fallback: Int? = null): Int? =
         modelPickerState.selectedModel?.contextWindow?.takeIf { it > 0 }
@@ -3737,7 +3737,7 @@ internal class AgentAppState(
             }
 
             is AgentEvent.UsageReceived -> {
-                if (event.projected && !isStaleUsageAfterCompact(runId, event.round)) updateLivePromptTokens(runId, event.usage.occupancyTokens())
+                // Projected events from older runtimes never change cloud occupancy.
                 if (!event.projected && !isStaleUsageAfterCompact(runId, event.round)) {
                     val occupancy = event.usage.occupancyTokens()
                     updateAssistantUsage(runId, event.round, event.usage.toUi())
@@ -3890,11 +3890,9 @@ internal class AgentAppState(
             AgentContextCompactionUi.isPruningOnly(current.history, event.history, event.compressorLabel)) {
             updateConversation(conversationId, current.copy(
                 history = event.history,
-                livePromptTokens = AgentContextCompactionUi.pendingPruningUsage(
-                    current.livePromptTokens, current.messages),
+                livePromptTokens = null,
             ))
-            // Summary is still pending. Retain the last measured usage even if it fails;
-            // only successful summary application or a new provider bill replaces it.
+            // Pruning committed a different context; wait for a new provider measurement.
             persistConversations()
             return
         }
@@ -4121,13 +4119,13 @@ internal class AgentAppState(
     }
 
     private fun updateLivePromptTokens(runId: String, tokens: Int?) {
-        if (tokens == null || tokens <= 0) return
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return
-        if (state.livePromptTokens == tokens) return
+        val measured = tokens?.takeIf { it > 0 }
+        if (state.livePromptTokens == measured) return
         updateConversation(
             conversationId,
-            state.copy(livePromptTokens = tokens),
+            state.copy(livePromptTokens = measured),
             updateTimestamp = false,
         )
     }
