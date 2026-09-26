@@ -85,7 +85,7 @@ internal class VirtualDisplayPreviewHttpServer(
             val decision = authorize(request, port, token, controlToken)
             val origin = request.headers["origin"]?.takeIf { it in ALLOWED_ORIGINS }
             if (decision != 200) {
-                write(socket, decision, "application/json", errorJson(protocolError(decision)), origin)
+                write(socket, decision, "application/json", errorJson(protocolError(decision)), origin, closeRoute = request.path.takeIf(::isClosePath))
                 return
             }
             // Authentication precedes identity parsing and all owner access.
@@ -123,7 +123,7 @@ internal class VirtualDisplayPreviewHttpServer(
                         result.outcome == "blocked" -> 409
                         else -> 503
                     }
-                    write(socket, status, "application/json", resultJson(result), origin)
+                    write(socket, status, "application/json", resultJson(result), origin, closeRoute = route)
                     return
                 }
                 if (route == DISPLAYS_PATH) {
@@ -178,14 +178,19 @@ internal class VirtualDisplayPreviewHttpServer(
         write(socket, status, "application/json", errorJson(code), origin)
     }
 
-    private fun write(socket: Socket, status: Int, type: String, body: ByteArray, origin: String?, extra: String = "") {
+    private fun write(socket: Socket, status: Int, type: String, body: ByteArray, origin: String?, extra: String = "", closeRoute: String? = null) {
         val payload = if (status == 204) byteArrayOf() else body
         val reason = when (status) { 200 -> "OK"; 204 -> "No Content"; 400 -> "Bad Request"; 401 -> "Unauthorized"
             403 -> "Forbidden"; 404 -> "Not Found"; 405 -> "Method Not Allowed"; 409 -> "Conflict"; 410 -> "Gone"
             429 -> "Too Many Requests"; else -> "Service Unavailable" }
+        val close = closeRoute != null && controlToken != null
+        val methods = if (close) "POST, OPTIONS" else "GET, OPTIONS"
+        val allowedHeaders = "Authorization, X-Eta-Display-Id, X-Eta-Display-Unique-Id" +
+            (if (close) ", X-Eta-Control-Token" else "") +
+            (if (close && closeRoute == CLOSE_COMMIT_PATH) ", X-Eta-Close-Nonce" else "")
         val cors = if (origin == null) "" else
-            "Access-Control-Allow-Origin: $origin\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n" +
-            "Access-Control-Allow-Headers: Authorization, X-Eta-Control-Token, X-Eta-Display-Id, X-Eta-Display-Unique-Id, X-Eta-Close-Nonce\r\nAccess-Control-Max-Age: 60\r\n" +
+            "Access-Control-Allow-Origin: $origin\r\nAccess-Control-Allow-Methods: $methods\r\n" +
+            "Access-Control-Allow-Headers: $allowedHeaders\r\nAccess-Control-Max-Age: 60\r\n" +
             "Access-Control-Expose-Headers: X-Eta-Display-Id, X-Eta-Display-Unique-Id, X-Eta-Phase\r\n"
         val header = "HTTP/1.1 $status $reason\r\nContent-Type: $type\r\nContent-Length: ${payload.size}\r\n" +
             "Connection: close\r\nCache-Control: no-store, max-age=0\r\nPragma: no-cache\r\n" +
