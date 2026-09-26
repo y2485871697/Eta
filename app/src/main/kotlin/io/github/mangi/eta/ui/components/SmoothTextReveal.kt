@@ -131,6 +131,7 @@ internal class SmoothTextRevealCoordinator {
         record.node = null
         // 已离开组合的块不再消费帧时钟；保留完成进度，重挂载时只显现后续新增文本。
         completeRecord(record)
+        // The cached coordinator needs progress, not the detached paragraph's layout graph.
         record.layoutResult = null
         updateDrainedState()
         wakeups.trySend(Unit)
@@ -200,7 +201,8 @@ internal class SmoothTextRevealCoordinator {
         layoutResult: TextLayoutResult,
     ) {
         if (record.text == text && record.layoutResult === layoutResult) return
-        val firstLayoutOfRestoredBlock = record.layoutResult == null && record.key.sourceOffset < restoredSourceLength
+        // Detach releases the layout, but must not make a restored block "new" again.
+        val firstLayoutOfRestoredBlock = !record.hasReceivedLayout && record.key.sourceOffset < restoredSourceLength
         if (text != record.text) {
             // 流式文本只追加不修改，但行内语法闭合（**粗体**、`code`、链接折叠等）会让
             // 渲染文本丢掉标记字符而变短或错位。此时进度只能保持单调前进：一旦回退，
@@ -217,6 +219,7 @@ internal class SmoothTextRevealCoordinator {
         if (record.layoutResult !== layoutResult) {
             record.layoutResult = layoutResult
         }
+        record.hasReceivedLayout = true
         if (animationsPaused || record.node == null || firstLayoutOfRestoredBlock) completeRecord(record)
         updateDrainedState()
         record.node?.onRevealDataChanged()
@@ -479,6 +482,7 @@ internal class RevealRecord(
     var node: SmoothTextRevealNode? = null
     var text: String = ""
     var layoutResult: TextLayoutResult? = null
+    var hasReceivedLayout = false
     var boundaries: IntArray = intArrayOf(0)
     var progress: Float = 0f
     var targetCount: Float = 0f
