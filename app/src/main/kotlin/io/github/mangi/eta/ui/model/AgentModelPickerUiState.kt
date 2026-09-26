@@ -147,12 +147,13 @@ internal fun latestContextUsage(
  */
 internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int? {
     val compactIndex = messages.indexOfLast { it is ContextCompactedMessageUi }
-    val billedIndex = messages.indexOfLast { it is AgentMessageUi }
-    if (billedIndex <= compactIndex) return null
-    val message = messages[billedIndex] as AgentMessageUi
-    // Round numbers restart each run; only the run event reducer may filter stale rounds.
-    // Do not skip a missing/output-only bill and resurrect an older prompt.
-    return windowTokensFromUsage(message.usage)
+    // The latest assistant row may be a completed text row without a usage payload;
+    // walk backward to the latest assistant row that actually carries measured input.
+    for (index in messages.lastIndex downTo (compactIndex + 1)) {
+        val message = messages[index] as? AgentMessageUi ?: continue
+        windowTokensFromUsage(message.usage)?.let { return it }
+    }
+    return null
 }
 
 internal fun countUnbilledTail(

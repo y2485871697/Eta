@@ -1055,7 +1055,7 @@ internal class AgentAppState(
         val nextEffort = ConversationReasoningPolicy.resolve(requestedEffort, config.reasoningCapabilities)
         updateCurrentConversation(homeState.copy(providerId = provider.id, modelId = model.id,
             reasoningEffort = nextEffort, thinkingEnabled = nextEffort.enablesReasoning,
-            livePromptTokens = null))
+            livePromptTokens = null, livePromptIsProjected = false))
         billedOverheadTokens = null
         refreshBoundModelPicker()
         if (nextEffort != requestedEffort) Toast.makeText(appContext,
@@ -1695,6 +1695,7 @@ internal class AgentAppState(
             appliedRuntimeRunIds = emptyList(),
             messageEdit = null,
             livePromptTokens = null,
+                livePromptIsProjected = false,
         )
         val sourceTitle = conversationTitles[sourceId].orEmpty().ifBlank {
             appContext.getString(R.string.conversation_unnamed)
@@ -2073,6 +2074,7 @@ internal class AgentAppState(
                 isStreaming = true,
                 isPaused = false,
                 livePromptTokens = if (history == state.history) state.livePromptTokens else null,
+                livePromptIsProjected = if (history == state.history) state.livePromptIsProjected else false,
                 isCompressingContext = willCompress,
                 history = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(history) + taggedUserHistoryMessage,
                 messages = runMessages,
@@ -2528,6 +2530,7 @@ internal class AgentAppState(
                 isWaitingForCompression = false,
                 history = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(compressedHistory) + userHistoryMessage,
                 livePromptTokens = null,
+                livePromptIsProjected = false,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = current.messages,
                     originalHistory = originalHistory,
@@ -3741,10 +3744,15 @@ internal class AgentAppState(
             }
 
             is AgentEvent.UsageReceived -> {
-                if (!event.projected && !isStaleUsageAfterCompact(runId, event.round)) {
+                if (event.projected) {
+                    if (!isStaleUsageAfterCompact(runId, event.round)) {
+                        val occupancy = io.github.mangi.eta.ui.model.windowTokensFromUsage(event.usage.toUi())
+                        updateLivePromptTokens(runId, occupancy, projected = true)
+                    }
+                } else if (!isStaleUsageAfterCompact(runId, event.round)) {
                     val occupancy = io.github.mangi.eta.ui.model.windowTokensFromUsage(event.usage.toUi())
                     updateAssistantUsage(runId, event.round, event.usage.toUi())
-                    updateLivePromptTokens(runId, occupancy)
+                    updateLivePromptTokens(runId, occupancy, projected = false)
                 }
             }
 
@@ -3895,6 +3903,7 @@ internal class AgentAppState(
             updateConversation(conversationId, current.copy(
                 history = event.history,
                 livePromptTokens = AgentContextCompactionUi.pendingPruningUsage(current.livePromptTokens, current.messages),
+                livePromptIsProjected = false,
             ))
             // Retain the last cloud bill while the summary is pending; do not estimate usage.
             persistConversations()
@@ -3907,6 +3916,7 @@ internal class AgentAppState(
                 isWaitingForCompression = false,
                 history = event.history,
                 livePromptTokens = null,
+                livePromptIsProjected = false,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = current.messages,
                     originalHistory = current.history,
@@ -3995,6 +4005,7 @@ internal class AgentAppState(
                     isWaitingForCompression = false,
                     history = compressed,
                     livePromptTokens = null,
+                livePromptIsProjected = false,
                     messages = AgentContextCompactionUi.applyMarker(
                         messages = latest.messages,
                         originalHistory = originalHistory,
@@ -4129,17 +4140,17 @@ internal class AgentAppState(
         }
     }
 
-    private fun updateLivePromptTokens(runId: String, tokens: Int?) {
+    private fun updateLivePromptTokens(runId: String, tokens: Int?, projected: Boolean = false) {
         if (stoppingRuns.containsKey(runId)) return
         if (tokens == null || tokens <= 0 || runId in invalidatedUsageRuns) return
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return
         val owner = runUsageOwners.getOrPut(runId) { state.providerId to state.modelId }
         if (owner != (state.providerId to state.modelId)) return
-        if (state.livePromptTokens == tokens) return
+        if (state.livePromptTokens == tokens && state.livePromptIsProjected == projected) return
         updateConversation(
             conversationId,
-            state.copy(livePromptTokens = tokens),
+            state.copy(livePromptTokens = tokens, livePromptIsProjected = projected),
             updateTimestamp = false,
         )
     }
@@ -4328,7 +4339,7 @@ internal class AgentAppState(
         val modelChanged = previous != null &&
             (previous.providerId != state.providerId || previous.modelId != state.modelId)
         if (modelChanged) runConversationIds.filterValues { it == conversationId }.keys.forEach { invalidatedUsageRuns.add(it) }
-        val current = if (modelChanged) state.copy(livePromptTokens = null) else state
+        val current = if (modelChanged) state.copy(livePromptTokens = null, livePromptIsProjected = false) else state
         conversationsById = conversationsById + (conversationId to current)
         if (updateTimestamp) {
             conversationUpdatedAt = conversationUpdatedAt + (conversationId to System.currentTimeMillis())
@@ -4997,6 +5008,7 @@ internal class AgentAppState(
                 current.copy(
                     history = compressedHistory,
                     livePromptTokens = null,
+                livePromptIsProjected = false,
                     messages = AgentContextCompactionUi.applyMarker(
                         messages = current.messages,
                         originalHistory = originalHistory,
@@ -5014,6 +5026,7 @@ internal class AgentAppState(
             homeState = homeState.copy(
                 history = compressedHistory,
                 livePromptTokens = null,
+                livePromptIsProjected = false,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = homeState.messages,
                     originalHistory = originalHistory,

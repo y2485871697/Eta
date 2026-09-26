@@ -16,14 +16,17 @@ class AgentRequestBudgetPolicyTest {
         val policy = AgentRequestBudgetPolicy()
         var estimates = 0
         val estimate = { estimates++; 12000 }
+        assertTrue(policy.consumeLocalBoundary())
         assertEquals(12000, policy.tokens(null, estimate))
         policy.requestStarted()
+        assertFalse(policy.consumeLocalBoundary())
         assertEquals(8000, policy.tokens(8000, estimate))
         assertEquals(0, policy.tokens(null, estimate))
         policy.requestStarted() // Tool loop, retry, and steering are not compactions.
         assertEquals(0, policy.tokens(null, estimate))
         assertEquals(1, estimates)
         policy.contextReplaced()
+        assertTrue(policy.consumeLocalBoundary())
         assertEquals(12000, policy.tokens(null, estimate))
         policy.requestStarted()
         assertEquals(2000, policy.tokens(2000, estimate))

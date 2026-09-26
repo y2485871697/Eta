@@ -1212,12 +1212,12 @@ class AgentModelClientLoopTest {
             compactPolicy = AgentLoop.CompactPolicy.Disabled,
         ).run()
 
-        val usageEvents = events.filterIsInstance<AgentEvent.UsageReceived>()
+        val usageEvents = events.filterIsInstance<AgentEvent.UsageReceived>().filterNot { it.projected }
         assertEquals(2, provider.requests.size)
         assertEquals(2, usageEvents.size)
-        assertTrue(usageEvents.none { it.projected })
         assertEquals(listOf(1, 2), usageEvents.map { it.round })
         assertEquals(listOf(135_880, 137_865), usageEvents.map { it.usage.inputTokens })
+        assertEquals(2, events.filterIsInstance<AgentEvent.UsageReceived>().count { it.projected })
         assertEquals(1, events.filterIsInstance<AgentEvent.ToolFinished>().size)
     }
 

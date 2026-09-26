@@ -184,8 +184,16 @@ internal class AgentLoop(
             continuationBlocks.beginRequest(continuingInterruptedRequest && !supplementStartsNewBlock)
             supplementStartsNewBlock = false
             continuingInterruptedRequest = false
+            val publishLocalEstimate = requestBudget.consumeLocalBoundary()
+            val localEstimate = if (publishLocalEstimate) {
+                (AgentContextBudget.estimate(messages) + AgentContextBudget.countTokens(currentRoundTools.toString()))
+                    .takeIf { it > 0 }
+            } else null
             requestBudget.requestStarted()
             lastUsage = null // A new request must not inherit missing fields from the preceding bill.
+            localEstimate?.let { estimate ->
+                onEvent(AgentEvent.UsageReceived(round, AgentTokenUsage(inputTokens = estimate), projected = true))
+            }
             val completedRound = try {
                 modelRetry.complete(
                     initialRound = round,

@@ -4,6 +4,8 @@ package io.github.mangi.eta.agent.model
 internal class AgentRequestBudgetPolicy {
     private var localBoundary = true
 
+    fun consumeLocalBoundary(): Boolean = localBoundary
+
     fun requestStarted() { localBoundary = false }
     fun contextReplaced() { localBoundary = true }
 

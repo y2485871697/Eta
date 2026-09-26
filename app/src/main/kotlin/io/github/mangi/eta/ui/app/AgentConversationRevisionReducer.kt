@@ -65,6 +65,7 @@ internal object AgentConversationRevisionReducer {
             livePromptTokens = null,
             messageEdit = null,
             livePromptTokens = null,
+            livePromptIsProjected = false,
         )
     }
 

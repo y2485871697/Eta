@@ -391,6 +391,15 @@ class AgentModelPickerProjectorTest {
     }
 
     @Test
+    fun latestContextUsageSkipsNewestAssistantWithoutUsage() {
+        val messages = listOf<AgentChatMessageUi>(
+            AgentMessageUi("billed", "older", isStreaming = false, usage = TokenUsageUi(inputTokens = 126364)),
+            AgentMessageUi("newest", "new", isStreaming = false),
+        )
+        assertEquals(126364, latestBilledContextTokens(messages))
+    }
+
+    @Test
     fun emptyDraftWithoutLimitHasNoInventedPercentage() {
         assertNull(contextUsageProgress(0, null))
         assertNull(contextUsageProgress(null, null))
