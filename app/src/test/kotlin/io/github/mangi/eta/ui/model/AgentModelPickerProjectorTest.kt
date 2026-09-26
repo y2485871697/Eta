@@ -394,12 +394,12 @@ class AgentModelPickerProjectorTest {
     fun emptyDraftWithoutLimitHasNoInventedPercentage() {
         assertNull(contextUsageProgress(0, null))
         assertNull(contextUsageProgress(null, null))
-        assertNull(contextUsageProgress(0, 8000))
+        assertEquals(0f, contextUsageProgress(0, 8000) ?: -1f, 0f)
         val summary = formatContextUsage(
             AgentContextUsageUi(contextTokens = 0, contextWindow = null),
             noLimitText = "Unknown limit",
         )
-        assertEquals("0K / 100K tokens · 0.0%", summary)
+        assertEquals("0K tokens\nUnknown limit", summary)
         assertFalse(summary.contains("%"))
     }
 

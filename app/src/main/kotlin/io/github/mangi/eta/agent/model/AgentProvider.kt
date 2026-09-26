@@ -38,6 +38,8 @@ internal data class ProviderRequest(
     val tools: JSONArray,
     val sessionId: String = java.util.UUID.randomUUID().toString(),
     val usageConversationId: String = sessionId,
+    // Request-scoped compatibility after a confirmed pre-delivery envelope rejection.
+    val singleToolCall: Boolean = false,
 )
 
 internal data class ProviderResponse(

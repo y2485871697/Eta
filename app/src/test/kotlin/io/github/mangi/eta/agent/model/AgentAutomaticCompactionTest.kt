@@ -51,11 +51,10 @@ class AgentAutomaticCompactionTest {
             assertEquals(if (corrected) 0 else 1, summaries)
             assertEquals(1, provider.requests.size)
             assertFalse(events.filterIsInstance<AgentEvent.UsageReceived>().any { it.projected })
-            assertEquals(AUTO_PRESSURE, events.filterIsInstance<AgentEvent.UsageReceived>().first { it.usage.outputTokens == 20 }.usage.inputTokens)
         }
     }
 
-    @Test fun initialBudgetMayCompactWithoutPublishingSyntheticUsage() {
+    @Test fun missingBilledUsageNeverTriggersAutomaticCompaction() {
         // The local history is already above 80%, yet with no billed usage there is no decision.
         val messages = largeHistory()
         assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
@@ -66,13 +65,13 @@ class AgentAutomaticCompactionTest {
             compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
 
         assertEquals(1, provider.requests.size)
-        assertEquals(1, summaries)
+        assertEquals(0, summaries)
         assertTrue(events.none { it is AgentEvent.UsageReceived })
-        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
-        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompacted>().count { it.applied })
+        assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
+        assertTrue(events.none { it is AgentEvent.ContextCompacted })
     }
 
-    @Test fun initialEstimateDoesNotOverrideLaterBelowThresholdCloudUsage() {
+    @Test fun billedUsageBelowEightyPercentNeverCompactsEvenWithLargeLocalHistory() {
         val messages = largeHistory()
         assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
         val events = mutableListOf<AgentEvent>()
@@ -82,8 +81,8 @@ class AgentAutomaticCompactionTest {
             compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
 
         assertEquals(1, provider.requests.size)
-        assertEquals(1, summaries)
-        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
+        assertEquals(0, summaries)
+        assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
         assertEquals(AUTO_PRESSURE - 1,
             requireNotNull(events.filterIsInstance<AgentEvent.UsageReceived>().single().usage.inputTokens))
     }

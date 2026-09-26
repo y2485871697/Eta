@@ -34,7 +34,8 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
         require(config.openAiEndpointMode == OpenAiEndpointMode.RESPONSES) {
             "当前 Provider 未配置为 Responses API"
         }
-        val body = buildRequestJson(config, request.messages, request.tools, request.sessionId)
+        val prepared = ResponsesToolEnvelopeRecovery.prepare(request)
+        val body = buildRequestJson(config, prepared.messages, prepared.tools, prepared.sessionId, prepared.singleToolCall)
             .toString()
             .toRequestBody(JSON_MEDIA_TYPE)
         val headers = okhttp3.Headers.Builder()
@@ -50,21 +51,36 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
             .headers(headers)
             .post(body)
             .build()
+        val deliveryGuard = ResponsesToolEnvelopeRecovery.DeliveryGuard(!config.hostedWebSearchEnabled)
+        var callbackFailure: Throwable? = null
+        val deliver: (ProviderEvent) -> Unit = { event ->
+            try { onEvent(event) } catch (failure: Throwable) {
+                callbackFailure = failure
+                throw failure
+            }
+        }
         try {
             runController.throwIfCancelled()
-            onEvent(ProviderEvent.RequestStarted)
+            deliver(ProviderEvent.RequestStarted)
             val assistant = readStreamingResponse(
                 request = httpRequest,
                 runController = runController,
-                onEvent = onEvent,
+                onEvent = deliver,
+                deliveryGuard = deliveryGuard,
             )
+            callbackFailure?.let { throw it }
             ResponsesReasoningState.capture(assistant, config)
-            onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
+            deliver(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
             return ProviderResponse(assistant)
         } catch (throwable: Throwable) {
+            callbackFailure?.let { throw it }
             runCatching { runController.throwIfCancelled() }
                 .getOrElse { interruption -> throw interruption }
-            throw throwable
+            val failure = deliveryGuard.protect(throwable)
+            if (failure is AgentModelFailure && failure.envelopeCorrectionAllowed) {
+                ResponsesToolEnvelopeRecovery.rememberRestriction(request)
+            }
+            throw failure
         }
     }
 
@@ -73,12 +89,14 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
         messages: JSONArray,
         tools: JSONArray,
         sessionId: String = "",
-    ): JSONObject = ResponsesRequestBuilder.build(config, messages, tools, sessionId)
+        singleToolCall: Boolean = false,
+    ): JSONObject = ResponsesRequestBuilder.build(config, messages, tools, sessionId, singleToolCall)
 
     private fun readStreamingResponse(
         request: Request,
         runController: AgentRunController,
         onEvent: (ProviderEvent) -> Unit,
+        deliveryGuard: ResponsesToolEnvelopeRecovery.DeliveryGuard,
     ): JSONObject {
         val streamedText = StringBuilder()
         val streamedReasoning = StringBuilder()
@@ -199,6 +217,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
                 if (payload.isBlank() || payload == "[DONE]") return
                 sawEvent = true
                 val event = JSONObject(payload)
+                deliveryGuard.observe(event)
                 reportUsage(event.optJSONObject("response")?.optJSONObject("usage"))
                 throwEventError(event)
                 when (val type = event.optString("type")) {
@@ -348,6 +367,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
             request = request,
             runController = runController,
             onOpen = { code -> onEvent(ProviderEvent.ResponseHeaders(code)) },
+            inspectHttpErrorBody = { body -> deliveryGuard.inspectHttpBody(body) },
             onEvent = sseEvent@{ _, _, data ->
                 val payload = data.trim()
                 if (payload.isBlank()) return@sseEvent
@@ -391,8 +411,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
 
         fun reconcileFinalPart(part: FinalContentPart) {
             val identityMatches = contentBlocks.filter { block ->
-                block.kind == part.kind && block.identity.matches(part.identity)
-            }
+                block.kind == part.kind && block.identity.matches(part.identity) }
             // Some Responses gateways rewrite message IDs or output indexes in the terminal
             // snapshot. A sole streamed text and sole terminal text with the same prefix are
             // one logical part. Reconcile on its original index so the UI cannot append it twice.

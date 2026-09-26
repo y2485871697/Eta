@@ -441,7 +441,7 @@ internal class AgentLoop(
         // Soft scheduling uses request tokens only. Hard input/storage limits and
         // confirmed provider overflow are handled separately by tryBudgetCompaction.
         if (!forced && storedHistoryChars() > persistenceCharLimit()) return
-        var decisionTokens = requestBudgetTokens()
+        var decisionTokens = reportedRequestTokens()
         if (!forced && decisionTokens < AgentContextCompactor.autoPressureTokens(window)) return
         budgetCompressModelConfig = override?.compressModelConfig
             ?: if (pressureRetry) budgetCompressModelConfig else compactPolicy.compressModelConfig
@@ -461,7 +461,7 @@ internal class AgentLoop(
             // Both the DTO and same-model JSON replay must come from this new snapshot.
             history = historyForCompaction()
             cut = compactionStart(history)
-            decisionTokens = requestBudgetTokens()
+            decisionTokens = reportedRequestTokens()
             if (!forced && decisionTokens < AgentContextCompactor.autoPressureTokens(window)) return
         }
         if (forced && cut <= 0) {
@@ -474,7 +474,7 @@ internal class AgentLoop(
             skipIneffectiveAutoCompact = false
             // Re-evaluate the whole request, not a desired summary length. At most
             // one additional pressure pass, and only after measurable progress.
-            if (reduced && !pressureRetry && requestBudgetTokens() >= AgentContextCompactor.autoPressureTokens(window)) {
+            if (reduced && !pressureRetry && reportedRequestTokens() >= AgentContextCompactor.autoPressureTokens(window)) {
                 maybeCompactBeforeRound(round, pressureRetry = true)
             }
         } else if (!forced) {

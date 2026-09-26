@@ -27,6 +27,7 @@ internal object AgentSseClient {
         onOpen: (Int) -> Unit = {},
         onEvent: SseStream.(id: String?, type: String?, data: String) -> Unit,
         shouldIgnoreFailure: () -> Boolean = { false },
+        inspectHttpErrorBody: (String) -> Unit = {},
     ) {
         runController.throwIfCancelled()
         val timingId = java.util.UUID.randomUUID().toString().take(8)
@@ -55,9 +56,11 @@ internal object AgentSseClient {
             }.flatMap { name -> request.headers.values(name) }.flatMap { value ->
                 listOf(value, value.removePrefix("Bearer ").removePrefix("bearer "))
             }
+            val body = runCatching { response.peekBody(64L * 1024).string() }.getOrDefault("")
+            inspectHttpErrorBody(body)
             return AgentModelFailure.http(
                 status = response.code,
-                body = runCatching { response.peekBody(64L * 1024).string() }.getOrDefault(""),
+                body = body,
                 headers = response.headers,
                 secrets = secrets,
             )
@@ -185,8 +188,11 @@ internal object AgentSseClient {
             runController.throwIfCancelled()
             done.await()
             runController.throwIfCancelled()
-            if (!runController.hasPendingSteering && !runController.hasPausedInterrupt) {
-                failure.get()?.let { throw it }
+            val recordedFailure = failure.get()
+            // A received provider rejection is not a benign socket cancellation.
+            if (recordedFailure is AgentModelFailure ||
+                (!runController.hasPendingSteering && !runController.hasPausedInterrupt)) {
+                recordedFailure?.let { throw it }
             }
         } finally {
             completed.set(true)

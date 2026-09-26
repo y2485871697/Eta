@@ -11,6 +11,7 @@ internal object ResponsesRequestBuilder {
         messages: JSONArray,
         tools: JSONArray,
         sessionId: String = "",
+        singleToolCall: Boolean = false,
     ): JSONObject {
         val input = buildInput(messages, config)
         val responseTools = buildTools(tools, config.hostedWebSearchEnabled)
@@ -57,10 +58,12 @@ internal object ResponsesRequestBuilder {
             if (sessionId.isNotBlank()) {
                 request.put("prompt_cache_key", sessionId)
             }
-            if (responseTools.length() > 0) {
+            if (responseTools.length() > 0 && !request.has("parallel_tool_calls")) {
                 request.put("parallel_tool_calls", true)
             }
         }
+        // Apply after custom-body and Codex defaults: a correction must never request parallel calls.
+        if (singleToolCall && responseTools.length() > 0) request.put("parallel_tool_calls", false)
         return request
     }
 
