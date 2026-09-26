@@ -6,13 +6,15 @@ import java.io.InterruptedIOException
 import java.net.ProtocolException
 import javax.net.ssl.SSLException
 
-/** Provider 边界只分类失败；重试预算与上下文由 Loop 持有。 */
+/** Provider 边界分类失败；模型请求重试预算由 AgentModelRetry 持有。 */
 internal class AgentModelFailure(
     val code: String,
     val retryable: Boolean,
     message: String,
     cause: Throwable? = null,
     val diagnostic: String = "",
+    // Only the Responses provider's per-request delivery guard may authorize correction.
+    val envelopeCorrectionAllowed: Boolean = false,
 ) : IllegalStateException(message, cause) {
     companion object {
         private val transientStatus = setOf(408, 429, 500, 502, 503, 504, 524, 529)
@@ -24,18 +26,27 @@ internal class AgentModelFailure(
             "api_error", "internal_error", "provider_unavailable", "service_unavailable",
         )
 
+        private fun toolEnvelopeRejected() = AgentModelFailure(
+            code = ResponsesToolEnvelopeRecovery.CODE,
+            retryable = false,
+            message = "模型生成的工具封装未通过代理 JSON 校验（missing-separator）。",
+            // Never retain the rejected code, request body, headers, or provider text.
+            diagnostic = "responses_tool_envelope_rejected; json_failure=missing-separator",
+        )
+
         fun http(
             status: Int,
             body: String,
             headers: okhttp3.Headers? = null,
             secrets: List<String> = emptyList(),
         ): AgentModelFailure {
-            val diagnostic = AgentHttpFailureDiagnostics.collect(status, body, headers, secrets)
             val error = try {
                 JSONObject(body).optJSONObject("error")
             } catch (_: org.json.JSONException) {
                 null
             }
+            if (ResponsesToolEnvelopeRecovery.matches(error, status)) return toolEnvelopeRejected()
+            val diagnostic = AgentHttpFailureDiagnostics.collect(status, body, headers, secrets)
             if (status in setOf(400, 413) && isContextOverflow(error)) {
                 return AgentModelFailure("CONTEXT_WINDOW_EXCEEDED", false, "提供方确认上下文超限，需缩减上下文后重试。", diagnostic = diagnostic)
             }
@@ -102,6 +113,7 @@ internal class AgentModelFailure(
         }
 
         fun stream(error: JSONObject, message: String): AgentModelFailure {
+            if (ResponsesToolEnvelopeRecovery.matches(error)) return toolEnvelopeRejected()
             // A stream may already have emitted visible text or invoked hosted tools.
             // Do not turn its late error into a replay of possible side effects.
             val codes = listOf(

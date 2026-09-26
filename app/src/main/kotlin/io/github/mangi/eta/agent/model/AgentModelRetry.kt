@@ -22,21 +22,33 @@ internal class AgentModelRetry(
     ): Result {
         var round = initialRound
         var retries = 0
+        var envelopeRetries = 0
+        var attemptRequest = request
         while (true) {
             controller.throwIfCancelled()
             onEvent(AgentEvent.RoundStarted(round, request.messages.length()))
-            var hostedToolStarted = false
+            var toolDeliveryPossible = false
             var callbackFailed = false
             var sawCompleted = false
             var sawVisibleText = false
             try {
-                val response = provider.complete(request, controller) { event ->
-                    if (event is ProviderEvent.HostedToolStarted) hostedToolStarted = true
+                val response = provider.complete(attemptRequest, controller) { event ->
+                    // Mark before calling consumers: a throwing callback may already have
+                    // delivered a tool. Starts, deltas, and orphan ends all forbid replay.
+                    if (when (event) {
+                            is ProviderEvent.HostedToolStarted, is ProviderEvent.HostedToolFinished -> true
+                            is ProviderEvent.BlockStart -> event.kind == AssistantBlockKind.TOOL_CALL
+                            is ProviderEvent.BlockDelta -> event.kind == AssistantBlockKind.TOOL_CALL
+                            is ProviderEvent.BlockEnd -> event.kind == AssistantBlockKind.TOOL_CALL
+                            else -> false
+                        }
+                    ) toolDeliveryPossible = true
                     if (event is ProviderEvent.Completed) sawCompleted = true
                     if (
-                        event is ProviderEvent.BlockDelta &&
-                        event.kind == AssistantBlockKind.TEXT &&
-                        event.delta.isNotBlank()
+                        (event is ProviderEvent.BlockDelta &&
+                            event.kind == AssistantBlockKind.TEXT && event.delta.isNotBlank()) ||
+                        (event is ProviderEvent.BlockEnd &&
+                            event.kind == AssistantBlockKind.TEXT && event.content.isNotBlank())
                     ) {
                         sawVisibleText = true
                     }
@@ -55,8 +67,9 @@ internal class AgentModelRetry(
                 if (
                     (controller.hasPendingSteering || controller.hasPausedInterrupt) &&
                     !sawVisibleText &&
-                    !hostedToolStarted &&
-                    !sawCompleted
+                    !toolDeliveryPossible &&
+                    !sawCompleted &&
+                    failure !is AgentModelFailure
                 ) {
                     return Result(
                         round,
@@ -80,16 +93,36 @@ internal class AgentModelRetry(
                             AgentHttpFailureDiagnostics.safe(classified.diagnostic, listOf(request.config.apiKey), 4000),
                     )
                 }
-                if (!classified.retryable || hostedToolStarted || sawCompleted || sawVisibleText) {
+                val envelopeRejected = classified.code == ResponsesToolEnvelopeRecovery.CODE
+                val correctionAllowed = envelopeRejected && classified.envelopeCorrectionAllowed &&
+                    provider.capabilities.endpoint == EndpointKind.RESPONSES
+                if (toolDeliveryPossible || sawCompleted || sawVisibleText ||
+                    (envelopeRejected && !correctionAllowed) ||
+                    (!envelopeRejected && !classified.retryable)
+                ) {
                     throw classified
                 }
-                if (retries == MAX_RETRIES) {
+                if (envelopeRejected && envelopeRetries >= ResponsesToolEnvelopeRecovery.MAX_RETRIES) {
+                    throw AgentModelFailure(
+                        classified.code, false,
+                        "工具封装 JSON 校验连续失败，已纠错重试 ${ResponsesToolEnvelopeRecovery.MAX_RETRIES} 次，停止自动重试；未执行被拒绝的工具调用。",
+                        classified,
+                        diagnostic = classified.diagnostic,
+                    )
+                }
+                if (retries >= MAX_RETRIES) {
                     throw AgentModelFailure(
                         classified.code, false,
                         "${classified.message} 已重试 $MAX_RETRIES 次仍未恢复，已保留此前完成的工具结果。",
                         classified,
                         diagnostic = classified.diagnostic,
                     )
+                }
+                if (envelopeRejected) {
+                    envelopeRetries += 1
+                    // Always start from the original history: one hint, never accumulated
+                    // rejected generations, fabricated tool results, or guessed JSON fixes.
+                    attemptRequest = ResponsesToolEnvelopeRecovery.corrected(request)
                 }
                 retries += 1
                 val delayMs = BASE_DELAY_MS shl (retries - 1)
