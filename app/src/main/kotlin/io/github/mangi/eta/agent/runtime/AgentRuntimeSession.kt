@@ -1,6 +1,8 @@
 package io.github.mangi.eta.agent.runtime
 
 
+import io.github.mangi.eta.agent.device.AgentTaskSurface
+import io.github.mangi.eta.agent.device.AgentTaskSurfaceMode
 import java.util.ArrayDeque
 import java.util.concurrent.locks.ReentrantLock
 
@@ -15,6 +17,9 @@ internal class AgentRuntimeSession(
     val controller: AgentRunController = AgentRunController(),
     eventSink: ((AgentEvent) -> Unit)? = null,
     resultSink: ((AgentRuntimeWire.RunResult) -> Unit)? = null,
+    // Freeze once for both execution and presentation, including late terminal callbacks.
+    val taskSurfaceMode: AgentTaskSurfaceMode =
+        runCatching { AgentTaskSurface.stored() }.getOrDefault(AgentTaskSurfaceMode.ASK),
 ) {
     private enum class State {
         RUNNING,

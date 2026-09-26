@@ -74,8 +74,11 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
 
     private val sessions = AgentRuntimeSessionRegistry()
     private val pendingStartRequests = linkedMapOf<String, PendingStartRequest>()
+    // Keep the originating identity and frozen mode even after terminal registry removal.
     @Volatile
-    private var overlayRunId: String? = null
+    private var overlaySession: AgentRuntimeSession? = null
+    private val overlayRunId: String?
+        get() = overlaySession?.runId
 
     private data class PendingStartRequest(
         val incoming: AgentRuntimeWire.IncomingRunRequest,
@@ -137,7 +140,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     override fun onDestroy() {
         failPendingStarts("Agent Runtime 服务已停止")
         sessions.cancelAll("Agent Runtime 服务已停止")
-        overlayRunId = null
+        overlaySession = null
         mainHandler.removeCallbacksAndMessages(null)
         resultCardView?.let { view -> runCatching { windowManager?.removeView(view) } }
         bubbleView?.let { view -> runCatching { windowManager?.removeView(view) } }
@@ -335,7 +338,14 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             return
         }
         sessions.put(session)
-        if (overlayRunId == request.runId) overlayRunId = session.runId
+        if (overlayRunId == request.runId) {
+            if (AgentOverlayVisibilityPolicy.allowsOverlay(session.taskSurfaceMode)) {
+                overlaySession = session
+            } else {
+                // Only retire the replaced run's windows, never another foreground run's.
+                dismissAndStop()
+            }
+        }
         if (lastCompletedRunContext?.request?.runId == request.runId) {
             lastCompletedRunContext = null
         }
@@ -346,11 +356,13 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 "Agent runtime keep-alive start failed: type=${throwable.safeLogType()}"
             }
         }
-        mainHandler.removeCallbacksAndMessages(hideToken)
-        state.value = AgentOverlayState.Initial
-        collapsed.value = true
-        if (overlayRunId == null || overlayRunId == request.runId) {
-            hasExecutedForegroundTool = false
+        if (AgentOverlayVisibilityPolicy.allowsOverlay(session.taskSurfaceMode)) {
+            mainHandler.removeCallbacksAndMessages(hideToken)
+            state.value = AgentOverlayState.Initial
+            collapsed.value = true
+            if (overlayRunId == null || overlaySession === session) {
+                hasExecutedForegroundTool = false
+            }
         }
         synchronized(supplementsLock) {
             val extras = RunSupplements()
@@ -409,9 +421,11 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         entrySurfaceGuard: EntrySurfaceGuard?,
     ) {
         if (!sessions.contains(session)) return
-        val revealsForegroundOperation = AgentOverlayVisibilityPolicy.shouldRevealFor(event)
+        if (!AgentOverlayVisibilityPolicy.allowsOverlay(session.taskSurfaceMode)) return
+        val revealsForegroundOperation =
+            AgentOverlayVisibilityPolicy.shouldRevealFor(event, session.taskSurfaceMode)
         val requiresEntrySurfaceDismissal =
-            AgentOverlayVisibilityPolicy.shouldDismissEntrySurfaceFor(event)
+            AgentOverlayVisibilityPolicy.shouldDismissEntrySurfaceFor(event, session.taskSurfaceMode)
         val entrySurfaceReady = if (requiresEntrySurfaceDismissal && entrySurfaceGuard != null) {
             runCatching { entrySurfaceGuard.dismissOnce() }.getOrDefault(false)
         } else {
@@ -423,6 +437,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 AgentOverlayVisibilityPolicy.shouldRecordForegroundExecution(
                     event,
                     entrySurfaceReady,
+                    session.taskSurfaceMode,
                 )
             ) {
                 hasExecutedForegroundTool = true
@@ -472,12 +487,17 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         completedContext: CompletedRunContext? = null,
     ) {
         mainHandler.post {
-            val stillCurrent = sessions.contains(session)
-            sessions.remove(session)
+            // Removal is identity-based: a late callback cannot consume a replacement
+            // session's supplements or reveal its windows just because run IDs match.
+            if (!sessions.remove(session)) return@post
             synchronized(supplementsLock) { supplementsByRunId.remove(session.runId) }
-            if (!stillCurrent && overlayRunId != session.runId) return@post
-            if (overlayRunId != session.runId) {
-                if (sessions.isEmpty() && orbView == null && resultCardView == null) {
+            if (
+                !AgentOverlayVisibilityPolicy.allowsOverlay(session.taskSurfaceMode) ||
+                overlaySession !== session
+            ) {
+                if (sessions.isEmpty() && pendingStartRequests.isEmpty() &&
+                    orbView == null && bubbleView == null && resultCardView == null
+                ) {
                     stopSelf()
                 }
                 return@post
@@ -492,6 +512,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                             detailText = result.content.trim().ifBlank { state.value.detailText },
                         ),
                         keepVisible = entrySurfaceGuard?.wasTriggered == true,
+                        session = session,
                     )
                 } else {
                     enterFinalState(
@@ -505,6 +526,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                             detailText = result.error.orEmpty(),
                         ),
                         keepVisible = entrySurfaceGuard?.wasTriggered == true,
+                        session = session,
                     )
                 }
             }.onFailure { throwable ->
@@ -616,9 +638,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         }
     }
 
-    private fun attachRun(runId: String, replyTo: Messenger?) {
+    private fun attachRun(runId: String, replyTo: Messenger?, attached: Boolean = false) {
         val session = sessions.get(runId)
-        val attached = replyTo != null &&
+        val attachedToSession = replyTo != null &&
             runId.isNotBlank() &&
             session != null &&
             session.attach(
@@ -626,7 +648,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 resultSink = { result -> sendResultTo(replyTo, result) },
                 onReplayComplete = { sendAttachRunResponse(runId, replyTo, attached = true) },
             )
-        if (!attached) sendAttachRunResponse(runId, replyTo, attached = false)
+        if (!attachedToSession) sendAttachRunResponse(runId, replyTo, attached = false)
     }
 
     private fun sendAttachRunResponse(runId: String, replyTo: Messenger?, attached: Boolean) {
@@ -696,14 +718,13 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             replyTo,
             AgentRuntimeWire.RunResult(runId = "", ok = false, content = "", error = message),
         )
-        if (!sessions.isEmpty()) return
-        enterFinalState(
-            AgentOverlayState(
-                phase = AgentOverlayPhase.FAILED,
-                status = AgentOverlayStatus.RunFailed,
-                detailText = message
-            )
-        )
+        // Preparation failures have no session/overlay ownership. They must not
+        // reuse another run's foreground-execution flag or terminal windows.
+        if (sessions.isEmpty() && pendingStartRequests.isEmpty() &&
+            orbView == null && bubbleView == null && resultCardView == null
+        ) {
+            stopSelf()
+        }
     }
 
     private fun requestStop() {
@@ -722,7 +743,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             return
         }
         val session = sessions.get(runId) ?: return
-        if (session.requestStop() && overlayRunId == runId) {
+        if (session.requestStop() && overlaySession === session) {
             state.value = state.value.copy(status = AgentOverlayStatus.Stopping)
         }
     }
@@ -780,23 +801,29 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         if (requestId.isNotBlank() && synchronized(supplementsLock) {
                 supplementsByRunId[targetRunId]?.items?.any { it.requestId == requestId } == true
             }) return
-        setBubbleInputMode(focusable = false)
-        sessions.get(targetRunId)?.let { session ->
+        val targetSession = sessions.get(targetRunId)
+        val updatesOverlay = targetSession?.let {
+            AgentOverlayVisibilityPolicy.allowsOverlay(it.taskSurfaceMode)
+        } ?: true
+        if (updatesOverlay) setBubbleInputMode(focusable = false)
+        targetSession?.let { session ->
             val event = session.steer(supplementText, imagesJson) {
                 recordSupplementEvent(targetRunId, supplementText, requestId, imagesJson)
             }
             if (event == null) {
                 if (!session.isTerminal) {
-                    state.value = state.value.copy(
-                        status = AgentOverlayStatus.Finishing,
-                    )
+                    if (updatesOverlay) {
+                        state.value = state.value.copy(
+                            status = AgentOverlayStatus.Finishing,
+                        )
+                    }
                     return
                 }
             } else {
                 AndroidAgentLogger.info(
                     "Agent runtime supplement received: index=${event.index}, chars=${event.text.length}"
                 )
-                state.value = state.value.applyEvent(event)
+                if (updatesOverlay) state.value = state.value.applyEvent(event)
                 return
             }
         }
@@ -841,6 +868,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     private fun showOverlay() {
+        val session = overlaySession ?: return
+        if (!AgentOverlayVisibilityPolicy.allowsOverlay(session.taskSurfaceMode)) return
         if (orbView != null) return
         // TYPE_ACCESSIBILITY_OVERLAY 免 SYSTEM_ALERT_WINDOW 权限；仅回退态（无障碍未启用）才需检查
         if (AgentAccessibilityService.current() == null && !Settings.canDrawOverlays(this)) return
@@ -885,6 +914,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     private fun showBubble(wm: WindowManager) {
+        val session = overlaySession ?: return
+        if (!AgentOverlayVisibilityPolicy.allowsOverlay(session.taskSurfaceMode)) return
         if (bubbleView != null) return
         val bubble = createOverlayComposeView {
             AgentOverlayBubble(
@@ -908,7 +939,12 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         bubbleParams = lp
     }
 
-    private fun showResultCard(wm: WindowManager) {
+    private fun showResultCard(wm: WindowManager, session: AgentRuntimeSession) {
+        if (overlaySession !== session ||
+            !AgentOverlayVisibilityPolicy.shouldShowResultCard(
+                session.taskSurfaceMode, hasExecutedForegroundTool,
+            )
+        ) return
         if (resultCardView != null) return
         val card = createOverlayComposeView {
             AgentResultCard(
@@ -1044,14 +1080,21 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     private fun dpToPx(dp: Int): Int =
         (dp * resources.displayMetrics.density).toInt()
 
-    private fun enterFinalState(finalState: AgentOverlayState, keepVisible: Boolean = false) {
+    private fun enterFinalState(
+        finalState: AgentOverlayState,
+        keepVisible: Boolean = false,
+        session: AgentRuntimeSession,
+    ) {
+        if (overlaySession !== session ||
+            !AgentOverlayVisibilityPolicy.allowsOverlay(session.taskSurfaceMode)
+        ) return
         state.value = finalState
 
-        if (hasExecutedForegroundTool) {
+        if (AgentOverlayVisibilityPolicy.shouldShowResultCard(session.taskSurfaceMode, hasExecutedForegroundTool)) {
             // 撤掉光球和小气泡，改显半屏结果卡片，不自动关闭，用户手动关闭
             collapsed.value = true
             removeAmbientWindows()
-            windowManager?.let(::showResultCard)
+            windowManager?.let { showResultCard(it, session) }
             mainHandler.removeCallbacksAndMessages(hideToken)
         } else {
             dismissAndStop()
@@ -1078,7 +1121,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         bubbleParams = null
         orbParams = null
         windowManager = null
-        overlayRunId = null
+        overlaySession = null
         hasExecutedForegroundTool = false
         if (sessions.isEmpty() && pendingStartRequests.isEmpty()) {
             stopSelf()
@@ -1139,11 +1182,14 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     private fun claimOverlay(session: AgentRuntimeSession, wantsOverlay: Boolean): Boolean {
-        val current = overlayRunId
-        if (current == session.runId) return true
+        if (!sessions.contains(session) ||
+            !AgentOverlayVisibilityPolicy.allowsOverlay(session.taskSurfaceMode)
+        ) return false
+        val current = overlaySession
+        if (current === session) return true
         if (!wantsOverlay) return current == null
-        if (current != null && sessions.get(current)?.isTerminal == false) return false
-        overlayRunId = session.runId
+        if (current != null && sessions.contains(current) && !current.isTerminal) return false
+        overlaySession = session
         return true
     }
 
