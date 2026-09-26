@@ -17,6 +17,7 @@ internal fun rememberTaskBackendInstalled(): Boolean? {
     val owner = LocalLifecycleOwner.current
     val installed by produceState<Boolean?>(initialValue = null, owner) {
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            value = null
             value = withContext(Dispatchers.IO) {
                 runCatching { AgentTaskSurface.moduleInstalled() }.getOrDefault(false)
             }

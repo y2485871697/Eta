@@ -32,6 +32,7 @@ class VirtualDisplaySettingsUiTest(unittest.TestCase):
     def test_installation_is_rechecked_on_resume_not_live_backend_status(self):
         source = (UI / "TaskBackendInstallation.kt").read_text()
         self.assertIn("Lifecycle.State.RESUMED", source)
+        self.assertIn("value = null", source)
         self.assertIn("AgentTaskSurface.moduleInstalled()", source)
         self.assertNotIn("inspect_virtual_backend", source)
         self.assertIn("awaitCancellation()", source)
