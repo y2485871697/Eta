@@ -14,7 +14,7 @@ internal data class SubAgentContextStats(
     val providerName: String,
     val contextWindow: Int?,
     val contextTokens: Int? = null,
-    val projected: Boolean = true,
+    val projected: Boolean = false,
     val inputTokens: Long = 0,
     val outputTokens: Long = 0,
     val isCompacting: Boolean = false,
@@ -53,7 +53,9 @@ internal data class SubAgentContextStats(
 }
 
 internal class SubAgentContextTracker(initial: SubAgentContextStats) {
-    var value: SubAgentContextStats = initial
+    var value: SubAgentContextStats = initial.copy(
+        contextTokens = initial.contextTokens.takeUnless { initial.projected }, projected = false,
+        afterCompactionTokens = initial.afterCompactionTokens.takeUnless { initial.projected })
         private set
     private val billedRounds = mutableMapOf<Int, AgentTokenUsage>()
     private var awaitingCompactedUsage = false
@@ -75,11 +77,12 @@ internal class SubAgentContextTracker(initial: SubAgentContextStats) {
 
     @Synchronized fun accept(event: AgentEvent): SubAgentContextStats? {
         if (value.status !in setOf("running", "awaiting_decision")) return null
+        if (event is AgentEvent.UsageReceived && event.projected) return null
         value = when (event) {
             is AgentEvent.UsageReceived -> {
                 if (!event.projected) billedRounds[event.round] = event.usage
                 val tokens = event.usage.occupancyTokens()
-                value.copy(contextTokens = tokens ?: value.contextTokens, projected = event.projected,
+                value.copy(contextTokens = tokens ?: value.contextTokens, projected = false,
                     inputTokens = billedRounds.values.sumOf { (it.inputTokens ?: 0).toLong() },
                     outputTokens = billedRounds.values.sumOf { (it.outputTokens ?: 0).toLong() },
                     afterCompactionTokens = if (awaitingCompactedUsage) tokens else value.afterCompactionTokens)
