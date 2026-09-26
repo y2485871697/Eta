@@ -168,7 +168,12 @@ internal class AgentLoop(
             }
             emitProjectedPrompt(round)
 
+            // The manual override covers this preparation boundary, including its bounded
+            // hard-pressure reductions above. Later rounds/overflow must use the automatic
+            // policy again, including a null compressor (not the previous manual model).
             manualBudgetAttempt = false
+            budgetKeepRecent = compactPolicy.keepRecentMessages
+            budgetCompressModelConfig = compactPolicy.compressModelConfig
             val roundTools = currentRoundTools
             toolCallValidator = AgentToolCallValidator(roundTools)
             incompleteText.clear()
