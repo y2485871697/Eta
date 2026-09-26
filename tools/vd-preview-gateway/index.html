@@ -409,6 +409,7 @@
                     etaSelected = previous ? etaDisplays.find(display => sameDisplay(display, previous)) || null
                         : etaDisplays[0] || null;
                     renderDisplays(etaDisplays.length ? '请选择副屏' : '暂无副屏');
+                    renderToggle();
                     if (!etaDisplays.length) {
                         showMessage('代鱼当前没有可预览的副屏（列表为空）', '#d29922'); return;
                     }
@@ -430,6 +431,7 @@
             if (etaCloseBusy) { renderDisplays(); return; }
             if (previewMode !== 'eta') return;
             etaSelected = displayEl.value === '' ? null : etaDisplays[Number(displayEl.value)] || null;
+            renderToggle();
             return etaRefresh(false);
         }
 

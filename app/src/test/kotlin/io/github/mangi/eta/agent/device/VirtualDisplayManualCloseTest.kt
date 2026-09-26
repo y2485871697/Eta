@@ -8,7 +8,7 @@ class VirtualDisplayManualCloseTest {
         VirtualDisplayManualClose.Key(7, "virtual:test", "boot", 42, "socket"),
         "boot", true, false, "empty", 0, true, 0, false, false, false, false, false)
     private inner class Fake : VirtualDisplayManualClose.Backend {
-        var state = evidence()
+        var state = this@VirtualDisplayManualCloseTest.evidence()
         var marks = 0; var releases = 0; var clears = 0
         var writable = true; var gone = true; var releaseThrows = false
         override fun evidence() = state

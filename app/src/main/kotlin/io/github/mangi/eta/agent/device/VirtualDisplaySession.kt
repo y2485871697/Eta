@@ -409,7 +409,7 @@ internal object VirtualDisplaySession {
                     val manager = context.getSystemService(android.hardware.display.DisplayManager::class.java) ?: return false
                     repeat(40) {
                         if (bootId() != record.boot) return false
-                        val originalDisplayGone = manager.getDisplay(record.displayId)?.uniqueId != record.uniqueId
+                        val originalDisplayGone = manager.getDisplay(record.displayId) == null // Reused IDs remain unconfirmed.
                         // Signal zero is a read-only existence check, never a process termination.
                         val originalProcessGone = try {
                             android.system.Os.kill(record.pid.toInt(), 0); false

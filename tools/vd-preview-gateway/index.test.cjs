@@ -55,7 +55,7 @@ function frame(display = A, override = {}, chunks = [PNG]) {
     }) };
     return res;
 }
-function setup({ hash = HASH, origin = 'http://127.0.0.1:3070', fetch: handler = () => list(), confirm = () => true } = {}) {
+function setup({ hash = HASH, origin = 'http://127.0.0.1:3070', fetch: handler = () => list(), confirm = () => true, now = Date.now } = {}) {
     const elements = Object.fromEntries(['status-display', 'snapshot-img', 'empty-tip', 'btn-toggle',
         'preview-mode', 'eta-display', 'eta-display-controls'].map(id => [id, element()]));
     const footer = element();
@@ -77,7 +77,7 @@ function setup({ hash = HASH, origin = 'http://127.0.0.1:3070', fetch: handler =
             requests.push({ url, options });
             return Promise.resolve(handler(url, options));
         },
-        AbortController, Blob, Uint8Array,
+        AbortController, Blob, Uint8Array, Date: { now },
         URL: {
             createObjectURL(blob) { const url = 'blob:test/' + created.length; created.push({ url, blob }); return url; },
             revokeObjectURL(url) { revoked.push(url); }
@@ -486,4 +486,40 @@ test('preparation failure and malformed nonce do not send release',async()=>{
         await settle();await page.invoke('toggleScreen');assert.equal(closeRequests(page).length,1);assert.equal(page.confirmations.length,0);
         assert.match(page.message(),/未发送关闭请求/);assert.equal(page.elements['btn-toggle'].disabled,false);
     }
+});
+
+
+test('pending frame does not block verified manual close and late frame cannot restore it', async()=>{
+    const pending=deferred();const page=setup({hash:CONTROL_HASH,fetch:(u,o)=>u.endsWith('/frame')?pending.promise:closeFetch(u,o)});
+    await settle();assert.equal(page.elements['btn-toggle'].disabled,false);
+    await page.invoke('toggleScreen');assert.match(page.message(),/已确认/);
+    pending.resolve(frame(A));await settle();assert.match(page.message(),/已确认/);
+    assert.equal(page.elements['snapshot-img'].src,'');assertNoLegacy(page);
+});
+
+test('pending commit excludes double click and navigation; late pagehide reply never unlocks replay',async()=>{
+    for(const outcome of ['closed_confirmed','blocked']) {
+        const pending=deferred();const page=setup({hash:CONTROL_HASH,fetch:(u,o)=>u.endsWith('/close/commit')?pending.promise:closeFetch(u,o)});
+        await settle();const operation=page.invoke('toggleScreen');await settle();
+        await page.invoke('toggleScreen');await page.invoke('refreshSnapshot');await page.mode('module');await page.select(1);
+        assert.equal(closeRequests(page).length,2);assertNoLegacy(page);
+        page.events.pagehide();pending.resolve(closeResult(outcome));await operation;
+        await page.invoke('refreshSnapshot');await page.invoke('toggleScreen');
+        assert.equal(closeRequests(page).length,2);assert.equal(page.elements['btn-toggle'].disabled,true);
+    }
+});
+
+test('expired confirmation sends no commit and restores the controls',async()=>{
+    let time=1000;const page=setup({hash:CONTROL_HASH,fetch:closeFetch,now:()=>time,confirm:()=>{time+=16000;return true;}});
+    await settle();await page.invoke('toggleScreen');assert.equal(closeRequests(page).length,1);
+    assert.match(page.message(),/已过期/);assert.equal(page.elements['btn-toggle'].disabled,false);
+});
+
+test('explicitly blocked commit requires fresh prepare, malformed commit stays locked',async()=>{
+    const blocked=setup({hash:CONTROL_HASH,fetch:(u,o)=>u.endsWith('/close/commit')?closeResult('blocked','SOURCE_NOT_EMPTY',{},409):closeFetch(u,o)});
+    await settle();await blocked.invoke('toggleScreen');await blocked.invoke('toggleScreen');
+    assert.equal(closeRequests(blocked).filter(r=>r.url.endsWith('/prepare')).length,2);
+    const malformed=setup({hash:CONTROL_HASH,fetch:(u,o)=>u.endsWith('/close/commit')?response(200,{}, {'Content-Type':'application/json'}):closeFetch(u,o)});
+    await settle();await malformed.invoke('toggleScreen');await malformed.invoke('toggleScreen');
+    assert.equal(closeRequests(malformed).length,2);assert.match(malformed.message(),/未确认/);
 });
