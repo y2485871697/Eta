@@ -131,6 +131,7 @@ internal class SmoothTextRevealCoordinator {
         record.node = null
         // 已离开组合的块不再消费帧时钟；保留完成进度，重挂载时只显现后续新增文本。
         completeRecord(record)
+        record.layoutResult = null
         updateDrainedState()
         wakeups.trySend(Unit)
     }

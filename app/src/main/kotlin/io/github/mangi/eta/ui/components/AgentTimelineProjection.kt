@@ -7,6 +7,9 @@ import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.isResumeAfterCompress
 
+// Bound each eagerly rendered work-process Column without dropping message data.
+private const val WORK_PROCESS_UI_BATCH_LIMIT = 32
+
 internal sealed interface AgentTimelineEntry {
     val key: String
 
@@ -42,6 +45,7 @@ internal fun List<AgentChatMessageUi>.toTimelineEntries(): List<AgentTimelineEnt
         }
         if (message.isWorkProcessMessage()) {
             workMessages += message
+            if (workMessages.size >= WORK_PROCESS_UI_BATCH_LIMIT) flushWorkProcess()
         } else {
             flushWorkProcess()
             add(AgentTimelineEntry.Message(message))
