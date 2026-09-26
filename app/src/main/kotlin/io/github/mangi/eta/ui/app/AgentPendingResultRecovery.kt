@@ -93,7 +93,7 @@ internal object AgentPendingResultRecovery {
                 messages = mergeSupplements(
                     runId = runId,
                     supplements = listOfNotNull(promptSupplement) + supplements,
-                    messages = messagesWithResult,
+                    messages = VirtualCompletionNotice.append(messagesWithResult, runId, result),
                     beforeLatestAssistant = true,
                 ),
                 history = history.state.history,

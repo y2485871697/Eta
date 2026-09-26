@@ -4043,6 +4043,9 @@ internal class AgentAppState(
                 result.error,
             )
         }
+        if (stoppedDuringRetry == null) {
+            updateMessages(runId) { VirtualCompletionNotice.append(it, runId, result) }
+        }
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
         conversationId?.let(pendingInRunCompactConversationIds::remove)
@@ -4415,6 +4418,7 @@ internal class AgentAppState(
                                 SystemNoticeCode.ModelRetry -> R.string.system_notice_model_retry
                                 SystemNoticeCode.RuntimeFailed -> R.string.system_notice_runtime_failed
                                 SystemNoticeCode.Interrupted -> R.string.system_notice_interrupted
+                                SystemNoticeCode.Completed -> R.string.system_notice_completed
                             },
                         )
                         is ThinkingMessageUi -> appContext.getString(R.string.conversation_preview_reasoning)

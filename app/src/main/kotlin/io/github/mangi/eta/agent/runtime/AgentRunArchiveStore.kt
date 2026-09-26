@@ -93,6 +93,7 @@ internal object AgentRunArchiveStore {
             transcriptJson = AgentConversationCodec.encodeTranscriptForStorage(result.transcript),
             userImagePreviewsJson = JSONArray(userImagePreviews).toString(),
             createdAt = createdAt,
+            virtualDeliveryCompleted = result.virtualDeliveryCompleted,
         )
 
     private fun ArchivedRun.toEventEntities(archiveRunId: String): List<RuntimeArchiveEventEntity> =
@@ -119,6 +120,7 @@ internal object AgentRunArchiveStore {
                     content = run.content,
                     error = run.error,
                     reasoningContent = run.reasoningContent,
+                    virtualDeliveryCompleted = run.virtualDeliveryCompleted,
                     transcript = AgentConversationCodec.decodeTranscript(run.transcriptJson).ifEmpty {
                         if (!run.ok || run.content.isBlank()) return@ifEmpty emptyList()
                         listOf(

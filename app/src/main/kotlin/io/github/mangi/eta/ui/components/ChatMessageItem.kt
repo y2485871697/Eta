@@ -328,7 +328,9 @@ internal fun ChatMessageItem(
             onBranch = { actions.onBranchMessage(message.id) },
             modifier = modifier,
         )
-        is SystemNoticeMessageUi -> AgentMessageBlock(
+        is SystemNoticeMessageUi -> if (message.code == SystemNoticeCode.Completed) {
+            TaskCompletedDivider(modifier)
+        } else AgentMessageBlock(
             message = AgentMessageUi(
                 id = message.id,
                 content = buildString {
@@ -340,6 +342,7 @@ internal fun ChatMessageItem(
                                 SystemNoticeCode.ModelRetry -> R.string.system_notice_model_retry
                                 SystemNoticeCode.RuntimeFailed -> R.string.system_notice_runtime_failed
                                 SystemNoticeCode.Interrupted -> R.string.system_notice_interrupted
+                                SystemNoticeCode.Completed -> R.string.system_notice_completed
                             },
                         ),
                     )

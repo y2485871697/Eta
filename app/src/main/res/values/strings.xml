@@ -1483,4 +1483,5 @@
   <string name="vd_preview_open">Live web preview</string>
   <string name="vd_preview_stop">Revoke web preview access</string>
   <string name="vd_preview_note">Read-only local preview with a temporary viewing key. Requires the updated port-3070 web page. Updates while visible; no display is created or controlled.</string>
+  <string name="system_notice_completed">Completed</string>
 </resources>

@@ -103,6 +103,7 @@ internal object AgentRuntimeResultStore {
             reasoningContent = result.reasoningContent,
             transcriptJson = AgentConversationCodec.encodeTranscriptForStorage(result.transcript),
             createdAt = createdAt,
+            virtualDeliveryCompleted = result.virtualDeliveryCompleted,
         )
     }
 
@@ -120,6 +121,7 @@ internal object AgentRuntimeResultStore {
                 content = content,
                 error = error,
                 reasoningContent = reasoningContent,
+                virtualDeliveryCompleted = virtualDeliveryCompleted,
                 transcript = legacyCompatibleTranscript(
                     raw = transcriptJson,
                     ok = ok,

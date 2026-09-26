@@ -22,7 +22,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class EtaDatabaseMigrationTest {
     @Test
-    fun migration6To18PreservesDataAndMovesBoundedConversationContext() {
+    fun migration6To29PreservesDataAndMovesBoundedConversationContext() {
         val context = RuntimeEnvironment.getApplication() as Context
         val databaseName = "migration-${UUID.randomUUID()}.db"
         createVersion6Database(context, databaseName)
@@ -65,6 +65,7 @@ class EtaDatabaseMigrationTest {
                 EtaDatabase.MIGRATION_25_26,
                 EtaDatabase.MIGRATION_26_27,
                 EtaDatabase.MIGRATION_27_28,
+                EtaDatabase.MIGRATION_28_29,
             )
             .build()
         } catch (error: Throwable) {
@@ -115,8 +116,10 @@ class EtaDatabaseMigrationTest {
 
             assertEquals("保留的结果", result.content)
             assertEquals("[]", result.transcriptJson)
+            assertEquals(false, result.virtualDeliveryCompleted)
             assertEquals("保留的归档", archive.content)
             assertEquals("[]", archive.transcriptJson)
+            assertEquals(false, archive.virtualDeliveryCompleted)
             assertEquals("[]", archive.userImagePreviewsJson)
             assertEquals(
                 setOf("conv-1", "conv-enabled", "conv-custom-empty", "conv-oversized"),
