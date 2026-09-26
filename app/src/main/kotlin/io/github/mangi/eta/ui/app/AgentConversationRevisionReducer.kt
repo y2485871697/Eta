@@ -62,6 +62,7 @@ internal object AgentConversationRevisionReducer {
         return state.copy(
             messages = state.messages.take(boundary.userMessageIndex),
             history = boundary.historyPrefix,
+            livePromptTokens = null,
             messageEdit = null,
         )
     }

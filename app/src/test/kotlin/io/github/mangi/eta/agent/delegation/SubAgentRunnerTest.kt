@@ -44,12 +44,17 @@ class SubAgentRunnerTest {
     @Test(timeout = 5000) fun overLimitWithoutCompressibleHistoryFailsInsteadOfWaitingForTimeout() {
         val model = AgentModelClient.ModelConfig(baseUrl = "https://example.com", apiKey = "test",
             model = "child", systemPrompt = "", contextWindow = 8000)
-        val provider = scripted { _, _ -> error("Oversized request must not be sent") }
+        var requests = 0
+        val provider = scripted { _, _ ->
+            requests++
+            throw AgentModelFailure("CONTEXT_WINDOW_EXCEEDED", false, "provider confirmed overflow")
+        }
         assertThrows(SubAgentContextLimitException::class.java) {
             SubAgentRunner.run(model, "large".repeat(10000), JSONArray(), { error("No tools") },
                 AgentRunController(), provider,
                 compactPolicy = AgentLoop.CompactPolicy(true, 8000, 0, model))
         }
+        assertEquals(1, requests)
     }
 
     @Test(timeout = 5000) fun childCompactsAtPressureAndKeepsCurrentToolBatch() {

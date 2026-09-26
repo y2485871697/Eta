@@ -186,7 +186,7 @@ class AgentModelPickerProjectorTest {
         assertNull(contextUsageProgress(null, 100_000))
         assertNull(contextUsageProgress(10_000, null))
         assertNull(contextUsageProgress(10_000, 0))
-        assertEquals(0f, contextUsageProgress(0, 100_000) ?: -1f, 0f)
+        assertNull(contextUsageProgress(0, 100_000))
         assertEquals(1f, contextUsageProgress(120_000, 100_000) ?: -1f, 0f)
         assertEquals("1.05M", formatCompactTokenCount(1_050_000))
         assertEquals(
@@ -258,7 +258,7 @@ class AgentModelPickerProjectorTest {
         val expectedImages = images.map { it.toLiveModelImage() }
         val expected = history.sumOf { AgentContextBudget.countMessage(it) } +
             AgentContextBudget.countCurrentTurn(expectedPrompt, expectedImages)
-        assertEquals(expected, usage.contextTokens)
+        assertNull(usage.contextTokens)
         assertEquals(8_000, usage.contextWindow)
         assertTrue(expectedPrompt.contains("/sdcard/notes.txt"))
         assertTrue(expectedPrompt.contains("please read this"))
@@ -301,8 +301,9 @@ class AgentModelPickerProjectorTest {
             pendingImages = listOf(huge),
             selectedModel = selected.copy(supportsVision = true),
         )
-        assertTrue((withImage.contextTokens ?: 0) < (vision.contextTokens ?: 0) / 2)
-        assertTrue((withImage.contextTokens ?: 0) > (textOnly.contextTokens ?: 0))
+        assertNull(withImage.contextTokens)
+        assertNull(vision.contextTokens)
+        assertNull(textOnly.contextTokens)
     }
 
     @Test
@@ -325,7 +326,7 @@ class AgentModelPickerProjectorTest {
             pendingImages = emptyList(),
             selectedModel = selected,
         )
-        assertEquals(history.sumOf { AgentContextBudget.countMessage(it) }, usage.contextTokens)
+        assertNull(usage.contextTokens)
     }
 
     @Test
@@ -359,7 +360,7 @@ class AgentModelPickerProjectorTest {
             "look",
             listOf(image.toLiveModelImage()),
         )
-        assertEquals(expected, usage.contextTokens)
+        assertNull(usage.contextTokens)
         assertTrue(AgentContextBudget.countImageTokens(image.toLiveModelImage()) > 85)
     }
 
@@ -393,12 +394,12 @@ class AgentModelPickerProjectorTest {
     fun emptyDraftWithoutLimitHasNoInventedPercentage() {
         assertNull(contextUsageProgress(0, null))
         assertNull(contextUsageProgress(null, null))
-        assertEquals(0f, contextUsageProgress(0, 8000))
+        assertNull(contextUsageProgress(0, 8000))
         val summary = formatContextUsage(
             AgentContextUsageUi(contextTokens = 0, contextWindow = null),
             noLimitText = "Unknown limit",
         )
-        assertTrue(summary.contains("Unknown limit"))
+        assertEquals("No conversation context yet", summary)
         assertFalse(summary.contains("%"))
     }
 
@@ -514,7 +515,7 @@ class AgentModelPickerProjectorTest {
             selectedModel = selected,
             requestOverheadTokens = 12_000,
         )
-        assertEquals(local + 12_000, usage.contextTokens)
+        assertNull(usage.contextTokens)
     }
 
     @Test
@@ -607,7 +608,7 @@ class AgentModelPickerProjectorTest {
         )
         val streaming = AgentMessageUi(id = "a2", content = "partial reply", isStreaming = true)
         val live = billed + thinking + tool + streaming
-        assertEquals(900, latestBilledContextTokens(live))
+        assertNull(latestBilledContextTokens(live))
     }
 
     @Test
@@ -643,7 +644,7 @@ class AgentModelPickerProjectorTest {
                 isStreaming = true,
             ),
         )
-        assertEquals(2_000, latestBilledContextTokens(compacted))
+        assertNull(latestBilledContextTokens(compacted))
     }
 
     @Test
@@ -761,10 +762,7 @@ class AgentModelPickerProjectorTest {
             selectedModel = selected,
             uncommittedLiveTokens = streaming,
         )
-        assertEquals(
-            history.sumOf { AgentContextBudget.countMessage(it) } + streaming,
-            usage.contextTokens,
-        )
+        assertNull(usage.contextTokens)
     }
 
     @Test

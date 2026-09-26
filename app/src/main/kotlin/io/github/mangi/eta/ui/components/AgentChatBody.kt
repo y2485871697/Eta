@@ -293,7 +293,7 @@ internal fun AgentChatBody(
         if (messageEdit != null) {
             null
         } else {
-            livePromptTokens ?: latestBilledContextTokens(messages)
+            livePromptTokens
         }
     }
     val uncommittedLiveTokens = remember(visibleMessages, billedContextTokens, messageEdit) {

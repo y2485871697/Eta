@@ -4119,6 +4119,7 @@ internal class AgentAppState(
     }
 
     private fun updateLivePromptTokens(runId: String, tokens: Int?) {
+        if (tokens == null || tokens <= 0) return // Output-only partial usage does not erase measured input.
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return
         val measured = tokens?.takeIf { it > 0 }

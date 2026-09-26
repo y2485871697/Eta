@@ -49,9 +49,10 @@ internal class UsageRecordingProvider(
                         outputTokens = event.usage.outputTokens ?: previous?.outputTokens,
                         cachedTokens = event.usage.cachedTokens ?: previous?.cachedTokens,
                     )
-                    persist()
+                    try { onEvent(event) } finally { persist() }
+                } else {
+                    onEvent(event)
                 }
-                onEvent(event)
             }
         } finally { persist() }
     }

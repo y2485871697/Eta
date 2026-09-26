@@ -110,16 +110,17 @@ class AgentCompressionBoundaryTest {
 
     @Test fun strictOverflowPausesWithoutSendingOrDeletingHistory() {
         val controller = AgentRunController()
-        val source = JSONArray().put(AgentConversationCodec.userTextMessage("x".repeat(40_000)))
+        val source = JSONArray().put(JSONObject().put("role", "system").put("content", "x".repeat(40_000)))
+            .put(AgentConversationCodec.userTextMessage("protected user"))
         val original = source.toString()
         val provider = provider { error("Over-budget request must never be sent") }
         var paused = false
         val loop = AgentLoop(config(9000), source, JSONArray(), provider,
             AgentModelClient.ToolExecutor { error("No tools") }, controller, AgentTraceFormatter(),
-            onEvent = { if (it is AgentEvent.ContextCompacted && it.blocked) { paused = true; controller.cancel() } })
+            systemCount = 1, onEvent = { if (it is AgentEvent.ContextCompacted && it.blocked) { paused = true; controller.cancel() } })
         assertThrows(AgentRunCancelledException::class.java) { loop.run() }
         assertTrue(paused)
-        source.getJSONObject(0).remove(AgentTurnIdentity.JSON_KEY)
+        source.getJSONObject(1).remove(AgentTurnIdentity.JSON_KEY)
         assertEquals(original, source.toString())
     }
 
@@ -163,7 +164,7 @@ class AgentCompressionBoundaryTest {
         assertEquals(2, calls)
     }
 
-    @Test fun firstRequestCompactsAtPressureBeforeSendingAnOtherwiseValidRequest() {
+    @Test fun firstRequestDoesNotAutoCompactFromLocalHistoryEstimate() {
         val source = JSONArray().put(AgentConversationCodec.userTextMessage("x".repeat(352_000)))
             .put(JSONObject().put("role", "assistant").put("content", "old result"))
             .put(AgentConversationCodec.userTextMessage("y".repeat(8000)))
@@ -172,16 +173,17 @@ class AgentCompressionBoundaryTest {
         var requests = 0
         AgentLoop(model, source, JSONArray(), provider { request ->
             requests++
-            assertTrue(compacted)
-            assertTrue(request.messages.getJSONObject(0).getString("content").contains("summary"))
-            assertFalse(request.messages.toString().contains("x".repeat(100)))
+            assertFalse(compacted)
+            assertEquals("x".repeat(352_000), request.messages.getJSONObject(0).getString("content"))
+            assertEquals("y".repeat(8000), request.messages.getJSONObject(2).getString("content"))
             JSONObject().put("role", "assistant").put("content", "done").put("finish_reason", "stop")
         }, AgentModelClient.ToolExecutor { error("No tools") }, AgentRunController(), AgentTraceFormatter(),
             onEvent = { if (it is AgentEvent.ContextCompacted && it.applied) compacted = true },
             compactPolicy = AgentLoop.CompactPolicy(true, 100_000, 1, model),
-            compactHistory = { history, policy -> listOf(message("user", "[Conversation summary]\nold task")) + history.drop(requireNotNull(policy.keepStartOverride)) },
+            compactHistory = { _, _ -> error("No cloud usage: must not summarize") },
         ).run()
         assertEquals(1, requests)
+        assertFalse(compacted)
     }
 
     @Test fun manualContinuationPrunesOldStepsButPreservesLatestBatchWithinOneRun() {

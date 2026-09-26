@@ -71,6 +71,7 @@ class AgentContextCompactorTest {
                 contextWindow = 1,
                 keepRecentMessages = 10,
                 thresholdPercent = 0,
+                estimatedTokens = 1,
             ),
         )
         assertTrue(
@@ -79,6 +80,7 @@ class AgentContextCompactorTest {
                 contextWindow = 1,
                 keepRecentMessages = 2,
                 thresholdPercent = 0,
+                estimatedTokens = 1,
             ),
         )
     }

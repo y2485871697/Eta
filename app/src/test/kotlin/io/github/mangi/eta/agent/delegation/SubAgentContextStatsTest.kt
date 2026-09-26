@@ -11,7 +11,7 @@ class SubAgentContextStatsTest {
         val t = tracker()
         t.accept(AgentEvent.UsageReceived(1, AgentTokenUsage(contextTokens = 2000, inputTokens = 1000, outputTokens = 100)))
         t.accept(AgentEvent.UsageReceived(1, AgentTokenUsage(inputTokens = 1200), projected = true))
-        assertEquals(1200, t.value.contextTokens)
+        assertEquals(1000, t.value.contextTokens)
         assertEquals(1000L, t.value.inputTokens)
         assertEquals(100L, t.value.outputTokens)
         t.accept(AgentEvent.UsageReceived(1, AgentTokenUsage(inputTokens = 1000, outputTokens = 110)))
@@ -31,6 +31,10 @@ class SubAgentContextStatsTest {
         assertFalse(t.value.isCompacting)
         assertNull(t.value.contextTokens)
         t.accept(AgentEvent.UsageReceived(2, AgentTokenUsage(inputTokens = 2000), true))
+        assertNull(t.value.afterCompactionTokens)
+        assertNull(t.accept(AgentEvent.UsageReceived(1, AgentTokenUsage(inputTokens = 9000))))
+        t.accept(AgentEvent.ProviderRequestStarted(2))
+        t.accept(AgentEvent.UsageReceived(2, AgentTokenUsage(inputTokens = 2000)))
         assertEquals(2000, t.value.afterCompactionTokens)
         assertEquals(1, t.value.compactionCount)
         t.accept(AgentEvent.ContextCompactionStarted(3))
@@ -58,6 +62,27 @@ class SubAgentContextStatsTest {
         assertNull(tracker.accept(AgentEvent.ContextCompacted(2, true, 20, 5)))
         assertEquals(terminal, tracker.value)
         assertEquals(terminal, SubAgentContextStats.fromJson(terminal.toJson()))
+    }
+
+    @Test fun partialBillsAreMergedButRepeatedRequestRoundsStaySeparate() {
+        val t = tracker()
+        t.accept(AgentEvent.ProviderRequestStarted(1))
+        t.accept(AgentEvent.UsageReceived(1, AgentTokenUsage(inputTokens = 8000)))
+        t.accept(AgentEvent.UsageReceived(1, AgentTokenUsage(outputTokens = 20)))
+        assertEquals(8000, t.value.contextTokens)
+        assertEquals(8000L, t.value.inputTokens)
+        assertEquals(20L, t.value.outputTokens)
+        t.accept(AgentEvent.UsageReceived(1, AgentTokenUsage(inputTokens = 4000)))
+        assertEquals(4000, t.value.contextTokens)
+        assertEquals(4000L, t.value.inputTokens)
+        t.accept(AgentEvent.ProviderRequestStarted(1))
+        t.accept(AgentEvent.UsageReceived(1, AgentTokenUsage(outputTokens = 7)))
+        assertEquals(4000L, t.value.inputTokens)
+        assertEquals(27L, t.value.outputTokens)
+        t.accept(AgentEvent.UsageReceived(1, AgentTokenUsage(inputTokens = 2000)))
+        assertEquals(2000, t.value.contextTokens)
+        assertEquals(6000L, t.value.inputTokens)
+        assertFalse(t.value.projected)
     }
 
 }

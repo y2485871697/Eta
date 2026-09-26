@@ -333,7 +333,7 @@ internal fun contextUsageProgress(contextTokens: Int?, contextWindow: Int?): Flo
 
 internal fun formatContextUsage(
     usage: AgentContextUsageUi,
-    noUsageText: String = "Unknown context usage; waiting for cloud usage",
+    noUsageText: String = "No conversation context yet",
     noLimitText: String = "The current model does not provide a context limit",
     locale: Locale = Locale.getDefault(),
 ): String = when {
