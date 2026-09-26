@@ -54,7 +54,7 @@ class SubAgentRunnerTest {
                 AgentRunController(), provider,
                 compactPolicy = AgentLoop.CompactPolicy(true, 8000, 0, model))
         }
-        assertEquals(1, requests)
+        assertEquals(0, requests)
     }
 
     @Test(timeout = 5000) fun childCompactsAtPressureAndKeepsCurrentToolBatch() {

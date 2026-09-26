@@ -4141,7 +4141,7 @@ internal class AgentAppState(
     }
 
     private fun updateLivePromptTokens(runId: String, tokens: Int?, projected: Boolean = false) {
-        if (stoppingRuns.containsKey(runId)) return
+        if (projected && stoppingRuns.containsKey(runId)) return
         if (tokens == null || tokens <= 0 || runId in invalidatedUsageRuns) return
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return

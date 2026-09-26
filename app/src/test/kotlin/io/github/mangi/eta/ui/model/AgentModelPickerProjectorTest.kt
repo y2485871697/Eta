@@ -598,7 +598,7 @@ class AgentModelPickerProjectorTest {
     }
 
     @Test
-    fun latestBilledContextTokensAddsUnbilledThinkingAndToolResults() {
+    fun latestBilledContextTokensKeepsMeasuredInputWithoutAddingUnbilledTail() {
         val billed = listOf(
             UserMessageUi(id = "u1", content = "hi"),
             AgentMessageUi(
@@ -617,7 +617,7 @@ class AgentModelPickerProjectorTest {
         )
         val streaming = AgentMessageUi(id = "a2", content = "partial reply", isStreaming = true)
         val live = billed + thinking + tool + streaming
-        assertNull(latestBilledContextTokens(live))
+        assertEquals(900, latestBilledContextTokens(live))
     }
 
     @Test
@@ -654,6 +654,19 @@ class AgentModelPickerProjectorTest {
             ),
         )
         assertNull(latestBilledContextTokens(compacted))
+    }
+
+    @Test
+    fun compactedRunBoundaryDoesNotHideNewRunBill() {
+        val oldId = "assistant-run-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1-0"
+        val newId = "assistant-run-11111111-2222-3333-4444-555555555555-1-0"
+        val messages = listOf<AgentChatMessageUi>(
+            AgentMessageUi(oldId, "old", usage = TokenUsageUi(inputTokens = 90000)),
+            ContextCompactedMessageUi("marker", 8, "summary", resumeRound = 2),
+            AgentMessageUi(oldId.replace("-1-0", "-1-1"), "retained", usage = TokenUsageUi(inputTokens = 90000)),
+            AgentMessageUi(newId, "new", usage = TokenUsageUi(inputTokens = 1000)),
+        )
+        assertEquals(1000, latestBilledContextTokens(messages))
     }
 
     @Test

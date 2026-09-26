@@ -66,7 +66,8 @@ class AgentAutomaticCompactionTest {
 
         assertEquals(1, provider.requests.size)
         assertEquals(0, summaries)
-        assertTrue(events.none { it is AgentEvent.UsageReceived })
+        assertTrue(events.filterIsInstance<AgentEvent.UsageReceived>().none { !it.projected })
+        assertEquals(1, events.filterIsInstance<AgentEvent.UsageReceived>().count { it.projected })
         assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
         assertTrue(events.none { it is AgentEvent.ContextCompacted })
     }
@@ -84,7 +85,7 @@ class AgentAutomaticCompactionTest {
         assertEquals(0, summaries)
         assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
         assertEquals(AUTO_PRESSURE - 1,
-            requireNotNull(events.filterIsInstance<AgentEvent.UsageReceived>().single().usage.inputTokens))
+            requireNotNull(events.filterIsInstance<AgentEvent.UsageReceived>().single { !it.projected }.usage.inputTokens))
     }
 
     @Test fun configuredWindowCompactsExactlyAtEightyPercentButNotOneTokenBelow() {
@@ -101,7 +102,7 @@ class AgentAutomaticCompactionTest {
 
             assertEquals(1, provider.requests.size)
             assertEquals(decisionTokens,
-                requireNotNull(events.filterIsInstance<AgentEvent.UsageReceived>().single().usage.inputTokens))
+                requireNotNull(events.filterIsInstance<AgentEvent.UsageReceived>().single { !it.projected }.usage.inputTokens))
             if (decisionTokens < threshold) {
                 assertEquals(0, summaries)
                 assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })

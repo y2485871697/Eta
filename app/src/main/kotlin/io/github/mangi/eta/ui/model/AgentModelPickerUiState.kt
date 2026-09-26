@@ -147,10 +147,18 @@ internal fun latestContextUsage(
  */
 internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int? {
     val compactIndex = messages.indexOfLast { it is ContextCompactedMessageUi }
-    // The latest assistant row may be a completed text row without a usage payload;
-    // walk backward to the latest assistant row that actually carries measured input.
+    val marker = messages.getOrNull(compactIndex) as? ContextCompactedMessageUi
+    fun runPrefix(message: AgentMessageUi): String? =
+        if (messageRoundFromId(message.id) == null) null
+        else message.id.substringBeforeLast("-").substringBeforeLast("-")
+    // Rounds restart in a new run: apply the marker only to its preceding run.
+    val compactedRun = if (compactIndex >= 0) messages.take(compactIndex)
+        .filterIsInstance<AgentMessageUi>().lastOrNull()?.let(::runPrefix) else null
     for (index in messages.lastIndex downTo (compactIndex + 1)) {
         val message = messages[index] as? AgentMessageUi ?: continue
+        val round = messageRoundFromId(message.id)
+        if (compactedRun != null && runPrefix(message) == compactedRun &&
+            round != null && round < (marker?.resumeRound ?: 0)) continue
         windowTokensFromUsage(message.usage)?.let { return it }
     }
     return null
