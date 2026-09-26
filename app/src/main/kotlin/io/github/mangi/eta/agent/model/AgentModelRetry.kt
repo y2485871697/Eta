@@ -31,34 +31,46 @@ internal class AgentModelRetry(
             var callbackFailure: Exception? = null
             var sawCompleted = false
             var sawVisibleText = false
+            // 每次 provider.complete 尝试独占一个投递闸门。SSE 的 finish() 先 countDown 再 cancel，
+            // 收集线程可能在读线程仍处于回调中时就从 complete 返回；闸门保证被取代的旧尝试的迟到
+            // 回调不再进入 onProviderEvent，避免覆盖后续请求记录的 usage。
+            val deliveryGate = ProviderEventDeliveryGate()
             try {
-                val response = provider.complete(attemptRequest, controller) { event ->
-                    // Mark before calling consumers: a throwing callback may already have
-                    // delivered a tool. Starts, deltas, and orphan ends all forbid replay.
-                    if (when (event) {
-                            is ProviderEvent.HostedToolStarted, is ProviderEvent.HostedToolFinished -> true
-                            is ProviderEvent.BlockStart -> event.kind == AssistantBlockKind.TOOL_CALL
-                            is ProviderEvent.BlockDelta -> event.kind == AssistantBlockKind.TOOL_CALL
-                            is ProviderEvent.BlockEnd -> event.kind == AssistantBlockKind.TOOL_CALL
-                            else -> false
+                val response = try {
+                    provider.complete(attemptRequest, controller) { event ->
+                        deliveryGate.deliver {
+                            // Mark before calling consumers: a throwing callback may already have
+                            // delivered a tool. Starts, deltas, and orphan ends all forbid replay.
+                            if (when (event) {
+                                    is ProviderEvent.HostedToolStarted, is ProviderEvent.HostedToolFinished -> true
+                                    is ProviderEvent.BlockStart -> event.kind == AssistantBlockKind.TOOL_CALL
+                                    is ProviderEvent.BlockDelta -> event.kind == AssistantBlockKind.TOOL_CALL
+                                    is ProviderEvent.BlockEnd -> event.kind == AssistantBlockKind.TOOL_CALL
+                                    else -> false
+                                }
+                            ) toolDeliveryPossible = true
+                            if (event is ProviderEvent.Completed) sawCompleted = true
+                            if (
+                                (event is ProviderEvent.BlockDelta &&
+                                    event.kind == AssistantBlockKind.TEXT && event.delta.isNotBlank()) ||
+                                (event is ProviderEvent.BlockEnd &&
+                                    event.kind == AssistantBlockKind.TEXT && event.content.isNotBlank())
+                            ) {
+                                sawVisibleText = true
+                            }
+                            try {
+                                onProviderEvent(round, event)
+                            } catch (failure: Exception) {
+                                callbackFailure = failure
+                                throw failure
+                            }
                         }
-                    ) toolDeliveryPossible = true
-                    if (event is ProviderEvent.Completed) sawCompleted = true
-                    if (
-                        (event is ProviderEvent.BlockDelta &&
-                            event.kind == AssistantBlockKind.TEXT && event.delta.isNotBlank()) ||
-                        (event is ProviderEvent.BlockEnd &&
-                            event.kind == AssistantBlockKind.TEXT && event.content.isNotBlank())
-                    ) {
-                        sawVisibleText = true
                     }
-                    try {
-                        onProviderEvent(round, event)
-                    } catch (failure: Exception) {
-                        callbackFailure = failure
-                        throw failure
-                    }
+                } finally {
+                    // 封闸并等到在途回调结束：只等回调本身，不等网络线程收尾，也不改动 SSE 取消时机。
+                    deliveryGate.close()
                 }
+                callbackFailure?.let { throw it }
                 return Result(round, response)
             } catch (failure: Exception) {
                 callbackFailure?.let { throw it }
