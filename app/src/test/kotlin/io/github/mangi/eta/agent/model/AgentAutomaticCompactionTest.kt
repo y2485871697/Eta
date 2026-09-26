@@ -50,7 +50,7 @@ class AgentAutomaticCompactionTest {
             })
             assertEquals(if (corrected) 0 else 1, summaries)
             assertEquals(1, provider.requests.size)
-            assertFalse(events.filterIsInstance<AgentEvent.UsageReceived>().any { it.projected })
+            assertEquals(1, events.filterIsInstance<AgentEvent.UsageReceived>().count { it.projected })
         }
     }
 
@@ -152,7 +152,7 @@ class AgentAutomaticCompactionTest {
         assertEquals(listOf("first", "second"), executions)
         assertEquals(3, provider.requests.size)
         assertEquals(1, summaries)
-        assertTrue(events.filterIsInstance<AgentEvent.UsageReceived>().none { it.projected })
+        assertEquals(2, events.filterIsInstance<AgentEvent.UsageReceived>().count { it.projected })
         assertEquals(2, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().single().round)
         // The batch that reported 80% is summarized once, after it finished. The usage-less round
         // after the summary must not re-summarize until a fresh usage is reported.
@@ -320,8 +320,8 @@ class AgentAutomaticCompactionTest {
         assertTrue(expectedTokens < AUTO_PRESSURE)
         assertEquals(1, compactCalls)
         assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
-        // The manual request compacts without any billed usage and without a local projection.
-        assertTrue(events.none { it is AgentEvent.UsageReceived && it.projected })
+        // The manual request compacts without any billed usage and without using a local projection for the compaction decision.
+        assertTrue(events.any { it is AgentEvent.UsageReceived && it.projected })
         assertEquals("current task", provider.requests.single()
             .getJSONObject(provider.requests.single().length() - 1).getString("content"))
     }
@@ -528,8 +528,8 @@ class AgentAutomaticCompactionTest {
             }).content)
 
         assertEquals(1, summaries)
-        // No local projection is ever published; the decision comes from the provider bill only.
-        assertTrue(events.none { it is AgentEvent.UsageReceived && it.projected })
+        // Local estimates may be displayed at the boundary; compaction decisions still come from the provider bill only.
+        assertTrue(events.any { it is AgentEvent.UsageReceived && it.projected })
         val applied = events.filterIsInstance<AgentEvent.ContextCompacted>().single()
         assertTrue(applied.applied)
         assertFalse(applied.blocked)

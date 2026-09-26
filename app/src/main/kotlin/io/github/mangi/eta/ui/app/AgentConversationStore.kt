@@ -110,7 +110,10 @@ internal object AgentConversationStore {
                     ConversationContextCheckpointEntity(
                         conversationId = conversationId,
                         historyJson = encodedHistory,
-                        cloudUsageJson = CloudUsageReceiptCodec.encode(conversationId, state.providerId, state.modelId, encodedHistory, state.livePromptTokens),
+                        cloudUsageJson = CloudUsageReceiptCodec.encode(
+                            conversationId, state.providerId, state.modelId, encodedHistory,
+                            state.livePromptTokens.takeUnless { state.livePromptIsProjected },
+                        ),
                     )
                 }
                 val dao = EtaDatabase.get(appContext).conversationDao()
@@ -202,8 +205,11 @@ internal object AgentConversationStore {
                 providerId = if (conversation.providerId.isBlank() && conversation.modelId.isBlank()) fallbackProviderId else conversation.providerId,
                 modelId = if (conversation.providerId.isBlank() && conversation.modelId.isBlank()) fallbackModelId else conversation.modelId,
                 assistantId = conversation.assistantId,
-                livePromptTokens = checkpoint?.let { CloudUsageReceiptCodec.decode(
-                    it.cloudUsageJson, conversation.id, conversation.providerId, conversation.modelId, it.historyJson) },
+                livePromptTokens = checkpoint?.let { checkpointEntity ->
+                    CloudUsageReceiptCodec.decode(
+                        checkpointEntity.cloudUsageJson, conversation.id, conversation.providerId, conversation.modelId, checkpointEntity.historyJson,
+                    )
+                } ?: io.github.mangi.eta.ui.model.latestBilledContextTokens(messages),
             )
             titles[conversation.id] = conversation.title.takeUnless { it == LEGACY_UNNAMED_TITLE }.orEmpty()
             updatedAt[conversation.id] = conversation.updatedAt

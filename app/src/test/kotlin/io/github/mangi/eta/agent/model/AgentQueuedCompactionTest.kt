@@ -56,7 +56,7 @@ class AgentQueuedCompactionTest {
             assertEquals(compactions + 1, requests)
             assertEquals(compactions, toolRuns)
             assertEquals(compactions, events.filterIsInstance<AgentEvent.ContextCompacted>().count { it.applied })
-            assertTrue(events.filterIsInstance<AgentEvent.UsageReceived>().none { it.projected })
+            assertEquals(if (freshUsage) 3 else 2, events.filterIsInstance<AgentEvent.UsageReceived>().count { it.projected })
         }
     }
 

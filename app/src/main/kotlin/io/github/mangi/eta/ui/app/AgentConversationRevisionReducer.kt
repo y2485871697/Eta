@@ -64,6 +64,7 @@ internal object AgentConversationRevisionReducer {
             history = boundary.historyPrefix,
             messageEdit = null,
             livePromptTokens = null,
+            livePromptIsProjected = false,
         )
     }
 
