@@ -28,8 +28,8 @@ import top.yukonga.miuix.kmp.basic.Text
 @Composable
 internal fun AgentTaskPreferenceScreen(onBack: () -> Unit, onOpenRecovery: () -> Unit) {
     val moduleInstalled = rememberTaskBackendInstalled()
-    if (!moduleInstalled) {
-        LaunchedEffect(Unit) { onBack() }
+    if (moduleInstalled != true) {
+        LaunchedEffect(moduleInstalled) { if (moduleInstalled == false) onBack() }
         return
     }
     val view = LocalView.current

@@ -1,29 +1,27 @@
 package io.github.mangi.eta.ui
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.mangi.eta.agent.device.AgentTaskSurface
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.withContext
 
-/** Installation, not a live-session or transient Root probe. Recheck on returning to settings. */
+/** Null means checking, not an absent module. Never probe the live owner. */
 @Composable
-internal fun rememberTaskBackendInstalled(): Boolean {
+internal fun rememberTaskBackendInstalled(): Boolean? {
     val owner = LocalLifecycleOwner.current
-    var installed by remember { mutableStateOf(runCatching { AgentTaskSurface.moduleInstalled() }.getOrDefault(false)) }
-    DisposableEffect(owner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                installed = runCatching { AgentTaskSurface.moduleInstalled() }.getOrDefault(false)
+    val installed by produceState<Boolean?>(initialValue = null, owner) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            value = withContext(Dispatchers.IO) {
+                runCatching { AgentTaskSurface.moduleInstalled() }.getOrDefault(false)
             }
+            awaitCancellation()
         }
-        owner.lifecycle.addObserver(observer)
-        onDispose { owner.lifecycle.removeObserver(observer) }
     }
     return installed
 }

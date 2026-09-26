@@ -10,9 +10,9 @@ class VirtualDisplaySettingsUiTest(unittest.TestCase):
         task = (UI / "AgentTaskPreferenceScreen.kt").read_text()
         self.assertNotIn("VirtualDisplayRecoveryPreference", settings)
         self.assertNotIn("vd_recovery_title", settings)
-        self.assertIn("if (taskBackendInstalled)", settings)
+        self.assertIn("if (taskBackendInstalled == true)", settings)
         self.assertIn("onClick = onOpenRecovery", task)
-        self.assertIn("if (!moduleInstalled)", task)
+        self.assertIn("if (moduleInstalled != true)", task)
 
     def test_recovery_is_material_page_not_dialog(self):
         page = (UI / "VirtualDisplayRecoveryScreen.kt").read_text()
@@ -31,10 +31,10 @@ class VirtualDisplaySettingsUiTest(unittest.TestCase):
 
     def test_installation_is_rechecked_on_resume_not_live_backend_status(self):
         source = (UI / "TaskBackendInstallation.kt").read_text()
-        self.assertIn("Lifecycle.Event.ON_RESUME", source)
+        self.assertIn("Lifecycle.State.RESUMED", source)
         self.assertIn("AgentTaskSurface.moduleInstalled()", source)
         self.assertNotIn("inspect_virtual_backend", source)
-        self.assertIn("removeObserver(observer)", source)
+        self.assertIn("awaitCancellation()", source)
 
 if __name__ == "__main__":
     unittest.main()

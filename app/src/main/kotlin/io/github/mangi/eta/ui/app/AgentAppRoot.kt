@@ -637,7 +637,7 @@ fun AgentAppRoot(
                     onOpenRecovery = { pushRoute(AppRoute.VirtualDisplayRecovery) },
                 )
             }
-            entry<AppRoute.VirtualDisplayRecovery>(swipeDismiss = swipeDismiss) {
+            entry<AppRoute.VirtualDisplayRecovery>(swipeDismiss = null) {
                 VirtualDisplayRecoveryScreen(onBack = ::popRoute)
             }
             entry<AppRoute.Tools>(swipeDismiss = swipeDismiss) {

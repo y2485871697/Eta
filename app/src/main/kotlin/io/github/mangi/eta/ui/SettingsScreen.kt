@@ -443,7 +443,7 @@ internal fun SettingsScreen(
                         onClick = { onNavigate(AppRoute.Tools) },
                     )
 
-                    if (taskBackendInstalled) {
+                    if (taskBackendInstalled == true) {
                         ArrowPreference(
                             title = stringResource(R.string.agent_task_surface_title),
                             summary = stringResource(

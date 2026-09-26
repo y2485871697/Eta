@@ -40,16 +40,20 @@ internal fun VirtualDisplayRecoveryScreen(
     recover: (Context) -> JSONObject = VirtualDisplaySession::recoverAndFinishManually,
 ) {
     val installed = rememberTaskBackendInstalled()
-    if (!installed) {
-        LaunchedEffect(Unit) { onBack() }
-        return
-    }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     var previewRunning by remember { mutableStateOf(VirtualDisplayWebPreview.isRunning()) }
     var working by remember { mutableStateOf(false) }
     var state by remember { mutableStateOf<JSONObject?>(null) }
     var result by remember { mutableStateOf<JSONObject?>(null) }
+
+    LaunchedEffect(installed, working) {
+        if (installed == false && !working) {
+            VirtualDisplayWebPreview.stop()
+            previewRunning = false
+            onBack()
+        }
+    }
 
     fun refresh() {
         if (working) return
@@ -125,13 +129,17 @@ internal fun VirtualDisplayRecoveryScreen(
             }
             Text(stringResource(R.string.vd_preview_note))
             Button(
-                enabled = !working && snapshot?.optBoolean("present") == true,
+                enabled = installed == true && !working && snapshot?.optBoolean("present") == true,
                 onClick = {
                     if (!working) {
                         working = true
                         scope.launch {
                             try {
                                 val uri = withContext(Dispatchers.IO) { VirtualDisplayWebPreview.open(context) }
+                                val stillInstalled = withContext(Dispatchers.IO) {
+                                    io.github.mangi.eta.agent.device.AgentTaskSurface.moduleInstalled()
+                                }
+                                check(stillInstalled) { "Backend module removed" }
                                 previewRunning = true
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri))
                                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -153,9 +161,9 @@ internal fun VirtualDisplayRecoveryScreen(
                     previewRunning = false
                 }) { Text(stringResource(R.string.vd_preview_stop)) }
             OutlinedButton(
-                enabled = !working, onClick = { refresh() }) { Text(stringResource(R.string.vd_recovery_refresh)) }
+                enabled = installed == true && !working, onClick = { refresh() }) { Text(stringResource(R.string.vd_recovery_refresh)) }
             Button(
-                enabled = !working && snapshot != null && snapshot.optBoolean("ok") &&
+                enabled = installed == true && !working && snapshot != null && snapshot.optBoolean("ok") &&
                     snapshot.optBoolean("present") && snapshot.optBoolean("recoverable"),
                 onClick = {
                     if (!working) {
