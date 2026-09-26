@@ -81,6 +81,12 @@ internal fun VirtualDisplayRecoveryScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // The external browser only pauses this page. Revoke preview on actual disposal,
+    // not ON_PAUSE/ON_STOP, so opening the viewer does not kill its own connection.
+    DisposableEffect(Unit) {
+        onDispose { VirtualDisplayWebPreview.stop() }
+    }
+
     val snapshot = state
     val summary = when {
         snapshot == null -> stringResource(R.string.vd_recovery_working)

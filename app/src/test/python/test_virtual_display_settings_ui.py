@@ -37,5 +37,12 @@ class VirtualDisplaySettingsUiTest(unittest.TestCase):
         self.assertNotIn("inspect_virtual_backend", source)
         self.assertIn("awaitCancellation()", source)
 
+    def test_leaving_recovery_revokes_preview_without_stopping_on_pause(self):
+        page = (UI / "VirtualDisplayRecoveryScreen.kt").read_text()
+        cleanup = page.split("DisposableEffect(Unit) {", 1)[1].split("val snapshot", 1)[0]
+        self.assertIn("onDispose { VirtualDisplayWebPreview.stop() }", cleanup)
+        self.assertNotIn("Lifecycle.Event.ON_PAUSE", page)
+        self.assertNotIn("Lifecycle.Event.ON_STOP", page)
+
 if __name__ == "__main__":
     unittest.main()
