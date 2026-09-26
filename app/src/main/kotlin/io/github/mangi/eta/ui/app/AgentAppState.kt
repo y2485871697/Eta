@@ -852,7 +852,7 @@ internal class AgentAppState(
         val existing = conversationsById[conversationId] ?: return false
         if (AgentRuntimeHistoryReducer.wasApplied(existing, runId)) return false
 
-        runConversationIds[runId] = conversationId
+        bindRunConversation(runId, conversationId)
         updateConversation(conversationId, existing.copy(isStreaming = true))
         restoreRunEvents(runId, checkpoint.events)
         flushPendingRunDelta(runId)
@@ -897,7 +897,7 @@ internal class AgentAppState(
         val existing = conversationsById[conversationId] ?: return
         if (runId in runJobs || AgentRuntimeHistoryReducer.wasApplied(existing, runId)) return
 
-        runConversationIds[runId] = conversationId
+        bindRunConversation(runId, conversationId)
         updateConversation(conversationId, existing.copy(isStreaming = true))
         refreshConversationSummaries()
         runJobs[runId] = scope.launch(Dispatchers.IO) {
@@ -996,7 +996,7 @@ internal class AgentAppState(
         if (conversationTitles[conversationId].isNullOrBlank()) {
             conversationTitles = conversationTitles + (conversationId to payload.title)
         }
-        runConversationIds[runId] = conversationId
+        bindRunConversation(runId, conversationId)
         updateConversation(
             conversationId,
             existingState.copy(
@@ -2039,7 +2039,7 @@ internal class AgentAppState(
         val runOverhead = requestOverheadTokens
         val runBilledOverhead = billedOverheadTokens
         val taggedUserHistoryMessage = userHistoryMessage.copy(turnId = logicalTurnId)
-        runConversationIds[runId] = conversationId
+        bindRunConversation(runId, conversationId)
         runCloudUsage[runId] = CloudContextUsageState(ContextUsageScope(conversationId, state.providerId, state.modelId, 0))
         runOverheadTokens[runId] = requestOverheadTokens
         val generateVideo = runModel.supportsVideoGeneration
@@ -4134,8 +4134,17 @@ internal class AgentAppState(
         billedOverheadTokens = overhead
     }
 
+    private fun bindRunConversation(runId: String, conversationId: String) {
+        runConversationIds[runId] = conversationId
+        runUsageResumeRounds.remove(runId)
+        conversationsById[conversationId]?.let { state ->
+            runCloudUsage[runId] = CloudContextUsageState(
+                ContextUsageScope(conversationId, state.providerId, state.modelId, 0))
+        }
+    }
+
     private fun resetLiveUsageForRequest(runId: String) {
-        if (runId in stoppingRuns) return
+        if (stoppingRuns.containsKey(runId)) return
         val id = conversationIdForRun(runId) ?: return
         val state = conversationsById[id] ?: return
         val previous = runCloudUsage[runId] ?: CloudContextUsageState(
@@ -4147,7 +4156,7 @@ internal class AgentAppState(
     }
 
     private fun updateLivePromptTokens(runId: String, tokens: Int?) {
-        if (runId in stoppingRuns) return
+        if (stoppingRuns.containsKey(runId)) return
         val id = conversationIdForRun(runId) ?: return
         val state = conversationsById[id] ?: return
         val previous = runCloudUsage[runId] ?: return

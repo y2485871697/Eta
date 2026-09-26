@@ -8,7 +8,7 @@ import org.junit.Test
 
 class AgentContextCompactionUiTest {
     @Test
-    fun pendingPruningThenSummaryFailureKeepsLatestBillInsteadOfOldNineteenPercentBaseline() {
+    fun pendingPruningThenSummaryFailureCannotRestoreOldBillOrLocalBaseline() {
         val messages = listOf<AgentChatMessageUi>(
             ContextCompactedMessageUi("old", compactedCount = 10, summary = "old summary",
                 baselineTokens = 51_680),
@@ -16,20 +16,22 @@ class AgentContextCompactionUiTest {
         )
         // Before the fix, clearing livePromptTokens made this old 19% baseline visible.
         assertEquals(null, latestBilledContextTokens(messages))
-        val afterPruning = AgentContextCompactionUi.pendingPruningUsage(238_000, messages)
-        assertEquals(238_000, afterPruning)
-        // A failed summary has no new baseline; repeated pruning must not discard this bill.
-        assertEquals(238_000, AgentContextCompactionUi.pendingPruningUsage(afterPruning, messages))
+        val scope = ContextUsageScope("conversation", "provider", "model", 0)
+        val measured = CloudContextUsageState(scope).receive(scope, TokenUsageUi(inputTokens = 238_000))
+        val afterPruning = measured.invalidate()
+        assertEquals(null, afterPruning.inputTokens)
+        assertEquals(null, afterPruning.restore(measured.snapshot()).inputTokens)
+        assertEquals(null, afterPruning.invalidate().inputTokens)
     }
 
     @Test
-    fun pendingPruningWithoutLiveBillKeepsExistingUsageSource() {
+    fun pendingPruningWithoutCloudBillRemainsUnknown() {
         val messages = listOf<AgentChatMessageUi>(
             ContextCompactedMessageUi("old", compactedCount = 10, summary = "old summary",
                 baselineTokens = 51_680),
         )
-        assertEquals(null, AgentContextCompactionUi.pendingPruningUsage(null, messages))
-        assertEquals(null, AgentContextCompactionUi.pendingPruningUsage(null, emptyList()))
+        assertEquals(null, latestBilledContextTokens(messages))
+        assertEquals(null, CloudContextUsageState(ContextUsageScope("c", "p", "m", 0)).invalidate().inputTokens)
     }
 
     @Test
