@@ -138,6 +138,29 @@ internal fun VirtualDisplayRecoveryPreference(
                         }
                     }
                 })
+            TextButton(text = stringResource(R.string.vd_preview_control_open),
+                enabled = !working && snapshot?.optBoolean("present") == true,
+                onClick = {
+                    if (!working) {
+                        working = true
+                        scope.launch {
+                            try {
+                                val uri = withContext(Dispatchers.IO) { VirtualDisplayWebPreview.openWithManualClose(context) }
+                                previewRunning = true
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            } catch (ex: CancellationException) {
+                                VirtualDisplayWebPreview.stop()
+                                previewRunning = false
+                                throw ex
+                            } catch (_: Exception) {
+                                VirtualDisplayWebPreview.stop()
+                                previewRunning = false
+                                result = JSONObject().put("ok", false).put("error", "WEB_PREVIEW_OPEN_FAILED")
+                            } finally { working = false }
+                        }
+                    }
+                })
             if (previewRunning) TextButton(text = stringResource(R.string.vd_preview_stop),
                 enabled = !working, onClick = {
                     VirtualDisplayWebPreview.stop()

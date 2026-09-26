@@ -157,34 +157,39 @@ internal object VirtualDisplaySession {
             s.handoffBudget.reset()
             return reply(true).put("recovered", true).put("cleanup_only", true).put("phase", s.phase)
         }
-        val saved = try { recoveryPrefs(context) } catch (_: Exception) { return reply(false, "RECOVERY_STATE_UNREADABLE") }
-        if (!createIfMissing && runCatching { saved.all.isEmpty() }.getOrDefault(false)) {
-            return reply(false, "NO_VIRTUAL_SESSION")
+        var recoveryStage = "record_read"
+        val saved = try { recoveryPrefs(context) } catch (ex: Exception) {
+            val e = VirtualDisplayRecoveryException.classify(recoveryStage, ex)
+            return reply(false, e.code).put("recovery_stage", e.stage)
         }
+        if (!createIfMissing && runCatching { saved.all.isEmpty() }.getOrDefault(false)) return reply(false, "NO_VIRTUAL_SESSION")
         val s = Session()
         sessions[runId] = s
         val boot = bootId() ?: return fail(s, "BOOT_ID_UNAVAILABLE")
         try {
-            val hasRecord = saved.all.isNotEmpty()
-            val savedBoot = saved.getString("boot", null)
-            if (hasRecord && savedBoot != null && savedBoot != boot) {
-                // An exact boot UUID change proves the old process/display cannot survive.
+            val fields = saved.all
+            if (fields.isNotEmpty() && VirtualDisplayRecoveryRecord.previousBoot(fields["boot"], boot)) {
+                recoveryStage = "record_write"
                 if (!saved.edit().clear().commit()) return fail(s, "RECOVERY_STATE_UNWRITABLE")
-            } else if (hasRecord) {
-                // Legacy records without a boot UUID are never silently discarded.
-                val c = VirtualDisplayOwnerClient.reconnect(AndroidAgentLogger,
-                    saved.getString("socket", "").orEmpty(), saved.getLong("pid", -1),
-                    saved.getInt("display", -1), saved.getString("unique", "").orEmpty(),
-                    saved.getString("token", "").orEmpty(), saved.getString("run", runId).orEmpty())
-                    ?: return fail(s, "RECOVERY_UNCERTAIN")
+            } else if (fields.isNotEmpty()) {
+                recoveryStage = "record_decode"
+                val record = VirtualDisplayRecoveryRecord.decode(fields)
+                if (record.boot != boot) throw VirtualDisplayRecoveryException(recoveryStage, "RECOVERY_BOOT_MISMATCH")
+                if (record.mutationBarrier != null) return fail(s, "MUTATION_UNCERTAIN_NO_REPLAY")
+                recoveryStage = "connect"
+                val c = VirtualDisplayOwnerClient.reconnectChecked(AndroidAgentLogger, record.socket, record.pid,
+                    record.displayId, record.uniqueId, record.token, record.run)
                 s.client = c
+                recoveryStage = "status"
                 val state = c.status()
-                val observed = handoffState(c, state) ?: return fail(s, "OWNER_STATE_UNKNOWN")
+                recoveryStage = "handoff_state"
+                val observed = handoffState(c, state)
+                    ?: throw VirtualDisplayRecoveryException(recoveryStage, "RECOVERY_HANDOFF_STATE_INVALID")
                 val registered = observed.retainedTaskIds
-                val selection = saved.getString("kept", null)
-                val restored = if (selection == null) registered else ids(JSONArray(selection))
-                    ?: return fail(s, "RECOVERY_SELECTION_INVALID")
-                if (!registered.containsAll(restored)) return fail(s, "RECOVERY_SELECTION_INVALID")
+                recoveryStage = "selection"
+                val restored = record.kept?.let { ids(JSONArray(it))
+                    ?: throw VirtualDisplayRecoveryException(recoveryStage, "RECOVERY_SELECTION_INVALID") } ?: registered
+                if (!registered.containsAll(restored)) throw VirtualDisplayRecoveryException(recoveryStage, "RECOVERY_SELECTION_INVALID")
                 s.kept.addAll(restored)
                 s.persisted = true
                 s.cleanupOnly = true
@@ -192,7 +197,14 @@ internal object VirtualDisplaySession {
                 s.phase = "held"
                 return body(state).put("recovered", true).put("cleanup_only", true).put("run_id", runId)
             }
-        } catch (_: Exception) { return fail(s, "RECOVERY_STATE_UNREADABLE") }
+        } catch (ex: Exception) {
+            val e = VirtualDisplayRecoveryException.classify(recoveryStage, ex)
+            AndroidAgentLogger.warn("Virtual display recovery stage=${e.stage} code=${e.code} field=${e.field} type=${e.exceptionType}")
+            // This block authenticates and reads only; it has not sent a handoff or release.
+            s.phase = "held"; s.closedRun = true; s.cleanupOnly = true
+            return reply(false, e.code).put("recovery_stage", e.stage).put("recovery_field", e.field)
+                .put("mutation_uncertain", false).put("automatic_retry_allowed", false).also { s.receipt = it }
+        }
         // Manual recovery must never create a display merely to close it.
         if (!createIfMissing) {
             sessions.remove(runId)
@@ -322,6 +334,114 @@ internal object VirtualDisplaySession {
             return denied("PREVIEW_UNAVAILABLE")
         } finally {
             // Closing a borrowed read connection never releases the display or its owner.
+            if (borrowed) client?.close()
+        }
+    }
+
+    private val manualCloser = VirtualDisplayManualClose()
+
+    @Synchronized fun prepareManualClose(context: Context, selected: VirtualDisplayPreviewHttpServer.Identity): VirtualDisplayManualClose.Result =
+        manualCloseOperation(context, selected, null)
+
+    @Synchronized fun commitManualClose(context: Context, selected: VirtualDisplayPreviewHttpServer.Identity, nonce: String): VirtualDisplayManualClose.Result =
+        manualCloseOperation(context, selected, nonce)
+
+    /** Entire prepare/commit, including evidence and journal, is under the Session monitor. */
+    private fun manualCloseOperation(context: Context, selected: VirtualDisplayPreviewHttpServer.Identity, nonce: String?): VirtualDisplayManualClose.Result {
+        fun blocked(code: String) = VirtualDisplayManualClose.Result("blocked", code)
+        if (!VirtualDisplayPreviewHttpServer.validIdentity(selected)) return blocked("PREVIEW_IDENTITY_INVALID")
+        var borrowed = false
+        var client: VirtualDisplayOwnerClient? = null
+        var attempted = false
+        var stage = "record_read"
+        try {
+            val saved = recoveryPrefs(context)
+            val fields = saved.all
+            if (fields.isEmpty()) return blocked("NO_VIRTUAL_SESSION")
+            stage = "record_decode"
+            val record = VirtualDisplayRecoveryRecord.decode(fields)
+            if (record.displayId != selected.displayId || record.uniqueId != selected.uniqueId) return blocked("PREVIEW_DISPLAY_GONE")
+            val currentBoot = bootId() ?: return blocked("BOOT_ID_UNAVAILABLE")
+            if (record.boot != currentBoot) return blocked("RECOVERY_BOOT_MISMATCH")
+            val pending = sessions.values.filter { it.phase != "finished" }
+            if (pending.size > 1) return blocked("OWNER_STATE_UNKNOWN")
+            val session = pending.singleOrNull()
+            if (pending.any { !it.closedRun }) return blocked("ACTIVE_AGENT_OWNER")
+            if (record.mutationBarrier != null) return blocked("MUTATION_UNCERTAIN_NO_REPLAY")
+            stage = "connect"
+            client = session?.client?.takeIf { it.isAlive }
+            if (client == null) {
+                client = VirtualDisplayOwnerClient.reconnectChecked(AndroidAgentLogger, record.socket, record.pid,
+                    record.displayId, record.uniqueId, record.token, record.run)
+                borrowed = true
+            }
+            val owner = requireNotNull(client)
+            if (owner.ownerPid != record.pid || owner.socketName != record.socket ||
+                owner.displayId != record.displayId || owner.uniqueId != record.uniqueId) return blocked("RECOVERY_OWNER_IDENTITY_MISMATCH")
+            stage = "status"
+            val backend = object : VirtualDisplayManualClose.Backend {
+                override fun evidence(): VirtualDisplayManualClose.Evidence {
+                    val nowRecord = VirtualDisplayRecoveryRecord.decode(saved.all)
+                    val state = owner.status()
+                    val data = state.json
+                    val observed = handoffState(owner, state)
+                    val sameRecord = nowRecord.key() == record.key() && nowRecord.token == record.token && nowRecord.run == record.run
+                    return VirtualDisplayManualClose.Evidence(
+                        record.key(), bootId(), observed != null && sameRecord,
+                        sessions.values.any { !it.closedRun && it.phase != "finished" },
+                        data?.opt("sourceState") as? String, data?.opt("sourceTaskCount") as? Int,
+                        data?.opt("sourceEmpty") as? Boolean, observed?.retainedTaskIds?.size,
+                        data?.opt("finishing") as? Boolean, data?.opt("handoffComplete") as? Boolean,
+                        data?.opt("releaseAttempted") as? Boolean, data?.opt("mutationUncertain") as? Boolean,
+                        nowRecord.mutationBarrier != null || (session?.handoffState != null &&
+                            session.receipt?.opt("mutation_uncertain") == true),
+                    )
+                }
+                override fun markAttempt(): Boolean {
+                    val now = VirtualDisplayRecoveryRecord.decode(saved.all)
+                    if (now.key() != record.key() || now.token != record.token || now.run != record.run || now.mutationBarrier != null) return false
+                    val persisted = saved.edit().putString(VirtualDisplayRecoveryRecord.BARRIER, "manual_release_pending").commit()
+                    if (persisted) { attempted = true; session?.handoffBudget?.stop() }
+                    return persisted
+                }
+                override fun release(): Boolean = owner.release().ok
+                override fun confirmGone(): Boolean {
+                    val manager = context.getSystemService(android.hardware.display.DisplayManager::class.java) ?: return false
+                    repeat(40) {
+                        if (bootId() != record.boot) return false
+                        val originalDisplayGone = manager.getDisplay(record.displayId)?.uniqueId != record.uniqueId
+                        // Signal zero is a read-only existence check, never a process termination.
+                        val originalProcessGone = try {
+                            android.system.Os.kill(record.pid.toInt(), 0); false
+                        } catch (ex: android.system.ErrnoException) {
+                            ex.errno == android.system.OsConstants.ESRCH
+                        }
+                        if (originalDisplayGone && originalProcessGone) return true
+                        Thread.sleep(50)
+                    }
+                    return false
+                }
+                override fun clearConfirmed(): Boolean {
+                    val now = VirtualDisplayRecoveryRecord.decode(saved.all)
+                    if (now.key() != record.key() || now.token != record.token || now.run != record.run ||
+                        now.mutationBarrier != "manual_release_pending") return false
+                    val cleared = saved.edit().clear().commit()
+                    if (cleared) {
+                        session?.let {
+                            it.phase = "finished"
+                            it.receipt = reply(true).put("released", true).put("manual_close", true)
+                        }
+                        owner.close()
+                    }
+                    return cleared
+                }
+            }
+            return if (nonce == null) manualCloser.prepare(backend) else manualCloser.close(nonce, backend)
+        } catch (ex: Exception) {
+            val failure = VirtualDisplayRecoveryException.classify(stage, ex)
+            AndroidAgentLogger.warn("Virtual display manual close stage=${failure.stage} code=${failure.code} type=${failure.exceptionType}")
+            return if (attempted) VirtualDisplayManualClose.Result("closed_unconfirmed", "RELEASE_UNCONFIRMED") else blocked(failure.code)
+        } finally {
             if (borrowed) client?.close()
         }
     }
@@ -483,6 +603,10 @@ internal object VirtualDisplaySession {
         // A successful release stops the owner; post-response isAlive is not transport proof.
         val authenticatedReleaseConnection = c.isAlive
         if (!authenticatedReleaseConnection) return fail(s, "RELEASE_UNCERTAIN")
+        val releaseContext = ctx ?: return fail(s, "RECOVERY_STATE_UNWRITABLE")
+        if (!runCatching { recoveryPrefs(releaseContext).edit()
+                .putString(VirtualDisplayRecoveryRecord.BARRIER, "automatic_release_pending").commit() }.getOrDefault(false))
+            return fail(s, "RECOVERY_STATE_UNWRITABLE")
         val released = try { c.release() }
             catch (_: InterruptedException) { Thread.currentThread().interrupt(); return fail(s, "RELEASE_UNCERTAIN") }
             catch (_: Exception) { return fail(s, "RELEASE_UNCERTAIN") }

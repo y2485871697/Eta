@@ -172,10 +172,10 @@
             etaRequested = true;
             history.replaceState(null, '', location.pathname + location.search);
             // Treat the preview-only bearer as opaque, not as an owner IPC token.
-            const match = /^eta-preview=([0-9]{1,5})[.]([A-Za-z0-9._~+/-]+=*)$/.exec(fragment);
+            const match = /^eta-preview=([0-9]{1,5})[.]([A-Za-z0-9._~+/-]+=*)(?:&eta_control=([a-f0-9]{64}))?$/.exec(fragment);
             if (!match || +match[1] < 1 || +match[1] > 65535 ||
                 !['http://127.0.0.1:3070', 'http://localhost:3070'].includes(location.origin)) return null;
-            return { port: +match[1], token: match[2] };
+            return { port: +match[1], token: match[2], controlToken: match[3] || null };
         })();
 
         const statusEl = document.getElementById('status-display');
@@ -193,6 +193,9 @@
         let toggling = false;
         let previewMode = etaRequested ? 'eta' : 'module';
         let etaDisplays = [], etaSelected = null;
+        let etaCloseBusy = false;
+        const etaUnconfirmed = new Set();
+        const etaIdentityKey = d => JSON.stringify([d.displayId, d.uniqueId]);
         let etaUnavailable = etaRequested
             ? '预览链接无效，请从代鱼副屏入口重新打开'
             : '未连接代鱼预览，请从代鱼副屏入口打开';
@@ -249,12 +252,16 @@
             });
             const selectedIndex = etaDisplays.findIndex(display => sameDisplay(display, etaSelected));
             displayEl.value = selectedIndex < 0 ? '' : String(selectedIndex);
-            displayEl.disabled = etaDisplays.length === 0;
+            displayEl.disabled = etaCloseBusy || etaDisplays.length === 0;
         }
         function renderToggle() {
             if (previewMode === 'eta') {
-                toggleEl.disabled = true;
-                toggleEl.textContent = '只读 · 不控制副屏';
+                const authorized = Boolean(etaConfig && etaConfig.controlToken);
+                const uncertain = etaSelected && etaUnconfirmed.has(etaIdentityKey(etaSelected));
+                toggleEl.className = 'btn-stop';
+                toggleEl.disabled = !authorized || !etaSelected || etaCloseBusy || Boolean(uncertain);
+                toggleEl.textContent = !authorized ? '只读 · 不控制副屏' : etaCloseBusy
+                    ? '正在核验关闭…' : uncertain ? '关闭结果未确认' : '手动关闭空副屏';
             } else if (screenState === 'running') {
                 toggleEl.className = 'btn-stop';
                 toggleEl.textContent = '关闭副屏';
@@ -273,11 +280,12 @@
             modeEl.value = previewMode;
             displayControlsEl.hidden = previewMode !== 'eta';
             footerEl.textContent = previewMode === 'eta'
-                ? '代鱼只读预览 · 手动刷新列表和画面 · 创建、关闭和输入请到代鱼操作'
+                ? (etaConfig && etaConfig.controlToken ? '已授权手动关闭 · 仅关闭身份和空屏状态已核实的代鱼副屏 · 不强杀或自动重试' : '代鱼只读预览 · 手动刷新列表和画面 · 手动关闭请从代鱼的「网页预览与手动关闭」入口授权')
                 : '模块画面为手动刷新。代鱼会话请切换到「代鱼副屏（只读）」。';
             renderToggle();
         }
         function changePreviewMode() {
+            if (etaCloseBusy) { modeEl.value = previewMode; return; }
             cancelRequests();
             previewMode = modeEl.value === 'eta' ? 'eta' : 'module';
             // Do not reuse a legacy status after spending time in Eta mode.
@@ -375,7 +383,7 @@
         // One bounded request per user action (or initial entry); no polling,
         // automatic retries, visibility-based refresh, or legacy fallback.
         async function etaRefresh(reloadList = true) {
-            if (previewMode !== 'eta') return;
+            if (previewMode !== 'eta' || etaCloseBusy) return;
             const { generation, controller } = beginRequest();
             if (!etaConfig) {
                 etaDisplays = []; etaSelected = null; renderDisplays('未连接代鱼预览');
@@ -415,12 +423,98 @@
             } finally {
                 clearTimeout(timeout);
                 if (requestAbort === controller) requestAbort = null;
+                renderToggle();
             }
         }
         function etaSelectDisplay() {
+            if (etaCloseBusy) { renderDisplays(); return; }
             if (previewMode !== 'eta') return;
             etaSelected = displayEl.value === '' ? null : etaDisplays[Number(displayEl.value)] || null;
             return etaRefresh(false);
+        }
+
+        async function etaClosePost(path, selected, controller, nonce = null) {
+            const headers = {
+                Authorization: 'Bearer ' + etaConfig.token,
+                'X-Eta-Control-Token': etaConfig.controlToken,
+                'X-Eta-Display-Id': String(selected.displayId),
+                'X-Eta-Display-Unique-Id': selected.uniqueId
+            };
+            if (nonce !== null) headers['X-Eta-Close-Nonce'] = nonce;
+            const response = await fetch('http://127.0.0.1:' + etaConfig.port + path, {
+                method: 'POST', mode: 'cors', headers, signal: controller.signal,
+                cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'
+            });
+            if (![200, 409, 503].includes(response.status) ||
+                (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() !== 'application/json')
+                throw new Error('CLOSE_RESPONSE_UNAVAILABLE');
+            const length = response.headers.get('Content-Length');
+            if (length !== null && (!/^[0-9]+$/.test(length) || +length > 8192)) throw new Error('CLOSE_RESPONSE_INVALID');
+            const data = await response.json();
+            if (!data || JSON.stringify(data).length > 8192 ||
+                !['prepared', 'blocked', 'closed_confirmed', 'closed_unconfirmed'].includes(data.outcome) ||
+                typeof data.reason !== 'string' || !/^[A-Z0-9_]{0,100}$/.test(data.reason))
+                throw new Error('CLOSE_RESPONSE_INVALID');
+            if ((data.outcome === 'prepared' || data.outcome === 'closed_confirmed') && response.status !== 200)
+                throw new Error('CLOSE_RESPONSE_INVALID');
+            return data;
+        }
+
+        async function etaManualClose() {
+            if (previewMode !== 'eta' || etaCloseBusy || !etaConfig || !etaConfig.controlToken || !etaSelected) return;
+            const selected = { ...etaSelected };
+            const identityKey = etaIdentityKey(selected);
+            if (etaUnconfirmed.has(identityKey)) return;
+            etaCloseBusy = true;
+            const { generation, controller } = beginRequest();
+            const started = Date.now();
+            const timeout = setTimeout(() => controller.abort(), 15000);
+            let dispatched = false;
+            renderDisplays(); renderToggle(); modeEl.disabled = true;
+            try {
+                showMessage('正在核验 Display ' + selected.displayId + ' 的身份与空屏状态…', '#58a6ff');
+                const prepared = await etaClosePost('/eta-preview/close/prepare', selected, controller);
+                if (!isCurrent(generation, 'eta') || !sameDisplay(selected, etaSelected) || controller.signal.aborted) return;
+                if (prepared.outcome === 'blocked') {
+                    showMessage('未关闭：' + (prepared.reason || '状态不允许关闭'), '#d29922'); return;
+                }
+                if (prepared.outcome !== 'prepared' || typeof prepared.nonce !== 'string' ||
+                    !/^[A-Za-z0-9_-]{1,128}$/.test(prepared.nonce) || !Number.isInteger(prepared.expiresInMs) ||
+                    prepared.expiresInMs <= 0 || prepared.expiresInMs > 30000) throw new Error('CLOSE_RESPONSE_INVALID');
+                const preparedAt = Date.now();
+                if (!window.confirm('确认关闭代鱼 Display ' + selected.displayId + '？系统将再次核验空屏，不会迁移任务或强杀进程。')) {
+                    showMessage('已取消关闭，副屏保持不变', '#8b949e'); return;
+                }
+                if (!isCurrent(generation, 'eta') || !sameDisplay(selected, etaSelected) || controller.signal.aborted ||
+                    Date.now() - started >= 15000 || Date.now() - preparedAt >= prepared.expiresInMs) {
+                    showMessage('关闭确认已过期，未发送关闭请求', '#d29922'); return;
+                }
+                dispatched = true;
+                etaUnconfirmed.add(identityKey); // Set before sending; cancellation cannot make retry safe.
+                const result = await etaClosePost('/eta-preview/close/commit', selected, controller, prepared.nonce);
+                if (!isCurrent(generation, 'eta') || !sameDisplay(selected, etaSelected)) return;
+                if (result.outcome === 'closed_confirmed') {
+                    etaUnconfirmed.delete(identityKey);
+                    etaDisplays = etaDisplays.filter(d => !sameDisplay(d, selected));
+                    etaSelected = null; clearFrame(); renderDisplays('副屏已关闭');
+                    showMessage('已确认 Display ' + selected.displayId + ' 和所属进程均已关闭' +
+                        (result.reason ? '；恢复记录清理未完成：' + result.reason : ''), '#7ee787');
+                } else if (result.outcome === 'blocked') {
+                    etaUnconfirmed.delete(identityKey);
+                    showMessage('未关闭：' + (result.reason || '状态不允许关闭'), '#d29922');
+                } else {
+                    showMessage('关闭结果未确认，已停止重试；请到代鱼查看恢复状态', '#f85149');
+                }
+            } catch (_) {
+                if (isCurrent(generation, 'eta')) showMessage(dispatched
+                    ? '关闭结果未确认，已停止重试；请到代鱼查看恢复状态'
+                    : '关闭核验失败，未发送关闭请求；请检查授权或重新打开入口', '#f85149');
+            } finally {
+                clearTimeout(timeout);
+                if (requestAbort === controller) requestAbort = null;
+                etaCloseBusy = false; modeEl.disabled = false;
+                renderDisplays(); renderToggle();
+            }
         }
 
         async function updateStatus(generation, controller) {
@@ -449,6 +543,7 @@
             return screenState;
         }
         async function refreshSnapshot() {
+            if (etaCloseBusy) return;
             if (previewMode === 'eta') return etaRefresh();
             const { generation, controller } = beginRequest();
             // /api/screenshot starts the legacy display on demand. Never call it
@@ -473,6 +568,7 @@
         // start/stop remain module-only and synchronous on the server. Selecting
         // Eta never sends its identity (or bearer) through any legacy command.
         async function toggleScreen() {
+            if (previewMode === 'eta') return etaManualClose();
             if (previewMode !== 'module' || toggling || screenState === 'unreachable') return;
             toggling = true;
             const { generation, controller } = beginRequest();

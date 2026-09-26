@@ -55,13 +55,13 @@ function frame(display = A, override = {}, chunks = [PNG]) {
     }) };
     return res;
 }
-function setup({ hash = HASH, origin = 'http://127.0.0.1:3070', fetch: handler = () => list() } = {}) {
+function setup({ hash = HASH, origin = 'http://127.0.0.1:3070', fetch: handler = () => list(), confirm = () => true } = {}) {
     const elements = Object.fromEntries(['status-display', 'snapshot-img', 'empty-tip', 'btn-toggle',
         'preview-mode', 'eta-display', 'eta-display-controls'].map(id => [id, element()]));
     const footer = element();
     const events = {}, requests = [], images = [], created = [], revoked = [], timers = new Map();
     const location = { hash, pathname: '/', search: '', origin };
-    const historyCalls = [];
+    const historyCalls = [], confirmations = [];
     let timerID = 0;
     const sandbox = {
         location,
@@ -71,7 +71,7 @@ function setup({ hash = HASH, origin = 'http://127.0.0.1:3070', fetch: handler =
             querySelector: selector => selector === '.footer-note' ? footer : element(),
             createElement: () => element()
         },
-        window: { addEventListener(name, callback) { events[name] = callback; } },
+        window: { addEventListener(name, callback) { events[name] = callback; }, confirm(message) { confirmations.push(message); return confirm(message); } },
         fetch(url, options = {}) {
             assert.equal(location.hash.includes(TOKEN), false, 'fragment must be erased before first request');
             requests.push({ url, options });
@@ -93,7 +93,7 @@ function setup({ hash = HASH, origin = 'http://127.0.0.1:3070', fetch: handler =
     const context = vm.createContext(sandbox);
     vm.runInContext(script, context, { filename: 'index.html' });
     return {
-        elements, events, requests, images, created, revoked, timers, historyCalls, location,
+        elements, events, requests, images, created, revoked, timers, historyCalls, location, confirmations,
         invoke: (name, ...args) => context[name](...args),
         async mode(value) { elements['preview-mode'].value = value; await context.changePreviewMode(); },
         async select(index) { elements['eta-display'].value = String(index); await context.etaSelectDisplay(); },
@@ -402,4 +402,88 @@ test('network/CORS failure and timeout are manual-retry errors, not sleeping or 
     assert.match(page.message(), /请求超时/);
     assert.equal(page.requests.length, 1);
     assert.equal(page.timers.size, 0);
+});
+
+
+const CONTROL = 'c'.repeat(64);
+const CONTROL_HASH = HASH + '&eta_control=' + CONTROL;
+const closeResult = (outcome, reason='', extra={}, status=200) =>
+    response(status, {outcome, reason, nonce:null, expiresInMs:null, ...extra}, {'Content-Type':'application/json'});
+const preparedResult = () => closeResult('prepared','',{nonce:'once-123',expiresInMs:30000});
+function closeFetch(url, options) {
+    if (url.endsWith('/close/prepare')) return preparedResult();
+    if (url.endsWith('/close/commit')) return closeResult('closed_confirmed');
+    return previewFetch(url,options);
+}
+const closeRequests = page => page.requests.filter(r => r.url.includes('/close/'));
+
+test('manual close uses independent grant and single prepare-confirm-commit, never legacy stop', async () => {
+    const page=setup({hash:CONTROL_HASH,fetch:closeFetch});await settle();
+    assert.equal(page.elements['btn-toggle'].disabled,false);
+    await page.invoke('toggleScreen');
+    const requests=closeRequests(page);assert.equal(requests.length,2);
+    assert.ok(requests[0].url.endsWith('/close/prepare'));assert.ok(requests[1].url.endsWith('/close/commit'));
+    for(const r of requests) {
+        assert.equal(r.options.method,'POST');assert.equal(r.options.headers.Authorization,'Bearer '+TOKEN);
+        assert.equal(r.options.headers['X-Eta-Control-Token'],CONTROL);
+        assert.equal(r.options.headers['X-Eta-Display-Id'],String(A.displayId));
+        assert.equal(r.options.headers['X-Eta-Display-Unique-Id'],A.uniqueId);
+        assert.equal(r.options.body,undefined);assert.ok(!r.url.includes(TOKEN)&&!r.url.includes(CONTROL));
+    }
+    assert.equal(requests[0].options.headers['X-Eta-Close-Nonce'],undefined);
+    assert.equal(requests[1].options.headers['X-Eta-Close-Nonce'],'once-123');
+    assert.equal(page.confirmations.length,1);assert.match(page.message(),/已确认.*均已关闭/);
+    assert.equal(page.elements['btn-toggle'].disabled,true);assertNoLegacy(page);
+});
+
+test('read-only and malformed control links never send close requests',async()=>{
+    const read=setup({fetch:closeFetch});await settle();await read.invoke('toggleScreen');assert.equal(closeRequests(read).length,0);
+    for(const hash of [HASH+'&eta_control=x',CONTROL_HASH+'&eta_control='+CONTROL,CONTROL_HASH+'&other=x']) {
+        const page=setup({hash,fetch:closeFetch});await settle();await page.invoke('toggleScreen');
+        assert.equal(closeRequests(page).length,0);assert.equal(page.location.hash,'');assert.equal(page.elements['btn-toggle'].disabled,true);
+    }
+});
+
+test('manual close remains available on an authenticated empty black frame',async()=>{
+    const page=setup({hash:CONTROL_HASH,fetch:(u,o)=>u.endsWith('/frame')?response(404):closeFetch(u,o)});
+    await settle();assert.equal(page.elements['btn-toggle'].disabled,false);await page.invoke('toggleScreen');
+    assert.match(page.message(),/已确认/);assertNoLegacy(page);
+});
+
+test('cancel and occupied preparation never send commit',async()=>{
+    const cancel=setup({hash:CONTROL_HASH,fetch:closeFetch,confirm:()=>false});await settle();await cancel.invoke('toggleScreen');
+    assert.equal(closeRequests(cancel).length,1);assert.match(cancel.message(),/已取消/);
+    const occupied=setup({hash:CONTROL_HASH,fetch:(u,o)=>u.endsWith('/close/prepare')?closeResult('blocked','SOURCE_NOT_EMPTY',{},409):closeFetch(u,o)});
+    await settle();await occupied.invoke('toggleScreen');assert.equal(closeRequests(occupied).length,1);
+    assert.equal(occupied.confirmations.length,0);assert.match(occupied.message(),/SOURCE_NOT_EMPTY/);
+});
+
+test('uncertain commit disables resubmission even after manual refresh',async()=>{
+    const page=setup({hash:CONTROL_HASH,fetch:(u,o)=>u.endsWith('/close/commit')?closeResult('closed_unconfirmed','RELEASE_UNCONFIRMED',{},503):closeFetch(u,o)});
+    await settle();await page.invoke('toggleScreen');assert.match(page.message(),/未确认/);
+    await page.invoke('toggleScreen');await page.invoke('refreshSnapshot');await page.invoke('toggleScreen');
+    assert.equal(closeRequests(page).length,2);assert.equal(page.elements['btn-toggle'].disabled,true);assertNoLegacy(page);
+});
+
+test('lost commit response is never treated as success or automatically retried',async()=>{
+    const page=setup({hash:CONTROL_HASH,fetch:(u,o)=>u.endsWith('/close/commit')?Promise.reject(new Error('network')):closeFetch(u,o)});
+    await settle();await page.invoke('toggleScreen');await page.invoke('toggleScreen');
+    assert.match(page.message(),/未确认/);assert.equal(closeRequests(page).length,2);assert.equal(page.elements['btn-toggle'].disabled,true);
+});
+
+test('double click and pagehide cannot dispatch a stale prepared confirmation',async()=>{
+    const pending=deferred();
+    const page=setup({hash:CONTROL_HASH,fetch:(u,o)=>u.endsWith('/close/prepare')?pending.promise:closeFetch(u,o)});
+    await settle();const operation=page.invoke('toggleScreen');await settle();
+    await page.invoke('toggleScreen');assert.equal(closeRequests(page).length,1);
+    page.events.pagehide();pending.resolve(preparedResult());await operation;
+    assert.equal(closeRequests(page).length,1);assert.equal(page.confirmations.length,0);
+});
+
+test('preparation failure and malformed nonce do not send release',async()=>{
+    for(const result of [()=>Promise.reject(new Error('cors')),()=>closeResult('prepared','',{nonce:'bad nonce',expiresInMs:30000})]) {
+        const page=setup({hash:CONTROL_HASH,fetch:(u,o)=>u.endsWith('/close/prepare')?result():closeFetch(u,o)});
+        await settle();await page.invoke('toggleScreen');assert.equal(closeRequests(page).length,1);assert.equal(page.confirmations.length,0);
+        assert.match(page.message(),/未发送关闭请求/);assert.equal(page.elements['btn-toggle'].disabled,false);
+    }
 });

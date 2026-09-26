@@ -204,7 +204,7 @@ final class OwnerIpcServer {
                         catch (org.json.JSONException ex) { throw new IOException("status serialization failed"); }
                     }
                     try { writeLine(socket, out, response); }
-                    catch (IOException ex) { mutationUncertain = true; throw ex; }
+                    catch (IOException ex) { if (OwnerOperationPolicy.mayMutate(request.op)) mutationUncertain = true; throw ex; }
                 } finally {
                     // Success, failed flush and abandoned waiters all complete the delivery attempt.
                     // If dispatch is still running, it will observe this and stop only after release
@@ -247,7 +247,10 @@ final class OwnerIpcServer {
             }
             JSONObject response = box.await();
             if (response == null) {
-                synchronized (box) { box.cancelled = true; mutationUncertain = true; }
+                synchronized (box) {
+                    box.cancelled = true;
+                    if (OwnerOperationPolicy.timeoutMayHaveMutated(request.op, box.started)) mutationUncertain = true;
+                }
                 handler.removeCallbacks(action);
                 throw new IOException("owner did not answer");
             }

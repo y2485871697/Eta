@@ -306,56 +306,61 @@ internal class VirtualDisplayOwnerClient private constructor(
             }
         }
 
-        /** Reconnects only to a persisted owner after validating kernel peer identity and status. */
-        fun reconnect(
-            logger: AgentLogger,
-            socketName: String,
-            ownerPid: Long,
-            displayId: Int,
-            uniqueId: String,
-            token: String,
-            runId: String,
-        ): VirtualDisplayOwnerClient? {
-            if (!socketName.matches(Regex("eta\\.vd\\.owner\\.[0-9a-f]{32}")) || ownerPid <= 0L || displayId <= 0 ||
-                uniqueId.isBlank() || token.isBlank() || runId.isBlank()) return null
-            val socket = LocalSocket()
+        /** Compatibility adapter for read-only callers. Detailed failures are logged without secrets. */
+        fun reconnect(logger: AgentLogger, socketName: String, ownerPid: Long, displayId: Int,
+            uniqueId: String, token: String, runId: String): VirtualDisplayOwnerClient? = try {
+            reconnectChecked(logger, socketName, ownerPid, displayId, uniqueId, token, runId)
+        } catch (ex: VirtualDisplayRecoveryException) {
+            logger.warn("Virtual display recovery stage=${ex.stage} code=${ex.code} type=${ex.exceptionType}")
+            null
+        }
+
+        /** Peer credentials and token-authenticated status are independent verification stages. */
+        fun reconnectChecked(logger: AgentLogger, socketName: String, ownerPid: Long, displayId: Int,
+            uniqueId: String, token: String, runId: String): VirtualDisplayOwnerClient {
+            if (!socketName.matches(Regex("eta[.]vd[.]owner[.][0-9a-f]{32}")) || ownerPid <= 0L ||
+                ownerPid > Int.MAX_VALUE || displayId <= 0 || uniqueId.isBlank() || token.isBlank() || runId.isBlank())
+                throw VirtualDisplayRecoveryException("record_decode", "RECOVERY_RECORD_IDENTITY_INVALID")
+            var stage = "connect"
+            var socket: LocalSocket? = null
             val completed = AtomicBoolean(false)
-            val watchdog = thread(isDaemon = true, name = "vd-recovery-deadline") {
-                try { Thread.sleep(DEFAULT_REQUEST_TIMEOUT_MS) } catch (_: InterruptedException) { return@thread }
-                if (!completed.get()) runCatching { socket.close() }
-            }
+            var watchdog: Thread? = null
             try {
-                socket.connect(LocalSocketAddress(socketName, LocalSocketAddress.Namespace.ABSTRACT))
-                val peer = socket.peerCredentials
-                if (peer.uid != 0 || peer.pid.toLong() != ownerPid) {
-                    socket.close(); return null
+                val connectedSocket = LocalSocket()
+                socket = connectedSocket
+                watchdog = thread(isDaemon = true, name = "vd-recovery-deadline") {
+                    try { Thread.sleep(DEFAULT_REQUEST_TIMEOUT_MS) } catch (_: InterruptedException) { return@thread }
+                    if (!completed.get()) runCatching { connectedSocket.close() }
                 }
-                val client = VirtualDisplayOwnerClient(
-                    logger = logger,
-                    process = null,
-                    socket = socket,
-                    output = socket.outputStream,
-                    reader = LineReader(socket.inputStream),
-                    socketName = socketName,
-                    ownerPid = ownerPid,
-                    displayId = displayId,
-                    uniqueId = uniqueId,
-                    runId = runId,
-                    token = token,
-                )
+                connectedSocket.connect(LocalSocketAddress(socketName, LocalSocketAddress.Namespace.ABSTRACT))
+                stage = "peer"
+                val peer = connectedSocket.peerCredentials
+                if (peer.uid != 0 || peer.pid.toLong() != ownerPid)
+                    throw VirtualDisplayRecoveryException(stage, "RECOVERY_PEER_IDENTITY_MISMATCH")
+                val client = VirtualDisplayOwnerClient(logger, null, connectedSocket,
+                    connectedSocket.outputStream, LineReader(connectedSocket.inputStream),
+                    socketName, ownerPid, displayId, uniqueId, runId, token)
+                stage = "status"
                 val status = client.status()
                 val body = status.json
-                if (!status.ok || body == null || body.opt("displayId") != displayId ||
-                    body.optString("uniqueId") != uniqueId) {
-                    client.close(); return null
+                if (!status.ok || body == null) {
+                    val code = when (status.errorCode) {
+                        VirtualDisplayOwnerError.RESPONSE_PROTOCOL -> "RECOVERY_STATUS_PROTOCOL"
+                        VirtualDisplayOwnerError.REQUEST_IO -> "RECOVERY_STATUS_IO"
+                        VirtualDisplayOwnerError.REQUEST_TIMEOUT -> "RECOVERY_STATUS_TIMEOUT"
+                        else -> "RECOVERY_STATUS_REJECTED"
+                    }
+                    throw VirtualDisplayRecoveryException(stage, code)
                 }
+                if (body.opt("displayId") != displayId || body.opt("uniqueId") != uniqueId)
+                    throw VirtualDisplayRecoveryException(stage, "RECOVERY_OWNER_IDENTITY_MISMATCH")
                 return client
-            } catch (_: Exception) {
-                runCatching { socket.close() }
-                return null
+            } catch (ex: Exception) {
+                runCatching { socket?.close() }
+                throw VirtualDisplayRecoveryException.classify(stage, ex)
             } finally {
                 completed.set(true)
-                watchdog.interrupt()
+                watchdog?.interrupt()
             }
         }
 
