@@ -50,6 +50,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
             .headers(headers)
             .post(body)
             .build()
+        val deliveryGuard = ResponsesToolEnvelopeRecovery.DeliveryGuard()
         try {
             runController.throwIfCancelled()
             onEvent(ProviderEvent.RequestStarted)
@@ -57,6 +58,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
                 request = httpRequest,
                 runController = runController,
                 onEvent = onEvent,
+                deliveryGuard = deliveryGuard,
             )
             ResponsesReasoningState.capture(assistant, config)
             onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
@@ -64,7 +66,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
         } catch (throwable: Throwable) {
             runCatching { runController.throwIfCancelled() }
                 .getOrElse { interruption -> throw interruption }
-            throw throwable
+            throw deliveryGuard.protect(throwable)
         }
     }
 
@@ -79,6 +81,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
         request: Request,
         runController: AgentRunController,
         onEvent: (ProviderEvent) -> Unit,
+        deliveryGuard: ResponsesToolEnvelopeRecovery.DeliveryGuard,
     ): JSONObject {
         val streamedText = StringBuilder()
         val streamedReasoning = StringBuilder()
@@ -199,6 +202,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
                 if (payload.isBlank() || payload == "[DONE]") return
                 sawEvent = true
                 val event = JSONObject(payload)
+                deliveryGuard.observe(event)
                 reportUsage(event.optJSONObject("response")?.optJSONObject("usage"))
                 throwEventError(event)
                 when (val type = event.optString("type")) {
@@ -391,8 +395,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
 
         fun reconcileFinalPart(part: FinalContentPart) {
             val identityMatches = contentBlocks.filter { block ->
-                block.kind == part.kind && block.identity.matches(part.identity)
-            }
+                block.kind == part.kind && block.identity.matches(part.identity) }
             // Some Responses gateways rewrite message IDs or output indexes in the terminal
             // snapshot. A sole streamed text and sole terminal text with the same prefix are
             // one logical part. Reconcile on its original index so the UI cannot append it twice.
