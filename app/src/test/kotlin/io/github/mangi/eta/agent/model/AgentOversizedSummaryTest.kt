@@ -249,15 +249,26 @@ class AgentOversizedSummaryTest {
 
     @Test fun laterFragmentTruncationStillRejectsRatherThanAcceptingPartialSummary() {
         val source = listOf(AgentModelClient.ConversationMessage("user", "中".repeat(100_000)), tail())
+        val before = source.toList()
+        val inputs = mutableListOf<String>()
+        val limits = mutableListOf<Int>()
         var calls = 0
-        assertThrows(IllegalArgumentException::class.java) {
+        val failure = assertThrows(IllegalArgumentException::class.java) {
             AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, model(), provider {
                 calls++
+                inputs += it.messages.toString()
+                limits += requireNotNull(it.config.summaryOutputLimit)
                 response(finish = if (calls == 1) "stop" else "length")
             }), keepStartOverride = 1)
         }
-        assertEquals(2, calls) // 128K summaries already reserve 16K; no larger output retry fits.
-        assertEquals(100_000, source.first().content.length)
+        // The second, shorter fragment has real room for one larger output attempt.
+        assertEquals(3, calls)
+        assertEquals(listOf(16_000, 16_000, 32_000), limits)
+        assertEquals(inputs[1], inputs[2])
+        assertNotEquals(inputs[0], inputs[1])
+        assertTrue(failure.message.orEmpty().contains("phase=chunk_2_of_2"))
+        assertEquals(before, source)
+        assertSame(before.last(), source.last())
     }
 
     @Test fun shrinkingButStillUnmergeableOutputsStopAtDepthLimit() {
