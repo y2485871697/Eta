@@ -18,171 +18,293 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
+/**
+ * Automatic compaction is driven purely by the provider's billed input usage (cloud policy):
+ *  - no billed usage => no automatic compaction, no matter how large the local history is;
+ *  - freshly appended assistant/tool content is never accumulated into a local projection;
+ *  - automatic compaction fires at exactly 80% of the effective window (configured window wins);
+ *  - after a summary commits the loop waits for the next reported usage before it can fire again;
+ *  - hitting the local persistence cap pauses without summarizing protected history.
+ *
+ * Retained behaviours: explicit provider overflow recovery, manual compaction, whole tool-batch
+ * retention without replay, cancellation safety, and protected-history integrity.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class AgentAutomaticCompactionTest {
     @get:Rule val temporary = TemporaryFolder()
     @get:Rule val timeout = Timeout.seconds(45)
 
-    @Test fun highSerializedSizeBelowHardCapDoesNotBypassTokenBoundary() {
-        for (decisionTokens in listOf(131_470, 207_999, 208_000)) {
-            val messages = escapedHistory()
-            assertSoftStoragePressure(messages)
-            assertTrue(requestTokens(messages) < AUTO_PRESSURE)
-            val reply = assistant()
-            val replyTokens = AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(reply))
-            val provider = ScriptedProvider(listOf({ _, _ ->
-                // The decision is the bill plus the newly retained assistant message.
-                reply.put("usage", JSONObject().put("prompt_tokens", decisionTokens - replyTokens))
-            }))
-            val events = mutableListOf<AgentEvent>()
-            var compactCalls = 0
-            val originalPrefix = messages.getJSONObject(1).getString("content")
-            val result = runLoop(messages, provider, events, compactHistory = { source, policy ->
-                compactCalls++
-                summarize(source, policy)
-            })
+    // --- Billing-driven automatic summarization -------------------------------------------------
 
-            assertEquals("done", result.content)
-            assertEquals(1, provider.requests.size)
-            val bill = events.filterIsInstance<AgentEvent.UsageReceived>().single { !it.projected }
-            assertEquals(decisionTokens, requireNotNull(bill.usage.inputTokens) + replyTokens)
-            if (decisionTokens < AUTO_PRESSURE) {
-                assertEquals(0, compactCalls)
-                assertFalse(events.any { it is AgentEvent.ContextCompactionStarted })
-                assertEquals(originalPrefix, messages.getJSONObject(1).getString("content"))
-            } else {
-                assertEquals(1, compactCalls)
-                assertUsageBeforeStart(events, decisionTokens)
-                assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().single().applied)
-            }
-        }
+    @Test fun missingBilledUsageNeverTriggersAutomaticCompaction() {
+        // The local history is already above 80%, yet with no billed usage there is no decision.
+        val messages = largeHistory()
+        assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
+        val events = mutableListOf<AgentEvent>()
+        var summaries = 0
+        val provider = ScriptedProvider(listOf({ _, _ -> assistant() }))
+        assertEquals("done", runLoop(messages, provider, events,
+            compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
+
+        assertEquals(1, provider.requests.size)
+        assertEquals(0, summaries)
+        assertTrue(events.none { it is AgentEvent.UsageReceived })
+        assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
+        assertTrue(events.none { it is AgentEvent.ContextCompacted })
     }
 
-    @Test fun actualConfiguredWindowAllowsExactlyEightyPercentButNotOneTokenBelow() {
-        // The runLoop policy still uses WINDOW; the request's configured window wins.
+    @Test fun billedUsageBelowEightyPercentNeverCompactsEvenWithLargeLocalHistory() {
+        val messages = largeHistory()
+        assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
+        val events = mutableListOf<AgentEvent>()
+        var summaries = 0
+        val provider = ScriptedProvider(listOf({ _, _ -> assistant(promptTokens = AUTO_PRESSURE - 1) }))
+        assertEquals("done", runLoop(messages, provider, events,
+            compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
+
+        assertEquals(1, provider.requests.size)
+        assertEquals(0, summaries)
+        assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
+        assertEquals(AUTO_PRESSURE - 1,
+            requireNotNull(events.filterIsInstance<AgentEvent.UsageReceived>().single().usage.inputTokens))
+    }
+
+    @Test fun configuredWindowCompactsExactlyAtEightyPercentButNotOneTokenBelow() {
+        // The decision uses the request's configured window, not the policy's default window.
         val config = modelConfig().copy(contextWindow = WINDOW / 2)
         val threshold = AgentContextCompactor.autoPressureTokens(requireNotNull(config.contextWindow))
         for (decisionTokens in listOf(threshold - 1, threshold)) {
             val messages = smallHistory()
-            assertTrue(requestTokens(messages) < threshold)
-            val reply = assistant()
-            val replyTokens = AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(reply))
-            val provider = ScriptedProvider(listOf({ _, _ ->
-                reply.put("usage", JSONObject().put("prompt_tokens", decisionTokens - replyTokens))
-            }))
             val events = mutableListOf<AgentEvent>()
             var summaries = 0
+            val provider = ScriptedProvider(listOf({ _, _ -> assistant(promptTokens = decisionTokens) }))
             assertEquals("done", runLoop(messages, provider, events, config = config,
                 compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
 
             assertEquals(1, provider.requests.size)
-            assertFalse(events.filterIsInstance<AgentEvent.ContextCompacted>().any { it.blocked })
+            assertEquals(decisionTokens,
+                requireNotNull(events.filterIsInstance<AgentEvent.UsageReceived>().single().usage.inputTokens))
             if (decisionTokens < threshold) {
                 assertEquals(0, summaries)
-                assertFalse(events.any { it is AgentEvent.ContextCompactionStarted })
+                assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
             } else {
                 assertEquals(1, summaries)
-                assertUsageBeforeStart(events, threshold)
                 assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().single().applied)
             }
         }
     }
 
-    @Test fun freshToolOutputReachingEightyPercentPublishesDecisionBeforeStart() {
+    @Test fun freshToolOutputIsNotLocallyAccumulatedIntoTheDecision() {
         val messages = smallHistory()
-        val reply = toolReply("fresh")
-        val tool = AgentConversationCodec.parseToolCalls(reply).single()
-        val assistantTokens = AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(
-            AgentConversationCodec.assistantHistoryMessage(reply, listOf(tool))))
-        val emptyResultTokens = AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(
-            AgentConversationCodec.toolResultMessage(tool, AgentModelClient.ToolResult(""))))
-        val resultTokens = AUTO_PRESSURE - 131_470 - assistantTokens - emptyResultTokens
-        val freshOutput = "x".repeat(resultTokens * 4)
         val events = mutableListOf<AgentEvent>()
+        var summaries = 0
+        val output = "x".repeat(900_000)
         val provider = ScriptedProvider(listOf(
-            { _, _ -> reply.put("usage", JSONObject().put("prompt_tokens", 131_470)) },
+            { _, _ -> toolReply("big").put("usage", JSONObject().put("prompt_tokens", 131_470)) },
+            { _, _ -> assistant(promptTokens = 20) },
+        ))
+        assertEquals("done", runLoop(messages, provider, events,
+            toolExecutor = AgentModelClient.ToolExecutor { _ -> AgentModelClient.ToolResult(output) },
+            compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
+
+        assertEquals(2, provider.requests.size)
+        assertEquals(0, summaries)
+        assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
+        // The retained history is far above 80% locally, yet only the billed usage gates a summary.
+        assertTrue(requestTokens(provider.requests.last()) >= AUTO_PRESSURE)
+    }
+
+    @Test fun automaticCompactionUsesBilledUsageThenWaitsForTheNextReport() {
+        val messages = smallHistory()
+        val events = mutableListOf<AgentEvent>()
+        val executions = mutableListOf<String>()
+        var summaries = 0
+        val provider = ScriptedProvider(listOf(
+            { _, _ -> toolReply("first").put("usage", JSONObject().put("prompt_tokens", AUTO_PRESSURE)) },
+            { _, _ -> toolReply("second") },
+            { _, _ -> assistant(promptTokens = 20) },
+        ))
+        assertEquals("done", runLoop(messages, provider, events,
+            toolExecutor = AgentModelClient.ToolExecutor { call ->
+                executions += call.id
+                AgentModelClient.ToolResult("ok")
+            },
+            compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
+
+        assertEquals(listOf("first", "second"), executions)
+        assertEquals(3, provider.requests.size)
+        assertEquals(1, summaries)
+        assertTrue(events.filterIsInstance<AgentEvent.UsageReceived>().none { it.projected })
+        assertEquals(2, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().single().round)
+        // The batch that reported 80% is summarized once, after it finished. The usage-less round
+        // after the summary must not re-summarize until a fresh usage is reported.
+        val firstToolIndex = events.indexOfFirst { it is AgentEvent.ToolFinished && it.toolCallId == "first" }
+        val startIndex = events.indexOfFirst { it is AgentEvent.ContextCompactionStarted }
+        assertTrue(firstToolIndex in 0 until startIndex)
+        assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().none { it.blocked })
+    }
+
+    @Test fun localPersistenceOverLimitPausesWithoutAutomaticSummary() {
+        val messages = escapedHistory(charsPerMessage = 40_000)
+        assertTrue(storedChars(messages) > HARD_STORAGE_CAP)
+        val original = messages.toString()
+        val events = mutableListOf<AgentEvent>()
+        val provider = ScriptedProvider(emptyList())
+        var summaries = 0
+        assertThrows(AgentRunCancelledException::class.java) {
+            runLoop(messages, provider, events,
+                compactHistory = { source, policy -> summaries++; summarize(source, policy) })
+        }
+
+        assertEquals(0, summaries)
+        assertEquals(original, messages.toString())
+        assertTrue(provider.requests.isEmpty())
+        assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
+        val blocked = events.filterIsInstance<AgentEvent.ContextCompacted>().single()
+        assertTrue(blocked.blocked)
+        assertTrue(blocked.reason.contains("持久化容量上限"))
+    }
+
+    // --- Explicit provider overflow recovery ----------------------------------------------------
+
+    @Test fun genuineProviderOverflowBelowThresholdRecoversBeforeRetry() {
+        val messages = smallHistory()
+        assertTrue(requestTokens(messages) < AUTO_PRESSURE)
+        val originalTokens = requestTokens(messages)
+        val provider = ScriptedProvider(listOf(
+            { _, _ -> throw overflow() },
             { request, _ ->
-                assertEquals(freshOutput, (0 until request.messages.length())
-                    .map { request.messages.getJSONObject(it) }
-                    .single { it.optString("tool_call_id") == "fresh" }.getString("content"))
+                assertTrue(requestTokens(request.messages) < originalTokens)
                 assistant(promptTokens = 20)
             },
         ))
-        var executions = 0
-        runLoop(messages, provider, events, toolExecutor = AgentModelClient.ToolExecutor {
-            executions++
-            AgentModelClient.ToolResult(freshOutput)
-        })
 
-        assertEquals(1, executions)
+        assertAutomaticRecovery(messages, provider)
+
         assertEquals(2, provider.requests.size)
-        assertUsageBeforeStart(events, AUTO_PRESSURE)
-        val startIndex = events.indexOfFirst { it is AgentEvent.ContextCompactionStarted }
-        val billIndex = events.indexOfFirst { it is AgentEvent.UsageReceived && !it.projected }
-        val toolIndex = events.indexOfFirst { it is AgentEvent.ToolFinished }
-        assertTrue(billIndex < toolIndex && toolIndex < startIndex)
-        assertEquals(131_470, (events[billIndex] as AgentEvent.UsageReceived).usage.inputTokens)
     }
 
-    @Test fun finalResponseRefreshesStaleBilledUsageBeforeAutomaticStart() {
-        val events = mutableListOf<AgentEvent>()
-        // Unlike a tool round, natural completion has no intervening projection.
-        val reply = assistant(content = "x".repeat((AUTO_PRESSURE - 131_470 - 3) * 4), promptTokens = 131_470)
-        val provider = ScriptedProvider(listOf({ _, _ -> reply }))
-        runLoop(smallHistory(), provider, events)
-
-        assertEquals(1, provider.requests.size)
-        assertEquals(131_470, events.filterIsInstance<AgentEvent.UsageReceived>().single { !it.projected }.usage.inputTokens)
-        assertUsageBeforeStart(events, AUTO_PRESSURE)
-    }
-
-    @Test fun postPruneRemeasuresTokensEvenWhenSerializedSizeRemainsAboveSeventyPercent() {
-        val messages = JSONArray()
-            .put(AgentConversationCodec.userTextMessage("old task"))
-            .put(toolReply("old"))
-            .put(JSONObject().put("role", "tool").put("tool_call_id", "old")
-                .put("content", "x".repeat(240_000)).put(AgentTurnIdentity.JSON_KEY, "old-turn"))
-        val tail = escapedHistory()
-        for (i in 0 until tail.length()) messages.put(tail.getJSONObject(i))
-        assertSoftStoragePressure(messages)
-        assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
-        val protectedTail = messages.getJSONObject(messages.length() - 2).toString()
+    @Test fun repeatedProviderOverflowStopsAfterOneSuccessfulReductionAndRetry() {
+        val messages = smallHistory()
+        lateinit var liveBeforeRetryOverflow: String
+        val provider = ScriptedProvider(listOf(
+            { _, _ -> throw overflow() },
+            { _, _ -> liveBeforeRetryOverflow = messages.toString(); throw overflow() },
+        ))
         val events = mutableListOf<AgentEvent>()
         var summaries = 0
-        val provider = ScriptedProvider(listOf({ request, _ ->
-            assertTrue(request.messages.getJSONObject(2).getString("content").contains("[Eta tool output pruned;"))
-            assertSoftStoragePressure(request.messages)
-            assertTrue(requestTokens(request.messages) < AUTO_PRESSURE)
-            assistant(promptTokens = 20)
-        }))
-        runLoop(messages, provider, events,
-            archive = AgentCompactionArchive(temporary.root, "post-prune"),
-            compactHistory = { source, _ -> summaries++; source })
-
-        assertEquals(0, summaries)
-        assertFalse(events.any { it is AgentEvent.ContextCompactionStarted })
-        assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().single().applied)
-        assertEquals(protectedTail, messages.getJSONObject(messages.length() - 3).toString())
+        assertThrows(AgentRunCancelledException::class.java) {
+            runLoop(messages, provider, events,
+                compactHistory = { source, policy -> summaries++; summarize(source, policy) })
+        }
+        assertEquals(1, summaries)
+        assertEquals(2, provider.requests.size)
+        assertEquals(liveBeforeRetryOverflow, messages.toString())
+        assertEquals(wireJson(JSONArray(liveBeforeRetryOverflow)), provider.requests.last().toString())
+        val blocked = events.filterIsInstance<AgentEvent.ContextCompacted>().single { it.blocked }
+        assertTrue(blocked.reason.contains("提供方确认上下文超限"))
     }
 
-    @Test fun manualBelowThresholdStillCompactsWithFreshUsageAndOneStart() {
+    @Test fun belowThresholdOverflowKeepsCompleteLiveToolPairAndTurnIdentityVerbatim() {
+        val messages = smallHistory()
+            .put(toolReply("live").put(AgentTurnIdentity.JSON_KEY, "current-turn")
+                .put("provider_private", "opaque-call"))
+            .put(JSONObject().put("role", "tool").put("tool_call_id", "live")
+                .put("content", "live evidence").put(AgentTurnIdentity.JSON_KEY, "current-turn")
+                .put("provider_private", "opaque-result"))
+        val liveTail = (messages.length() - 2 until messages.length()).map { messages.getJSONObject(it).toString() }
+        val provider = ScriptedProvider(listOf(
+            { _, _ -> throw overflow() },
+            { request, _ ->
+                val tail = JSONArray((request.messages.length() - 2 until request.messages.length())
+                    .map { request.messages.getJSONObject(it) })
+                assertEquals(wireJson(JSONArray(liveTail.map { JSONObject(it) })), tail.toString())
+                assistant(promptTokens = 20)
+            },
+        ))
+        assertAutomaticRecovery(messages, provider)
+        assertEquals(liveTail, (messages.length() - 3 until messages.length() - 1)
+            .map { messages.getJSONObject(it).toString() })
+        assertEquals("current-turn", messages.getJSONObject(messages.length() - 1).getString(AgentTurnIdentity.JSON_KEY))
+    }
+
+    // --- Whole tool batch is retained, never replayed -------------------------------------------
+
+    @Test fun providerOverflowRecoveryKeepsWholeToolBatchWithoutRepeatingOrChangingTurn() {
+        val messages = smallHistory()
+        val ids = listOf("batch-first", "batch-second", "batch-third")
+        val callsJson = JSONArray().also { calls ->
+            ids.forEach { calls.put(toolReply(it).getJSONArray("tool_calls").getJSONObject(0)) }
+        }
+        val reply = assistant(content = "").put("finish_reason", "tool_calls").put("tool_calls", callsJson)
+        val output = "x".repeat(20_000)
+        val events = mutableListOf<AgentEvent>()
+        val executions = mutableListOf<String>()
+        var summaries = 0
+        var keptJson = emptyList<String>()
+        val provider = ScriptedProvider(listOf(
+            { _, _ -> reply.put("usage", JSONObject().put("prompt_tokens", 41_000)) },
+            { _, _ -> throw overflow() },
+            { _, _ ->
+                assertEquals(1, summaries)
+                assertEquals(ids, executions)
+                assistant(promptTokens = 20)
+            },
+        ))
+        assertEquals("done", runLoop(messages, provider, events,
+            toolExecutor = AgentModelClient.ToolExecutor { call ->
+                executions += call.id
+                AgentModelClient.ToolResult(output)
+            },
+            compactHistory = { source, policy ->
+                summaries++
+                assertEquals(ids, executions)
+                assertEquals(ids, source.filter { it.role == "tool" }.map { it.toolCallId })
+                val cut = requireNotNull(policy.keepStartOverride)
+                assertTrue(AgentCompressionBoundary.balancedCuts(source).contains(cut))
+                assertEquals(listOf("assistant", "tool", "tool", "tool"), source.drop(cut).map { it.role })
+                keptJson = (cut until messages.length()).map { messages.getJSONObject(it).toString() }
+                keptJson.forEach { assertEquals("current-turn", JSONObject(it).getString(AgentTurnIdentity.JSON_KEY)) }
+                summarize(source, policy)
+            }).content)
+
+        assertEquals(ids, executions)
+        assertEquals(3, provider.requests.size)
+        assertEquals(1, summaries)
+        val start = events.indexOfFirst { it is AgentEvent.ContextCompactionStarted }
+        assertTrue(events.withIndex().filter { it.value is AgentEvent.ToolFinished }.all { it.index < start })
+        assertEquals(ids, events.filterIsInstance<AgentEvent.ToolStarted>().map { it.toolCallId })
+        assertEquals(ids, events.filterIsInstance<AgentEvent.ToolFinished>().map { it.toolCallId })
+        assertTrue(events.filterIsInstance<AgentEvent.ToolFinished>().all { it.round == 1 })
+        assertEquals(2, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().single().round)
+        assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().single().applied)
+        assertEquals(keptJson, (messages.length() - 1 - keptJson.size until messages.length() - 1)
+            .map { messages.getJSONObject(it).toString() })
+        assertEquals("current-turn", messages.getJSONObject(messages.length() - 1).getString(AgentTurnIdentity.JSON_KEY))
+    }
+
+    // --- Manual compaction ----------------------------------------------------------------------
+
+    @Test fun manualCompactionBelowThresholdCompactsWithoutLocalProjection() {
         val controller = AgentRunController().also { it.requestCompact(keepRecentMessages = 1) }
         val messages = smallHistory()
         val expectedTokens = requestTokens(messages)
         val events = mutableListOf<AgentEvent>()
         val provider = ScriptedProvider(listOf({ _, _ -> assistant(promptTokens = 20) }))
         var compactCalls = 0
-        runLoop(messages, provider, events, enabled = false, controller = controller,
+        assertEquals("done", runLoop(messages, provider, events, enabled = false, controller = controller,
             compactHistory = { source, policy ->
                 compactCalls++
                 assertEquals(1, policy.keepRecentMessages)
                 summarize(source, policy)
-            })
+            }).content)
 
         assertTrue(expectedTokens < AUTO_PRESSURE)
         assertEquals(1, compactCalls)
-        assertUsageBeforeStart(events, expectedTokens)
+        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
+        // The manual request compacts without any billed usage and without a local projection.
+        assertTrue(events.none { it is AgentEvent.UsageReceived && it.projected })
         assertEquals("current task", provider.requests.single()
             .getJSONObject(provider.requests.single().length() - 1).getString("content"))
     }
@@ -264,245 +386,37 @@ class AgentAutomaticCompactionTest {
         assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
         val compactions = events.filterIsInstance<AgentEvent.ContextCompacted>()
         assertEquals(1, compactions.count { it.applied })
-        assertTrue(compactions.single { it.blocked }.reason.orEmpty().contains("提供方确认上下文超限"))
+        assertTrue(compactions.single { it.blocked }.reason.contains("提供方确认上下文超限"))
     }
 
-    @Test fun manualOverrideStillCoversBoundedHardRecoveryBeforeItsRequest() {
-        val config = modelConfig().copy(extraBodyJson = """{"max_tokens":200000}""")
-        val inputLimit = AgentCompressionBoundary.inputLimit(WINDOW, AgentCompressionBoundary.outputReserve(config))
-        val manual = modelConfig().copy(model = "manual-B")
-        val controller = AgentRunController().also {
-            assertTrue(it.requestCompact(keepRecentMessages = 1, compressModelConfig = manual))
-        }
-        val messages = history("x".repeat(24_000), count = 10)
-        val events = mutableListOf<AgentEvent>()
-        var summaries = 0
-        val provider = ScriptedProvider(listOf({ request, _ ->
-            assertEquals(2, summaries)
-            assertTrue(requestTokens(request.messages) <= inputLimit)
-            assistant(promptTokens = 20)
-        }))
-        assertEquals("done", runLoop(messages, provider, events, config = config,
-            enabled = false, controller = controller, compressor = null,
-            compactHistory = { source, policy ->
-                summaries++
-                assertEquals("manual-B", requireNotNull(policy.compressModelConfig).model)
-                assertEquals(1, policy.keepRecentMessages)
-                assertTrue(requestTokens(messages) > inputLimit)
-                assertTrue(requestTokens(messages) < AUTO_PRESSURE)
-                if (summaries == 1) {
-                    // Reduces the prefix, but the full request still exceeds the hard input limit.
-                    listOf(AgentModelClient.ConversationMessage("system",
-                        AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n" + "x".repeat(32_000))) +
-                        source.drop(requireNotNull(policy.keepStartOverride))
-                } else summarize(source, policy)
-            }).content)
+    // --- Cancellation and protected-history integrity -------------------------------------------
 
-        assertEquals(2, summaries)
-        assertEquals(1, provider.requests.size)
-        val compactions = events.filterIsInstance<AgentEvent.ContextCompacted>()
-        assertEquals(2, compactions.size)
-        assertTrue(compactions.all { it.applied && !it.blocked && it.round == 1 })
-    }
-
-    @Test fun hardInputRecoveryWaitsForWholeLiveToolBatchWithoutRepeatingOrChangingTurn() {
-        val config = modelConfig().copy(extraBodyJson = """{"max_tokens":200000}""")
-        val inputLimit = AgentCompressionBoundary.inputLimit(WINDOW, AgentCompressionBoundary.outputReserve(config))
+    @Test fun failedRecoverySummaryBlocksWithoutChangingProtectedHistory() {
         val messages = smallHistory()
-        val ids = listOf("batch-first", "batch-second", "batch-third")
-        val callsJson = JSONArray().also { calls ->
-            ids.forEach { calls.put(toolReply(it).getJSONArray("tool_calls").getJSONObject(0)) }
-        }
-        val reply = assistant(content = "").put("finish_reason", "tool_calls").put("tool_calls", callsJson)
-        val calls = AgentConversationCodec.parseToolCalls(reply)
-        val output = "x".repeat(20_000)
-        val billedTokens = 41_000
-        val assistantTokens = AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(
-            AgentConversationCodec.assistantHistoryMessage(reply, calls)))
-        val resultTokens = calls.map { call ->
-            AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(
-                AgentConversationCodec.toolResultMessage(call, AgentModelClient.ToolResult(output))))
-        }
-        val decisionTokens = billedTokens + assistantTokens + resultTokens.sum()
-        assertTrue(requestTokens(messages) < inputLimit)
-        // Pressure is already hard after the second result, but the third must still run.
-        assertTrue(billedTokens + assistantTokens + resultTokens.take(2).sum() > inputLimit)
-        assertTrue(decisionTokens < AUTO_PRESSURE)
-        val events = mutableListOf<AgentEvent>()
-        val executions = mutableListOf<String>()
-        var summaries = 0
-        var keptJson = emptyList<String>()
-        val provider = ScriptedProvider(listOf(
-            { _, _ -> reply.put("usage", JSONObject().put("prompt_tokens", billedTokens)) },
-            { request, _ ->
-                assertEquals(1, summaries)
-                assertEquals(ids, executions)
-                assertTrue(requestTokens(request.messages) <= inputLimit)
-                assertEquals(wireJson(JSONArray(keptJson.map { JSONObject(it) })),
-                    JSONArray((request.messages.length() - keptJson.size until request.messages.length())
-                        .map { request.messages.getJSONObject(it) }).toString())
-                assistant(promptTokens = 20)
-            },
-        ))
-        assertEquals("done", runLoop(messages, provider, events, config = config,
-            toolExecutor = AgentModelClient.ToolExecutor { call ->
-                assertEquals(0, summaries)
-                assertFalse(events.any { it is AgentEvent.ContextCompactionStarted })
-                executions += call.id
-                AgentModelClient.ToolResult(output)
-            },
-            compactHistory = { source, policy ->
-                summaries++
-                assertEquals(ids, executions)
-                assertEquals(ids, source.filter { it.role == "tool" }.map { it.toolCallId })
-                val cut = requireNotNull(policy.keepStartOverride)
-                assertTrue(AgentCompressionBoundary.balancedCuts(source).contains(cut))
-                assertEquals(listOf("assistant", "tool", "tool", "tool"), source.drop(cut).map { it.role })
-                keptJson = (cut until messages.length()).map { messages.getJSONObject(it).toString() }
-                keptJson.forEach { assertEquals("current-turn", JSONObject(it).getString(AgentTurnIdentity.JSON_KEY)) }
-                summarize(source, policy)
-            }).content)
-
-        assertEquals(ids, executions)
-        assertEquals(2, provider.requests.size)
-        assertEquals(1, summaries)
-        assertUsageBeforeStart(events, decisionTokens)
-        val start = events.indexOfFirst { it is AgentEvent.ContextCompactionStarted }
-        assertTrue(events.withIndex().filter { it.value is AgentEvent.ToolFinished }.all { it.index < start })
-        assertEquals(ids, events.filterIsInstance<AgentEvent.ToolStarted>().map { it.toolCallId })
-        assertEquals(ids, events.filterIsInstance<AgentEvent.ToolFinished>().map { it.toolCallId })
-        assertTrue(events.filterIsInstance<AgentEvent.ToolFinished>().all { it.round == 1 })
-        assertEquals(2, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().single().round)
-        assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().single().applied)
-        assertEquals(keptJson, (messages.length() - 1 - keptJson.size until messages.length() - 1)
-            .map { messages.getJSONObject(it).toString() })
-        assertEquals("current-turn", messages.getJSONObject(messages.length() - 1).getString(AgentTurnIdentity.JSON_KEY))
-    }
-
-    @Test fun outputReserveBelowAutoThresholdRecoversWithAutomaticSummary() {
-        for ((config, messages) in listOf(
-            modelConfig().copy(extraBodyJson = """{"max_tokens":200000}""") to history("x".repeat(24_000), count = 10),
-            // Above the policy's threshold, but below the actual larger window's threshold.
-            modelConfig().copy(contextWindow = WINDOW * 2, extraBodyJson = """{"max_tokens":300000}""") to
-                history("x".repeat(100_000), count = 10),
-        )) {
-            val window = requireNotNull(config.contextWindow)
-            val decisionTokens = requestTokens(messages)
-            val inputLimit = AgentCompressionBoundary.inputLimit(window, AgentCompressionBoundary.outputReserve(config))
-            assertTrue(decisionTokens > inputLimit)
-            assertTrue(decisionTokens < AgentContextCompactor.autoPressureTokens(window))
-            val provider = ScriptedProvider(listOf({ request, _ ->
-                assertTrue(requestTokens(request.messages) <= inputLimit)
-                assistant(promptTokens = 20)
-            }))
-
-            assertAutomaticRecovery(messages, provider, config)
-
-            assertEquals(1, provider.requests.size)
-        }
-    }
-
-    @Test fun hardStorageCapBelowAutoThresholdRecoversWithAutomaticSummary() {
-        val messages = escapedHistory(charsPerMessage = 40_000)
-        assertTrue(storedChars(messages) > HARD_STORAGE_CAP)
-        assertTrue(requestTokens(messages) < AUTO_PRESSURE)
-        val provider = ScriptedProvider(listOf({ request, _ ->
-            assertTrue(storedChars(request.messages) < HARD_STORAGE_CAP)
-            assistant(promptTokens = 20)
-        }))
-
-        assertAutomaticRecovery(messages, provider)
-
-        assertEquals(1, provider.requests.size)
-    }
-
-    @Test fun unsafeHardBudgetSummaryBlocksWithoutChangingProtectedHistory() {
-        val messages = history("x".repeat(84_000), count = 10)
-        val decisionTokens = requestTokens(messages)
-        assertTrue(decisionTokens >= AUTO_PRESSURE)
         val original = messages.toString()
-        val provider = ScriptedProvider(emptyList())
         val events = mutableListOf<AgentEvent>()
+        val provider = ScriptedProvider(listOf({ _, _ -> throw overflow() }))
         assertThrows(AgentRunCancelledException::class.java) {
             runLoop(messages, provider, events,
-                config = modelConfig().copy(extraBodyJson = """{"max_tokens":200000}"""),
                 compactHistory = { _, _ -> listOf(AgentModelClient.ConversationMessage("system", "lost tail")) })
         }
-        assertUsageBeforeStart(events, decisionTokens)
-        assertTrue(provider.requests.isEmpty())
+        assertEquals(original, messages.toString())
+        assertEquals(1, provider.requests.size)
         assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().any { it.blocked })
         assertFalse(events.filterIsInstance<AgentEvent.ContextCompacted>().any { it.applied })
-        assertEquals(original, messages.toString())
     }
 
-    @Test fun genuineProviderOverflowBelowThresholdRecoversBeforeRetry() {
-        val messages = smallHistory()
-        assertTrue(requestTokens(messages) < AUTO_PRESSURE)
-        val originalTokens = requestTokens(messages)
-        val provider = ScriptedProvider(listOf(
-            { _, _ -> throw overflow() },
-            { request, _ ->
-                assertTrue(requestTokens(request.messages) < originalTokens)
-                assistant(promptTokens = 20)
-            },
-        ))
-
-        assertAutomaticRecovery(messages, provider)
-
-        assertEquals(2, provider.requests.size)
-    }
-
-    @Test fun postPruneBelowThresholdStillRecoversWhenHardStoragePressureRemains() {
-        val messages = JSONArray()
-            .put(AgentConversationCodec.userTextMessage("old task"))
-            .put(toolReply("old"))
-            .put(JSONObject().put("role", "tool").put("tool_call_id", "old")
-                .put("content", "x".repeat(240_000)).put(AgentTurnIdentity.JSON_KEY, "old-turn"))
-        val tail = escapedHistory(charsPerMessage = 40_000)
-        for (i in 0 until tail.length()) messages.put(tail.getJSONObject(i))
-        assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
-        assertTrue(storedChars(messages) > HARD_STORAGE_CAP)
-        val events = mutableListOf<AgentEvent>()
-        var summaries = 0
-        var postPruneTokens = 0
-        val provider = ScriptedProvider(listOf({ request, _ ->
-            assertTrue(storedChars(request.messages) < HARD_STORAGE_CAP)
-            assistant(promptTokens = 20)
-        }))
-        assertEquals("done", runLoop(messages, provider, events,
-            archive = AgentCompactionArchive(temporary.root, "hard-post-prune"),
-            compactHistory = { source, policy ->
-                summaries++
-                postPruneTokens = requestTokens(messages)
-                assertTrue(postPruneTokens < AUTO_PRESSURE)
-                assertTrue(storedChars(messages) > HARD_STORAGE_CAP)
-                assertTrue(source.single { it.toolCallId == "old" }.content.contains("[Eta tool output pruned;"))
-                val cut = requireNotNull(policy.keepStartOverride)
-                assertTrue(AgentCompressionBoundary.balancedCuts(source).contains(cut))
-                summarize(source, policy)
-            }).content)
-
-        assertEquals(1, summaries)
-        assertEquals(1, provider.requests.size)
-        assertUsageBeforeStart(events, postPruneTokens)
-        val compactions = events.filterIsInstance<AgentEvent.ContextCompacted>()
-        assertEquals(2, compactions.size) // Pruning commits first, summary uses that fresh snapshot.
-        assertTrue(compactions.all { it.applied && !it.blocked })
-    }
-
-    @Test fun belowThresholdSummaryFailureKeepsHistoryAndReasonAcrossResumesWithoutRepeating() {
+    @Test fun failedRecoverySummaryKeepsHistoryAndReasonAcrossResumesWithoutRepeating() {
         for (outcome in listOf("throw", "unchanged", "lost-tail", "no-reduction")) {
-            val messages = escapedHistory(charsPerMessage = 40_000)
+            val messages = smallHistory()
             val original = messages.toString()
             val events = mutableListOf<AgentEvent>()
-            val provider = ScriptedProvider(emptyList())
+            val provider = ScriptedProvider(listOf({ _, _ -> throw overflow() }))
             var summaries = 0
             var pauses = 0
             assertThrows(AgentRunCancelledException::class.java) {
                 runLoop(messages, provider, events,
-                    onBlocked = { controller ->
-                        if (++pauses < 3) controller.resume() else controller.cancel()
-                    },
+                    onBlocked = { controller -> if (++pauses < 3) controller.resume() else controller.cancel() },
                     compactHistory = { source, policy ->
                         summaries++
                         when (outcome) {
@@ -518,24 +432,24 @@ class AgentAutomaticCompactionTest {
             assertEquals(1, summaries)
             assertEquals(3, pauses)
             assertEquals(original, messages.toString())
-            assertTrue(provider.requests.isEmpty())
+            assertEquals(1, provider.requests.size)
             assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
             val compactions = events.filterIsInstance<AgentEvent.ContextCompacted>()
             assertFalse(compactions.any { it.applied })
             val failure = compactions.single { !it.blocked }.reason
-            assertTrue(!failure.isNullOrBlank())
+            assertTrue(failure.isNotBlank())
             if (outcome == "throw") assertEquals("summary transport failed", failure)
             assertTrue(compactions.filter { it.blocked }.all { it.reason == failure })
-            assertFalse(failure.orEmpty().contains("80%"))
+            assertFalse(failure.contains("80%"))
         }
     }
 
     @Test fun hardPressureDoesNotEnableDisabledOrUnconfiguredAutomaticSummary() {
         for (enabled in listOf(false, true)) {
-            val messages = escapedHistory(charsPerMessage = 40_000)
+            val messages = smallHistory()
             val original = messages.toString()
             val events = mutableListOf<AgentEvent>()
-            val provider = ScriptedProvider(emptyList())
+            val provider = ScriptedProvider(listOf({ _, _ -> throw overflow() }))
             var summaries = 0
             assertThrows(AgentRunCancelledException::class.java) {
                 runLoop(messages, provider, events, enabled = enabled,
@@ -544,18 +458,18 @@ class AgentAutomaticCompactionTest {
             }
             assertEquals(0, summaries)
             assertEquals(original, messages.toString())
-            assertTrue(provider.requests.isEmpty())
-            assertFalse(events.any { it is AgentEvent.ContextCompactionStarted })
+            assertEquals(1, provider.requests.size)
+            assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
             assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().single().blocked)
         }
     }
 
-    @Test fun cancellationDuringHardPressureSummaryNeverCommits() {
-        val messages = escapedHistory(charsPerMessage = 40_000)
+    @Test fun cancellationDuringOverflowSummaryNeverCommits() {
+        val messages = smallHistory()
         val original = messages.toString()
         val controller = AgentRunController()
         val events = mutableListOf<AgentEvent>()
-        val provider = ScriptedProvider(emptyList())
+        val provider = ScriptedProvider(listOf({ _, _ -> throw overflow() }))
         var summaries = 0
         assertThrows(AgentRunCancelledException::class.java) {
             runLoop(messages, provider, events, controller = controller,
@@ -567,56 +481,11 @@ class AgentAutomaticCompactionTest {
         }
         assertEquals(1, summaries)
         assertEquals(original, messages.toString())
-        assertTrue(provider.requests.isEmpty())
+        assertEquals(1, provider.requests.size)
         assertFalse(events.filterIsInstance<AgentEvent.ContextCompacted>().any { it.applied })
     }
 
-    @Test fun repeatedProviderOverflowStopsAfterOneSuccessfulReductionAndRetry() {
-        val messages = smallHistory()
-        lateinit var liveBeforeRetryOverflow: String
-        val provider = ScriptedProvider(listOf(
-            { _, _ -> throw overflow() },
-            { _, _ ->
-                liveBeforeRetryOverflow = messages.toString()
-                throw overflow()
-            },
-        ))
-        val events = mutableListOf<AgentEvent>()
-        var summaries = 0
-        assertThrows(AgentRunCancelledException::class.java) {
-            runLoop(messages, provider, events,
-                compactHistory = { source, policy -> summaries++; summarize(source, policy) })
-        }
-        assertEquals(1, summaries)
-        assertEquals(2, provider.requests.size)
-        assertEquals(liveBeforeRetryOverflow, messages.toString())
-        assertEquals(wireJson(JSONArray(liveBeforeRetryOverflow)), provider.requests.last().toString())
-        val blocked = events.filterIsInstance<AgentEvent.ContextCompacted>().single { it.blocked }
-        assertTrue(blocked.reason.orEmpty().contains("提供方确认上下文超限"))
-    }
-
-    @Test fun belowThresholdOverflowKeepsCompleteLiveToolPairAndTurnIdentityVerbatim() {
-        val messages = smallHistory()
-            .put(toolReply("live").put(AgentTurnIdentity.JSON_KEY, "current-turn")
-                .put("provider_private", "opaque-call"))
-            .put(JSONObject().put("role", "tool").put("tool_call_id", "live")
-                .put("content", "live evidence").put(AgentTurnIdentity.JSON_KEY, "current-turn")
-                .put("provider_private", "opaque-result"))
-        val liveTail = (messages.length() - 2 until messages.length()).map { messages.getJSONObject(it).toString() }
-        val provider = ScriptedProvider(listOf(
-            { _, _ -> throw overflow() },
-            { request, _ ->
-                val tail = JSONArray((request.messages.length() - 2 until request.messages.length())
-                    .map { request.messages.getJSONObject(it) })
-                assertEquals(wireJson(JSONArray(liveTail.map { JSONObject(it) })), tail.toString())
-                assistant(promptTokens = 20)
-            },
-        ))
-        assertAutomaticRecovery(messages, provider)
-        assertEquals(liveTail, (messages.length() - 3 until messages.length() - 1)
-            .map { messages.getJSONObject(it).toString() })
-        assertEquals("current-turn", messages.getJSONObject(messages.length() - 1).getString(AgentTurnIdentity.JSON_KEY))
-    }
+    // --- Helpers --------------------------------------------------------------------------------
 
     // Request expectations use the same text-only wire projection as AgentLoop.
     private fun wireJson(messages: JSONArray): String =
@@ -628,7 +497,6 @@ class AgentAutomaticCompactionTest {
         config: AgentModelClient.ModelConfig = modelConfig(),
     ) {
         val events = mutableListOf<AgentEvent>()
-        val decisionTokens = requestTokens(messages)
         var summaries = 0
         var keptJson = emptyList<String>()
         assertEquals("done", runLoop(messages, provider, events, config = config,
@@ -643,7 +511,8 @@ class AgentAutomaticCompactionTest {
             }).content)
 
         assertEquals(1, summaries)
-        assertUsageBeforeStart(events, decisionTokens)
+        // No local projection is ever published; the decision comes from the provider bill only.
+        assertTrue(events.none { it is AgentEvent.UsageReceived && it.projected })
         val applied = events.filterIsInstance<AgentEvent.ContextCompacted>().single()
         assertTrue(applied.applied)
         assertFalse(applied.blocked)
@@ -676,28 +545,14 @@ class AgentAutomaticCompactionTest {
         compactionArchive = archive, turnId = "current-turn", compactHistory = compactHistory,
     ).run()
 
-    private fun assertUsageBeforeStart(events: List<AgentEvent>, decisionTokens: Int) {
-        val starts = events.withIndex().filter { it.value is AgentEvent.ContextCompactionStarted }
-        assertEquals(1, starts.size)
-        val index = starts.single().index
-        assertTrue(index > 0)
-        val usage = events[index - 1] as? AgentEvent.UsageReceived
-            ?: throw AssertionError("Decision usage must immediately precede compaction start")
-        assertTrue(usage.projected)
-        assertEquals(decisionTokens, usage.usage.inputTokens)
-    }
-
-    private fun assertSoftStoragePressure(messages: JSONArray) {
-        val chars = storedChars(messages)
-        assertTrue("Must exercise the removed 70% serialized-character bypass: $chars", chars > HARD_STORAGE_CAP * 7 / 10)
-        assertTrue("Must not exercise hard storage protection: $chars", chars < HARD_STORAGE_CAP)
-    }
-
     private fun storedChars(messages: JSONArray): Long = AgentConversationCodec.transcript(messages, 0)
         .sumOf { AgentConversationCodec.toJsonObject(it).toString().length.toLong() }
 
     private fun requestTokens(messages: JSONArray): Int =
         AgentContextBudget.estimate(messages) + AgentContextBudget.countTokens(tools().toString())
+
+    // Plain latin history whose local estimate alone is above the 80% boundary.
+    private fun largeHistory() = history("x".repeat(100_000), count = 9)
 
     // Escaping inflates serialized size without inflating the token estimate. Explicit
     // turn IDs also prevent the persistence DTO from clipping these historical bodies.
