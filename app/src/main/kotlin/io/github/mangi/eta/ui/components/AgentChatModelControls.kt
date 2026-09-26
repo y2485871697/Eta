@@ -295,7 +295,7 @@ internal fun AgentContextUsageButton(
     LaunchedEffect(telemetry.children) {
         if (selectedTaskId != null && child == null) selectTask(null)
     }
-    val displayedUsage = child?.let { AgentContextUsageUi(it.contextTokens, it.contextWindow) } ?: usage
+    val displayedUsage = child?.cloudContextUsage() ?: usage
     val selectedLabel = child?.contextLabel() ?: telemetry.mainModelName.ifBlank { "主代理" }
     val progress = displayedUsage.progress
     val progressColor = when {

@@ -70,6 +70,24 @@ class UsageRecordingProviderTest {
         }
         assertEquals(1, records.size)
     }
+    @Test fun usageIsDeliveredBeforeAccountingAndCallbackFailureIsPreserved() {
+        val order = mutableListOf<String>()
+        val original = IllegalStateException("consumer stopped")
+        val decorated = UsageRecordingProvider(provider { emit ->
+            emit(ProviderEvent.Usage(AgentTokenUsage(inputTokens = 100)))
+            answer()
+        }) { order += "record" }
+        val thrown = assertThrows(IllegalStateException::class.java) {
+            decorated.complete(request, AgentRunController()) {
+                order += "event"
+                assertTrue(order == listOf("event"))
+                throw original
+            }
+        }
+        assertSame(original, thrown)
+        assertEquals(listOf("event", "record"), order)
+    }
+
     @Test fun accountingUsesConversationOwnerNotNetworkSession() {
         val records = mutableListOf<ModelUsageDelta>()
         val decorated = UsageRecordingProvider(provider { emit ->

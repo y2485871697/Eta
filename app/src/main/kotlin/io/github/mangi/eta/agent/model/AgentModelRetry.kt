@@ -26,11 +26,14 @@ internal class AgentModelRetry(
             controller.throwIfCancelled()
             onEvent(AgentEvent.RoundStarted(round, request.messages.length()))
             var hostedToolStarted = false
-            var callbackFailed = false
+            var callbackFailure: Exception? = null
             var sawCompleted = false
             var sawVisibleText = false
+            val deliveryGate = ProviderEventDeliveryGate()
             try {
-                val response = provider.complete(request, controller) { event ->
+                val response = try {
+                    provider.complete(request, controller) { event ->
+                        deliveryGate.deliver {
                     if (event is ProviderEvent.HostedToolStarted) hostedToolStarted = true
                     if (event is ProviderEvent.Completed) sawCompleted = true
                     if (
@@ -43,12 +46,16 @@ internal class AgentModelRetry(
                     try {
                         onProviderEvent(round, event)
                     } catch (failure: Exception) {
-                        callbackFailed = true
+                        callbackFailure = failure
                         throw failure
                     }
                 }
+                    }
+                } finally { deliveryGate.close() }
+                callbackFailure?.let { throw it }
                 return Result(round, response)
             } catch (failure: Exception) {
+                callbackFailure?.let { throw it }
                 controller.throwIfCancelled()
                 // 还没吐出可见正文就被 steering/暂停打断：当作空助手回合，Loop 继续同一 run。
                 // 已有可见正文时必须由 Provider 带回部分内容，这里不能用空消息盖掉。
@@ -68,7 +75,7 @@ internal class AgentModelRetry(
                         ),
                     )
                 }
-                if (callbackFailed || Thread.currentThread().isInterrupted) throw failure
+                if (Thread.currentThread().isInterrupted) throw failure
                 val classified = AgentModelFailure.transport(failure) ?: throw failure
                 val reasonDetail = AgentHttpFailureDiagnostics.safe(classified.message.orEmpty(), listOf(request.config.apiKey), 600)
                 // Log the first failure, including terminal/non-retryable responses, before scheduling retries.

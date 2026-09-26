@@ -136,35 +136,23 @@ internal fun latestContextUsage(
     messages: List<AgentChatMessageUi>,
     selectedModel: AgentModelOptionUi?,
 ): AgentContextUsageUi = AgentContextUsageUi(
-    contextTokens = messages.asReversed()
-        .asSequence()
-        .filterIsInstance<AgentMessageUi>()
-        .mapNotNull { it.usage?.contextTokens }
-        .firstOrNull(),
+    contextTokens = latestBilledContextTokens(messages),
     contextWindow = selectedModel?.contextWindow,
 )
 
 /**
- * 圆环只显示最近一次接口账单的 prompt 占用，不再叠本地估算。
- * 账单之后的工具结果、思考和草稿会等下一轮 usage 回来再更新，避免和 ST「输入」对不齐。
+ * Reads a bill only within a still-valid message context. Callers must not use
+ * message bills to restore occupancy after model/history invalidation.
+ * A compaction marker's baseline is local metadata, never cloud occupancy.
  */
 internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int? {
     val compactIndex = messages.indexOfLast { it is ContextCompactedMessageUi }
-    val marker = compactIndex.takeIf { it >= 0 }?.let { messages[it] as ContextCompactedMessageUi }
-    val resumeRound = marker?.resumeRound ?: 0
-    val billedIndex = messages.indices.lastOrNull { index ->
-        val message = messages[index]
-        message is AgentMessageUi &&
-            windowTokensFromUsage(message.usage) != null &&
-            index > compactIndex &&
-            (resumeRound <= 0 || (messageRoundFromId(message.id) ?: 0) >= resumeRound)
-    } ?: -1
-    if (billedIndex >= 0) {
-        return windowTokensFromUsage((messages[billedIndex] as AgentMessageUi).usage)
-    }
-    val baseline = marker?.baselineTokens ?: 0
-    if (compactIndex >= 0 && baseline > 0) return baseline
-    return null
+    val billedIndex = messages.indexOfLast { it is AgentMessageUi }
+    if (billedIndex <= compactIndex) return null
+    val message = messages[billedIndex] as AgentMessageUi
+    // Round numbers restart each run; only the run event reducer may filter stale rounds.
+    // Do not skip a missing/output-only bill and resurrect an older prompt.
+    return windowTokensFromUsage(message.usage)
 }
 
 internal fun countUnbilledTail(
@@ -254,10 +242,14 @@ internal fun messageRoundFromId(id: String): Int? {
 
 internal fun windowTokensFromUsage(usage: TokenUsageUi?): Int? {
     if (usage == null || usage.isEmpty) return null
-    usage.inputTokens?.takeIf { it > 0 }?.let { return it }
+    usage.inputTokens?.let { return it.takeIf { tokens -> tokens > 0 } }
+    // A total accompanying output without prompt usage is not measured input.
+    if (usage.outputTokens != null || usage.reasoningTokens != null) return null
     return usage.contextTokens?.takeIf { it > 0 }
 }
 
+/** Compatibility arguments are retained for callers, but estimates never enter
+ * the ring, percentage or tooltip. billedContextTokens must be valid cloud input. */
 @Suppress("UNUSED_PARAMETER")
 internal fun liveContextUsage(
     history: List<AgentModelClient.ConversationMessage>,
@@ -271,46 +263,10 @@ internal fun liveContextUsage(
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
     uncommittedLiveTokens: Int = 0,
-): AgentContextUsageUi {
-    val supportsVision = selectedModel?.supportsVision == true
-    val imageFileReferences = if (supportsVision) {
-        emptyList()
-    } else {
-        pendingImages.mapIndexed { index, image ->
-            AgentFileReference(
-                displayName = image.cacheDisplayName(index),
-                absolutePath = "/cache/chat-image-${index + 1}",
-                kind = AgentFileReferenceKind.File,
-            )
-        }
-    }
-    val prompt = AgentFileReferencePromptCodec.format(
-        currentInput,
-        pendingFileReferences.map { it.reference } + imageFileReferences,
-        pendingConversationMentions.toMentionedConversations(),
-    )
-    val images = if (supportsVision) pendingImages.map { it.toLiveModelImage() } else emptyList()
-    val currentTurnTokens = if (prompt.isEmpty() && images.isEmpty()) {
-        0
-    } else {
-        AgentContextBudget.countCurrentTurn(prompt, images)
-    }
-    val overhead = requestOverheadTokens.coerceAtLeast(0)
-    val historyTokens = when {
-        billedContextTokens != null && billedContextTokens > 0 -> billedContextTokens
-        else -> (historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }) +
-            overhead +
-            uncommittedLiveTokens.coerceAtLeast(0)
-    }
-    return AgentContextUsageUi(
-        contextTokens = if (billedContextTokens != null && billedContextTokens > 0) {
-            historyTokens
-        } else {
-            historyTokens + currentTurnTokens
-        },
-        contextWindow = selectedModel?.contextWindow,
-    )
-}
+): AgentContextUsageUi = AgentContextUsageUi(
+    contextTokens = billedContextTokens?.takeIf { it > 0 },
+    contextWindow = selectedModel?.contextWindow,
+)
 
 internal fun PendingImageUi.toLiveModelImage(): AgentModelClient.ModelImage =
     if (isVideo) {
@@ -376,25 +332,24 @@ internal fun contextUsageProgress(contextTokens: Int?, contextWindow: Int?): Flo
     return (contextTokens.toFloat() / contextWindow.toFloat()).coerceIn(0f, 1f)
 }
 
+@Suppress("UNUSED_PARAMETER")
 internal fun formatContextUsage(
     usage: AgentContextUsageUi,
     noUsageText: String = "No conversation context yet",
     noLimitText: String = "The current model does not provide a context limit",
     locale: Locale = Locale.getDefault(),
-): String = when {
-    usage.contextTokens == null -> noUsageText
-    usage.contextWindow == null || usage.contextWindow <= 0 ->
-        "${formatCompactTokenCount(usage.contextTokens, locale)} tokens\n$noLimitText"
-    else -> {
-        val percent = usage.contextTokens.toDouble() / usage.contextWindow.toDouble() * 100.0
-        val percentFormat = NumberFormat.getNumberInstance(locale).apply {
-            minimumFractionDigits = 1
-            maximumFractionDigits = 1
-        }
-        "${formatCompactTokenCount(usage.contextTokens, locale)} / " +
-            "${formatCompactTokenCount(usage.contextWindow, locale)} tokens · " +
-            "${percentFormat.format(percent)}%"
+): String {
+    // Zero is a display placeholder, never a fabricated cloud measurement.
+    val tokens = usage.contextTokens?.coerceAtLeast(0) ?: 0
+    val tokenText = if (tokens == 0) "0K" else formatCompactTokenCount(tokens, locale)
+    val window = usage.contextWindow
+    if (window == null || window <= 0) return "$tokenText tokens" + 10.toChar() + noLimitText
+    val percentFormat = NumberFormat.getNumberInstance(locale).apply {
+        minimumFractionDigits = 1
+        maximumFractionDigits = 1
     }
+    return "$tokenText / ${formatCompactTokenCount(window, locale)} tokens · " +
+        "${percentFormat.format(tokens.toDouble() / window * 100.0)}%"
 }
 
 internal fun formatCompactTokenCount(value: Int, locale: Locale = Locale.getDefault()): String {

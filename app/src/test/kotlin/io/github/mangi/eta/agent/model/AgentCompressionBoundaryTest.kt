@@ -110,16 +110,17 @@ class AgentCompressionBoundaryTest {
 
     @Test fun strictOverflowPausesWithoutSendingOrDeletingHistory() {
         val controller = AgentRunController()
-        val source = JSONArray().put(AgentConversationCodec.userTextMessage("x".repeat(40_000)))
+        val source = JSONArray().put(JSONObject().put("role", "system").put("content", "x".repeat(40_000)))
+            .put(AgentConversationCodec.userTextMessage("protected user"))
         val original = source.toString()
         val provider = provider { error("Over-budget request must never be sent") }
         var paused = false
         val loop = AgentLoop(config(9000), source, JSONArray(), provider,
             AgentModelClient.ToolExecutor { error("No tools") }, controller, AgentTraceFormatter(),
-            onEvent = { if (it is AgentEvent.ContextCompacted && it.blocked) { paused = true; controller.cancel() } })
+            systemCount = 1, onEvent = { if (it is AgentEvent.ContextCompacted && it.blocked) { paused = true; controller.cancel() } })
         assertThrows(AgentRunCancelledException::class.java) { loop.run() }
         assertTrue(paused)
-        source.getJSONObject(0).remove(AgentTurnIdentity.JSON_KEY)
+        source.getJSONObject(1).remove(AgentTurnIdentity.JSON_KEY)
         assertEquals(original, source.toString())
     }
 

@@ -15,7 +15,7 @@ class AgentContextCompactionUiTest {
             UserMessageUi("u", "continue"),
         )
         // Before the fix, clearing livePromptTokens made this old 19% baseline visible.
-        assertEquals(51_680, latestBilledContextTokens(messages))
+        assertEquals(null, latestBilledContextTokens(messages))
         val afterPruning = AgentContextCompactionUi.pendingPruningUsage(238_000, messages)
         assertEquals(238_000, afterPruning)
         // A failed summary has no new baseline; repeated pruning must not discard this bill.
@@ -28,7 +28,7 @@ class AgentContextCompactionUiTest {
             ContextCompactedMessageUi("old", compactedCount = 10, summary = "old summary",
                 baselineTokens = 51_680),
         )
-        assertEquals(51_680, AgentContextCompactionUi.pendingPruningUsage(null, messages))
+        assertEquals(null, AgentContextCompactionUi.pendingPruningUsage(null, messages))
         assertEquals(null, AgentContextCompactionUi.pendingPruningUsage(null, emptyList()))
     }
 

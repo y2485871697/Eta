@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SkillRegistryEntity::class,
         McpServerEntity::class,
     ],
-    version = 28,
+    version = 29,
     exportSchema = false,
 )
 internal abstract class EtaDatabase : RoomDatabase() {
@@ -69,6 +69,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_25_26,
                         MIGRATION_26_27,
                         MIGRATION_27_28,
+                        MIGRATION_28_29,
                     )
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
@@ -81,6 +82,10 @@ internal abstract class EtaDatabase : RoomDatabase() {
                 instance?.close()
                 instance = null
             }
+        }
+
+        internal val MIGRATION_28_29 = Migration(28, 29) { database ->
+            database.execSQL("ALTER TABLE conversation_context_checkpoints ADD COLUMN cloud_usage_json TEXT NOT NULL DEFAULT ''")
         }
 
         internal val MIGRATION_6_7 = Migration(6, 7) { database ->

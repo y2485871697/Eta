@@ -293,13 +293,10 @@ internal fun AgentChatBody(
         if (messageEdit != null) {
             null
         } else {
-            livePromptTokens ?: latestBilledContextTokens(messages)
+            livePromptTokens
         }
     }
-    val uncommittedLiveTokens = remember(visibleMessages, billedContextTokens, messageEdit) {
-        if (messageEdit != null || billedContextTokens != null) 0
-        else countUncommittedLiveTokens(visibleMessages)
-    }
+    val uncommittedLiveTokens = 0
     val imageSourceCache = remember { ChatImageSourceCache() }
     val previewGallery by produceState<List<String>>(emptyList(), visibleMessages, pendingImages) {
         // This used to parse EVERY historical reply synchronously on each text delta.

@@ -200,11 +200,7 @@ internal fun AgentChatInputBar(
     val textFieldState = draftField ?: rememberTextFieldState(initialText = input)
     var wasEditingMessage by remember { mutableStateOf(isEditingMessage) }
     val draftText = textFieldState.text.toString()
-    val historyTokenCount = remember(history) {
-        history.sumOf { AgentContextBudget.countMessage(it) }
-    }
     val liveUsage = remember(
-        historyTokenCount,
         billedContextTokens,
         requestOverheadTokens,
         billedOverheadTokens,
@@ -223,7 +219,6 @@ internal fun AgentChatInputBar(
             selectedModel = modelPickerState.selectedModel,
             pendingFileReferences = pendingFileReferences,
             pendingConversationMentions = conversationMentions.pending,
-            historyTokenCount = historyTokenCount,
             billedContextTokens = billedContextTokens,
             requestOverheadTokens = requestOverheadTokens,
             billedOverheadTokens = billedOverheadTokens,

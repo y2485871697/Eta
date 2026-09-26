@@ -14,7 +14,7 @@ internal data class SubAgentContextStats(
     val providerName: String,
     val contextWindow: Int?,
     val contextTokens: Int? = null,
-    val projected: Boolean = true,
+    val projected: Boolean = false,
     val inputTokens: Long = 0,
     val outputTokens: Long = 0,
     val isCompacting: Boolean = false,
@@ -53,9 +53,14 @@ internal data class SubAgentContextStats(
 }
 
 internal class SubAgentContextTracker(initial: SubAgentContextStats) {
-    var value: SubAgentContextStats = initial
+    var value: SubAgentContextStats = initial.copy(
+        contextTokens = initial.contextTokens.takeUnless { initial.projected }, projected = false,
+        afterCompactionTokens = initial.afterCompactionTokens.takeUnless { initial.projected })
         private set
-    private val billedRounds = mutableMapOf<Int, AgentTokenUsage>()
+    private val billedRounds = mutableMapOf<Pair<Long, Int>, AgentTokenUsage>()
+    private var requestSerial = 0L
+    private var activeRound: Int? = null
+    private var invalidatedAtRound: Int? = null
     private var awaitingCompactedUsage = false
 
     @Synchronized fun start(): SubAgentContextStats {
@@ -75,11 +80,34 @@ internal class SubAgentContextTracker(initial: SubAgentContextStats) {
 
     @Synchronized fun accept(event: AgentEvent): SubAgentContextStats? {
         if (value.status !in setOf("running", "awaiting_decision")) return null
+        if (event is AgentEvent.UsageReceived && event.projected) return null
         value = when (event) {
+            is AgentEvent.ProviderRequestStarted -> {
+                requestSerial++
+                activeRound = event.round
+                invalidatedAtRound = null
+                return null // Keep the last real measurement; no local projection or new UI state.
+            }
             is AgentEvent.UsageReceived -> {
-                if (!event.projected) billedRounds[event.round] = event.usage
-                val tokens = event.usage.occupancyTokens()
-                value.copy(contextTokens = tokens ?: value.contextTokens, projected = event.projected,
+                if (invalidatedAtRound?.let { event.round <= it } == true) return null
+                if (activeRound != event.round) {
+                    if (activeRound?.let { event.round < it } == true) return null
+                    requestSerial++
+                    activeRound = event.round
+                }
+                val key = requestSerial to event.round
+                val previous = billedRounds[key]
+                val incoming = event.usage
+                val merged = AgentTokenUsage(
+                    contextTokens = incoming.contextTokens ?: previous?.contextTokens,
+                    inputTokens = incoming.inputTokens ?: previous?.inputTokens,
+                    outputTokens = incoming.outputTokens ?: previous?.outputTokens,
+                    reasoningTokens = incoming.reasoningTokens ?: previous?.reasoningTokens,
+                    cachedTokens = incoming.cachedTokens ?: previous?.cachedTokens,
+                )
+                billedRounds[key] = merged
+                val tokens = merged.occupancyTokens()
+                value.copy(contextTokens = tokens ?: value.contextTokens, projected = false,
                     inputTokens = billedRounds.values.sumOf { (it.inputTokens ?: 0).toLong() },
                     outputTokens = billedRounds.values.sumOf { (it.outputTokens ?: 0).toLong() },
                     afterCompactionTokens = if (awaitingCompactedUsage) tokens else value.afterCompactionTokens)
@@ -90,7 +118,11 @@ internal class SubAgentContextTracker(initial: SubAgentContextStats) {
                 beforeCompactionTokens = if (value.isCompacting) value.beforeCompactionTokens else value.contextTokens,
                 afterCompactionTokens = null)
             is AgentEvent.ContextCompacted -> {
-                awaitingCompactedUsage = event.applied
+                if (event.applied) {
+                    awaitingCompactedUsage = true
+                    invalidatedAtRound = event.round
+                    requestSerial++
+                }
                 value.copy(isCompacting = false,
                     manualCompactionState = if (value.manualCompactionState in setOf("pending", "compressing"))
                         (if (event.applied) "completed" else "skipped") else value.manualCompactionState,

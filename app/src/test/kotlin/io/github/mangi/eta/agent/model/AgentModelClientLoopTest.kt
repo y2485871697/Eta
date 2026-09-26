@@ -1180,7 +1180,7 @@ class AgentModelClientLoopTest {
     }
 
     @Test
-    fun projectsPromptOccupancyAfterToolResults() {
+    fun reportsOnlyProviderUsageAcrossToolResults() {
 
         val events = mutableListOf<AgentEvent>()
         val provider = ScriptedProvider(
@@ -1212,22 +1212,13 @@ class AgentModelClientLoopTest {
             compactPolicy = AgentLoop.CompactPolicy.Disabled,
         ).run()
 
-        val real = events.filterIsInstance<AgentEvent.UsageReceived>().filter { !it.projected }
-        val projected = events.filterIsInstance<AgentEvent.UsageReceived>().filter { it.projected }
-        assertEquals(135_880, real.first().usage.inputTokens)
-        assertTrue(projected.isNotEmpty())
-        // Before the first bill, the loop now emits a local request estimate.
-        val firstBillIndex = events.indexOf(real.first())
-        val initialEstimates = events.take(firstBillIndex)
-            .filterIsInstance<AgentEvent.UsageReceived>().filter { it.projected }
-        assertTrue(initialEstimates.isNotEmpty())
-        assertTrue(initialEstimates.all { (it.usage.inputTokens ?: 0) > 0 })
-        // Tool results must still project from the actual billed prompt baseline.
-        val afterBill = events.drop(firstBillIndex + 1)
-            .filterIsInstance<AgentEvent.UsageReceived>().filter { it.projected }
-        assertTrue(afterBill.isNotEmpty())
-        assertTrue((afterBill.first().usage.inputTokens ?: 0) > 135_880)
-        assertEquals(137_865, real.last().usage.inputTokens)
+        val usageEvents = events.filterIsInstance<AgentEvent.UsageReceived>()
+        assertEquals(2, provider.requests.size)
+        assertEquals(2, usageEvents.size)
+        assertTrue(usageEvents.none { it.projected })
+        assertEquals(listOf(1, 2), usageEvents.map { it.round })
+        assertEquals(listOf(135_880, 137_865), usageEvents.map { it.usage.inputTokens })
+        assertEquals(1, events.filterIsInstance<AgentEvent.ToolFinished>().size)
     }
 
     @Test

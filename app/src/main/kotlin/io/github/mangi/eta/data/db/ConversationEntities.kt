@@ -72,6 +72,7 @@ internal data class ConversationContextCheckpointEntity(
     @PrimaryKey
     @ColumnInfo(name = "conversation_id") val conversationId: String,
     @ColumnInfo(name = "history_json") val historyJson: String,
+    @ColumnInfo(name = "cloud_usage_json", defaultValue = "''") val cloudUsageJson: String = "",
 )
 
 @Serializable
