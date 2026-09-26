@@ -187,6 +187,194 @@ class AgentAutomaticCompactionTest {
             .getJSONObject(provider.requests.single().length() - 1).getString("content"))
     }
 
+    @Test fun manualCompressorAndRetentionExpireBeforeLaterBelowThresholdOverflow() {
+        val automatic = modelConfig().copy(model = "automatic-A")
+        val manual = modelConfig().copy(model = "manual-B")
+        val controller = AgentRunController().also {
+            assertTrue(it.requestCompact(keepRecentMessages = 1, compressModelConfig = manual))
+        }
+        val messages = smallHistory()
+        val events = mutableListOf<AgentEvent>()
+        val attempts = mutableListOf<Pair<String, Int>>()
+        val provider = ScriptedProvider(listOf(
+            { request, _ ->
+                assertEquals(listOf("manual-B" to 1), attempts)
+                assertTrue(requestTokens(request.messages) < AUTO_PRESSURE)
+                throw overflow()
+            },
+            { _, _ -> assistant(promptTokens = 20) },
+        ))
+        assertEquals("done", runLoop(messages, provider, events, controller = controller, compressor = automatic,
+            compactHistory = { source, policy ->
+                attempts += requireNotNull(policy.compressModelConfig).model to policy.keepRecentMessages
+                assertTrue(requestTokens(messages) < AUTO_PRESSURE)
+                if (attempts.size == 1) {
+                    // A valid first reduction with enough remaining prefix for overflow recovery.
+                    listOf(AgentModelClient.ConversationMessage("system",
+                        AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n" + "manual evidence ".repeat(100))) +
+                        source.drop(requireNotNull(policy.keepStartOverride))
+                } else summarize(source, policy)
+            }).content)
+
+        assertEquals(listOf("manual-B" to 1, "automatic-A" to 2), attempts)
+        assertEquals(2, provider.requests.size)
+        assertTrue(requestTokens(provider.requests.last()) < requestTokens(provider.requests.first()))
+        val compactions = events.filterIsInstance<AgentEvent.ContextCompacted>()
+        assertEquals(2, compactions.size)
+        assertTrue(compactions.all { it.applied && !it.blocked })
+        assertEquals("current-turn", messages.getJSONObject(messages.length() - 1).getString(AgentTurnIdentity.JSON_KEY))
+    }
+
+    @Test fun manualCompressorCannotFillMissingAutomaticConfigAfterRequest() {
+        val manual = modelConfig().copy(model = "manual-B")
+        val controller = AgentRunController().also {
+            assertTrue(it.requestCompact(keepRecentMessages = 1, compressModelConfig = manual))
+        }
+        val messages = smallHistory()
+        val events = mutableListOf<AgentEvent>()
+        val provider = ScriptedProvider(listOf(
+            { request, _ ->
+                assertTrue(requestTokens(request.messages) < AUTO_PRESSURE)
+                throw overflow()
+            },
+            // A leaked override would wrongly recover and reach this request instead of pausing.
+            { _, _ -> assistant(promptTokens = 20) },
+        ))
+        var summaries = 0
+        assertThrows(AgentRunCancelledException::class.java) {
+            runLoop(messages, provider, events, controller = controller, compressor = null,
+                compactHistory = { source, policy ->
+                    summaries++
+                    assertEquals("manual-B", requireNotNull(policy.compressModelConfig).model)
+                    assertEquals(1, policy.keepRecentMessages)
+                    if (summaries == 1) {
+                        listOf(AgentModelClient.ConversationMessage("system",
+                            AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n" + "manual evidence ".repeat(100))) +
+                            source.drop(requireNotNull(policy.keepStartOverride))
+                    } else summarize(source, policy)
+                })
+        }
+
+        assertEquals(1, summaries)
+        assertEquals(1, provider.requests.size)
+        assertEquals(provider.requests.single().toString(), messages.toString())
+        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
+        val compactions = events.filterIsInstance<AgentEvent.ContextCompacted>()
+        assertEquals(1, compactions.count { it.applied })
+        assertTrue(compactions.single { it.blocked }.reason.orEmpty().contains("提供方确认上下文超限"))
+    }
+
+    @Test fun manualOverrideStillCoversBoundedHardRecoveryBeforeItsRequest() {
+        val config = modelConfig().copy(extraBodyJson = """{"max_tokens":200000}""")
+        val inputLimit = AgentCompressionBoundary.inputLimit(WINDOW, AgentCompressionBoundary.outputReserve(config))
+        val manual = modelConfig().copy(model = "manual-B")
+        val controller = AgentRunController().also {
+            assertTrue(it.requestCompact(keepRecentMessages = 1, compressModelConfig = manual))
+        }
+        val messages = history("x".repeat(24_000), count = 10)
+        val events = mutableListOf<AgentEvent>()
+        var summaries = 0
+        val provider = ScriptedProvider(listOf({ request, _ ->
+            assertEquals(2, summaries)
+            assertTrue(requestTokens(request.messages) <= inputLimit)
+            assistant(promptTokens = 20)
+        }))
+        assertEquals("done", runLoop(messages, provider, events, config = config,
+            enabled = false, controller = controller, compressor = null,
+            compactHistory = { source, policy ->
+                summaries++
+                assertEquals("manual-B", requireNotNull(policy.compressModelConfig).model)
+                assertEquals(1, policy.keepRecentMessages)
+                assertTrue(requestTokens(messages) > inputLimit)
+                assertTrue(requestTokens(messages) < AUTO_PRESSURE)
+                if (summaries == 1) {
+                    // Reduces the prefix, but the full request still exceeds the hard input limit.
+                    listOf(AgentModelClient.ConversationMessage("system",
+                        AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n" + "x".repeat(32_000))) +
+                        source.drop(requireNotNull(policy.keepStartOverride))
+                } else summarize(source, policy)
+            }).content)
+
+        assertEquals(2, summaries)
+        assertEquals(1, provider.requests.size)
+        val compactions = events.filterIsInstance<AgentEvent.ContextCompacted>()
+        assertEquals(2, compactions.size)
+        assertTrue(compactions.all { it.applied && !it.blocked && it.round == 1 })
+    }
+
+    @Test fun hardInputRecoveryWaitsForWholeLiveToolBatchWithoutRepeatingOrChangingTurn() {
+        val config = modelConfig().copy(extraBodyJson = """{"max_tokens":200000}""")
+        val inputLimit = AgentCompressionBoundary.inputLimit(WINDOW, AgentCompressionBoundary.outputReserve(config))
+        val messages = smallHistory()
+        val ids = listOf("batch-first", "batch-second", "batch-third")
+        val callsJson = JSONArray().also { calls ->
+            ids.forEach { calls.put(toolReply(it).getJSONArray("tool_calls").getJSONObject(0)) }
+        }
+        val reply = assistant(content = "").put("finish_reason", "tool_calls").put("tool_calls", callsJson)
+        val calls = AgentConversationCodec.parseToolCalls(reply)
+        val output = "x".repeat(20_000)
+        val billedTokens = 41_000
+        val assistantTokens = AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(
+            AgentConversationCodec.assistantHistoryMessage(reply, calls)))
+        val resultTokens = calls.map { call ->
+            AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(
+                AgentConversationCodec.toolResultMessage(call, AgentModelClient.ToolResult(output))))
+        }
+        val decisionTokens = billedTokens + assistantTokens + resultTokens.sum()
+        assertTrue(requestTokens(messages) < inputLimit)
+        // Pressure is already hard after the second result, but the third must still run.
+        assertTrue(billedTokens + assistantTokens + resultTokens.take(2).sum() > inputLimit)
+        assertTrue(decisionTokens < AUTO_PRESSURE)
+        val events = mutableListOf<AgentEvent>()
+        val executions = mutableListOf<String>()
+        var summaries = 0
+        var keptJson = emptyList<String>()
+        val provider = ScriptedProvider(listOf(
+            { _, _ -> reply.put("usage", JSONObject().put("prompt_tokens", billedTokens)) },
+            { request, _ ->
+                assertEquals(1, summaries)
+                assertEquals(ids, executions)
+                assertTrue(requestTokens(request.messages) <= inputLimit)
+                assertEquals(keptJson, (request.messages.length() - keptJson.size until request.messages.length())
+                    .map { request.messages.getJSONObject(it).toString() })
+                assistant(promptTokens = 20)
+            },
+        ))
+        assertEquals("done", runLoop(messages, provider, events, config = config,
+            toolExecutor = AgentModelClient.ToolExecutor { call ->
+                assertEquals(0, summaries)
+                assertFalse(events.any { it is AgentEvent.ContextCompactionStarted })
+                executions += call.id
+                AgentModelClient.ToolResult(output)
+            },
+            compactHistory = { source, policy ->
+                summaries++
+                assertEquals(ids, executions)
+                assertEquals(ids, source.filter { it.role == "tool" }.map { it.toolCallId })
+                val cut = requireNotNull(policy.keepStartOverride)
+                assertTrue(AgentCompressionBoundary.balancedCuts(source).contains(cut))
+                assertEquals(listOf("assistant", "tool", "tool", "tool"), source.drop(cut).map { it.role })
+                keptJson = (cut until messages.length()).map { messages.getJSONObject(it).toString() }
+                keptJson.forEach { assertEquals("current-turn", JSONObject(it).getString(AgentTurnIdentity.JSON_KEY)) }
+                summarize(source, policy)
+            }).content)
+
+        assertEquals(ids, executions)
+        assertEquals(2, provider.requests.size)
+        assertEquals(1, summaries)
+        assertUsageBeforeStart(events, decisionTokens)
+        val start = events.indexOfFirst { it is AgentEvent.ContextCompactionStarted }
+        assertTrue(events.withIndex().filter { it.value is AgentEvent.ToolFinished }.all { it.index < start })
+        assertEquals(ids, events.filterIsInstance<AgentEvent.ToolStarted>().map { it.toolCallId })
+        assertEquals(ids, events.filterIsInstance<AgentEvent.ToolFinished>().map { it.toolCallId })
+        assertTrue(events.filterIsInstance<AgentEvent.ToolFinished>().all { it.round == 1 })
+        assertEquals(2, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().single().round)
+        assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().single().applied)
+        assertEquals(keptJson, (messages.length() - 1 - keptJson.size until messages.length() - 1)
+            .map { messages.getJSONObject(it).toString() })
+        assertEquals("current-turn", messages.getJSONObject(messages.length() - 1).getString(AgentTurnIdentity.JSON_KEY))
+    }
+
     @Test fun outputReserveBelowAutoThresholdRecoversWithAutomaticSummary() {
         for ((config, messages) in listOf(
             modelConfig().copy(extraBodyJson = """{"max_tokens":200000}""") to history("x".repeat(24_000), count = 10),
