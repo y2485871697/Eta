@@ -538,6 +538,12 @@ internal class AgentLoop(
         cut: Int,
         decisionTokens: Int = estimatedRequestTokens(),
     ): Boolean {
+        val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
+        // Every automatic summary, including hard-pressure recovery, obeys the same gate.
+        if (!manualBudgetAttempt && estimatedRequestTokens() < AgentContextCompactor.autoPressureTokens(window)) {
+            compactionFailure = "上下文空间不足，但当前请求估算占用未达到配置窗口的 80% 自动摘要阈值；已暂停，未删除受保护历史。可手动压缩或停止后选择更大窗口模型。"
+            return false
+        }
         val compressConfig = budgetCompressModelConfig?.let { model ->
             val window = model.contextWindow?.takeIf { it > 0 }
                 ?: config.contextWindow?.takeIf { it > 0 }

@@ -59,6 +59,36 @@ class AgentAutomaticCompactionTest {
         }
     }
 
+    @Test fun actualConfiguredWindowAllowsExactlyEightyPercentButNotOneTokenBelow() {
+        // The runLoop policy still uses WINDOW; the request's configured window wins.
+        val config = modelConfig().copy(contextWindow = WINDOW / 2)
+        val threshold = AgentContextCompactor.autoPressureTokens(requireNotNull(config.contextWindow))
+        for (decisionTokens in listOf(threshold - 1, threshold)) {
+            val messages = smallHistory()
+            assertTrue(requestTokens(messages) < threshold)
+            val reply = assistant()
+            val replyTokens = AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(reply))
+            val provider = ScriptedProvider(listOf({ _, _ ->
+                reply.put("usage", JSONObject().put("prompt_tokens", decisionTokens - replyTokens))
+            }))
+            val events = mutableListOf<AgentEvent>()
+            var summaries = 0
+            assertEquals("done", runLoop(messages, provider, events, config = config,
+                compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
+
+            assertEquals(1, provider.requests.size)
+            assertFalse(events.filterIsInstance<AgentEvent.ContextCompacted>().any { it.blocked })
+            if (decisionTokens < threshold) {
+                assertEquals(0, summaries)
+                assertFalse(events.any { it is AgentEvent.ContextCompactionStarted })
+            } else {
+                assertEquals(1, summaries)
+                assertUsageBeforeStart(events, threshold)
+                assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().single().applied)
+            }
+        }
+    }
+
     @Test fun freshToolOutputReachingEightyPercentPublishesDecisionBeforeStart() {
         val messages = smallHistory()
         val reply = toolReply("fresh")
@@ -157,45 +187,42 @@ class AgentAutomaticCompactionTest {
             .getJSONObject(provider.requests.single().length() - 1).getString("content"))
     }
 
-    @Test fun outputReserveStillEnforcesHardInputBudgetBelowAutoThreshold() {
-        val config = modelConfig().copy(extraBodyJson = """{"max_tokens":200000}""")
-        val messages = history("x".repeat(24_000), count = 10)
-        val decisionTokens = requestTokens(messages)
-        val inputLimit = AgentCompressionBoundary.inputLimit(WINDOW, AgentCompressionBoundary.outputReserve(config))
-        assertTrue(decisionTokens > inputLimit && decisionTokens < AUTO_PRESSURE)
-        val protectedTail = messages.getJSONObject(messages.length() - 2).toString()
-        val provider = ScriptedProvider(listOf({ request, _ ->
-            assertTrue(requestTokens(request.messages) <= inputLimit)
-            assistant(promptTokens = 20)
-        }))
-        val events = mutableListOf<AgentEvent>()
-        runLoop(messages, provider, events, config = config)
+    @Test fun outputReserveBelowAutoThresholdBlocksWithoutSummarizing() {
+        for ((config, messages) in listOf(
+            modelConfig().copy(extraBodyJson = """{"max_tokens":200000}""") to history("x".repeat(24_000), count = 10),
+            // Above the policy's threshold, but below the actual larger window's threshold.
+            modelConfig().copy(contextWindow = WINDOW * 2, extraBodyJson = """{"max_tokens":300000}""") to
+                history("x".repeat(100_000), count = 10),
+        )) {
+            val window = requireNotNull(config.contextWindow)
+            val decisionTokens = requestTokens(messages)
+            val inputLimit = AgentCompressionBoundary.inputLimit(window, AgentCompressionBoundary.outputReserve(config))
+            assertTrue(decisionTokens > inputLimit)
+            assertTrue(decisionTokens < AgentContextCompactor.autoPressureTokens(window))
+            val provider = ScriptedProvider(emptyList())
 
-        assertUsageBeforeStart(events, decisionTokens)
-        assertEquals(1, provider.requests.size)
-        assertEquals(protectedTail, messages.getJSONObject(messages.length() - 3).toString())
+            assertBlockedWithoutAutomaticSummary(messages, provider, config)
+
+            assertTrue(provider.requests.isEmpty())
+        }
     }
 
-    @Test fun hardStorageCapStillReducesBelowAutoTokenThreshold() {
+    @Test fun hardStorageCapBelowAutoThresholdBlocksWithoutSummarizing() {
         val messages = escapedHistory(charsPerMessage = 40_000)
-        val decisionTokens = requestTokens(messages)
         assertTrue(storedChars(messages) > HARD_STORAGE_CAP)
-        assertTrue(decisionTokens < AUTO_PRESSURE)
-        val protectedTail = messages.getJSONObject(messages.length() - 2).toString()
-        val provider = ScriptedProvider(listOf({ request, _ ->
-            assertTrue(storedChars(request.messages) <= HARD_STORAGE_CAP)
-            assistant(promptTokens = 20)
-        }))
-        val events = mutableListOf<AgentEvent>()
-        runLoop(messages, provider, events)
+        assertTrue(requestTokens(messages) < AUTO_PRESSURE)
+        val provider = ScriptedProvider(emptyList())
 
-        assertUsageBeforeStart(events, decisionTokens)
-        assertEquals(1, provider.requests.size)
-        assertEquals(protectedTail, messages.getJSONObject(messages.length() - 3).toString())
+        assertBlockedWithoutAutomaticSummary(messages, provider)
+
+        assertTrue(provider.requests.isEmpty())
     }
 
     @Test fun unsafeHardBudgetSummaryBlocksWithoutChangingProtectedHistory() {
-        val messages = history("x".repeat(24_000), count = 10)
+        // Keep this validation test above the gate so the unsafe summary is actually attempted.
+        val messages = history("x".repeat(84_000), count = 10)
+        val decisionTokens = requestTokens(messages)
+        assertTrue(decisionTokens >= AUTO_PRESSURE)
         val original = messages.toString()
         val provider = ScriptedProvider(emptyList())
         val events = mutableListOf<AgentEvent>()
@@ -204,38 +231,47 @@ class AgentAutomaticCompactionTest {
                 config = modelConfig().copy(extraBodyJson = """{"max_tokens":200000}"""),
                 compactHistory = { _, _ -> listOf(AgentModelClient.ConversationMessage("system", "lost tail")) })
         }
+        assertUsageBeforeStart(events, decisionTokens)
         assertTrue(provider.requests.isEmpty())
         assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().any { it.blocked })
         assertFalse(events.filterIsInstance<AgentEvent.ContextCompacted>().any { it.applied })
         assertEquals(original, messages.toString())
     }
 
-    @Test fun genuineProviderOverflowRecoversBelowThresholdAndRepeatedOverflowStaysBounded() {
-        for (repeatOverflow in listOf(false, true)) {
-            val messages = smallHistory()
-            val decisionTokens = requestTokens(messages)
-            val events = mutableListOf<AgentEvent>()
-            val provider = ScriptedProvider(listOf(
-                { _, _ -> throw overflow() },
-                { request, _ ->
-                    assertTrue(requestTokens(request.messages) < decisionTokens)
-                    assertEquals("current task", request.messages
-                        .getJSONObject(request.messages.length() - 1).getString("content"))
-                    if (repeatOverflow) throw overflow()
-                    assistant(promptTokens = 20)
-                },
-            ))
-            if (repeatOverflow) {
-                assertThrows(AgentRunCancelledException::class.java) { runLoop(messages, provider, events) }
-                assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().any { it.blocked })
-            } else {
-                assertEquals("done", runLoop(messages, provider, events).content)
-            }
-            assertEquals(2, provider.requests.size)
-            assertTrue(decisionTokens < AUTO_PRESSURE)
-            assertUsageBeforeStart(events, decisionTokens)
-            assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompacted>().count { it.applied })
+    @Test fun genuineProviderOverflowBelowThresholdBlocksWithoutSummaryOrRetry() {
+        val messages = smallHistory()
+        assertTrue(requestTokens(messages) < AUTO_PRESSURE)
+        val provider = ScriptedProvider(listOf({ _, _ -> throw overflow() }))
+
+        assertBlockedWithoutAutomaticSummary(messages, provider)
+
+        assertEquals(1, provider.requests.size)
+    }
+
+    private fun assertBlockedWithoutAutomaticSummary(
+        messages: JSONArray,
+        provider: ScriptedProvider,
+        config: AgentModelClient.ModelConfig = modelConfig(),
+    ) {
+        val original = messages.toString()
+        val events = mutableListOf<AgentEvent>()
+        val archiveRoot = temporary.newFolder()
+        var summaries = 0
+        assertThrows(AgentRunCancelledException::class.java) {
+            runLoop(messages, provider, events, config = config,
+                archive = AgentCompactionArchive(archiveRoot, "below-threshold"),
+                compactHistory = { source, policy -> summaries++; summarize(source, policy) })
         }
+
+        assertEquals(0, summaries)
+        assertFalse(events.any { it is AgentEvent.ContextCompactionStarted })
+        val blocked = events.filterIsInstance<AgentEvent.ContextCompacted>().single()
+        assertTrue(blocked.blocked)
+        assertFalse(blocked.applied)
+        assertTrue(blocked.reason.orEmpty().contains("80% 自动摘要阈值"))
+        assertTrue(blocked.reason.orEmpty().contains("未删除受保护历史"))
+        assertEquals(original, messages.toString())
+        assertFalse("Blocked summaries must not write checkpoints", archiveRoot.walkTopDown().any { it.isFile })
     }
 
     private fun runLoop(
