@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.app
 
 import android.content.Context
+import io.github.mangi.eta.ui.model.CloudUsageReceiptCodec
 import io.github.mangi.eta.agent.model.AgentConversationCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.datastore.SettingsDataStore
@@ -105,9 +106,11 @@ internal object AgentConversationStore {
                         }
                 }
                 val contextCheckpoints = sorted.map { (conversationId, state) ->
+                    val encodedHistory = encodeCheckpoint(state.history)
                     ConversationContextCheckpointEntity(
                         conversationId = conversationId,
-                        historyJson = encodeCheckpoint(state.history),
+                        historyJson = encodedHistory,
+                        cloudUsageJson = CloudUsageReceiptCodec.encode(conversationId, state.providerId, state.modelId, encodedHistory, state.livePromptTokens),
                     )
                 }
                 val dao = EtaDatabase.get(appContext).conversationDao()
@@ -172,8 +175,9 @@ internal object AgentConversationStore {
 
         val (fallbackProviderId, fallbackModelId) = defaultSelection()
         conversations.forEach { conversation ->
+            val checkpoint = dao.contextCheckpoint(conversation.id)
             val history = AgentConversationCodec.decodeTranscript(
-                dao.contextCheckpoint(conversation.id)?.historyJson
+                checkpoint?.historyJson
             ).ifEmpty {
                 messagesByConversation[conversation.id]
                     .orEmpty()
@@ -198,6 +202,8 @@ internal object AgentConversationStore {
                 providerId = if (conversation.providerId.isBlank() && conversation.modelId.isBlank()) fallbackProviderId else conversation.providerId,
                 modelId = if (conversation.providerId.isBlank() && conversation.modelId.isBlank()) fallbackModelId else conversation.modelId,
                 assistantId = conversation.assistantId,
+                livePromptTokens = checkpoint?.let { CloudUsageReceiptCodec.decode(
+                    it.cloudUsageJson, conversation.id, conversation.providerId, conversation.modelId, it.historyJson) },
             )
             titles[conversation.id] = conversation.title.takeUnless { it == LEGACY_UNNAMED_TITLE }.orEmpty()
             updatedAt[conversation.id] = conversation.updatedAt

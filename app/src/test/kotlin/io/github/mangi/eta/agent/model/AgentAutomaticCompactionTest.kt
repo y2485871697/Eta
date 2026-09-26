@@ -19,15 +19,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Automatic compaction is driven purely by the provider's billed input usage (cloud policy):
- *  - no billed usage => no automatic compaction, no matter how large the local history is;
- *  - freshly appended assistant/tool content is never accumulated into a local projection;
- *  - automatic compaction fires at exactly 80% of the effective window (configured window wins);
- *  - after a summary commits the loop waits for the next reported usage before it can fire again;
- *  - hitting the local persistence cap pauses without summarizing protected history.
- *
- * Retained behaviours: explicit provider overflow recovery, manual compaction, whole tool-batch
- * retention without replay, cancellation safety, and protected-history integrity.
+ * Initial and replaced contexts may use local send-budget estimates.
+ * Later requests use measured cloud input; estimates never publish cloud usage.
+ * Summaries start at 80%, with at most one additional pass after real reduction.
+ * Hard storage limits, cancellation and tool-batch integrity stay separate.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -51,11 +46,12 @@ class AgentAutomaticCompactionTest {
             assertEquals(if (corrected) 0 else 1, summaries)
             assertEquals(1, provider.requests.size)
             assertFalse(events.filterIsInstance<AgentEvent.UsageReceived>().any { it.projected })
+            assertEquals(AUTO_PRESSURE, events.filterIsInstance<AgentEvent.UsageReceived>().first { it.usage.outputTokens == 20 }.usage.inputTokens)
         }
     }
 
-    @Test fun missingBilledUsageNeverTriggersAutomaticCompaction() {
-        // The local history is already above 80%, yet with no billed usage there is no decision.
+    @Test fun initialBudgetMayCompactWithoutPublishingSyntheticUsage() {
+        // The initial send boundary may use a local budget without publishing synthetic usage.
         val messages = largeHistory()
         assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
         val events = mutableListOf<AgentEvent>()
@@ -65,13 +61,13 @@ class AgentAutomaticCompactionTest {
             compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
 
         assertEquals(1, provider.requests.size)
-        assertEquals(0, summaries)
+        assertEquals(1, summaries)
         assertTrue(events.none { it is AgentEvent.UsageReceived })
-        assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
-        assertTrue(events.none { it is AgentEvent.ContextCompacted })
+        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
+        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompacted>().count { it.applied })
     }
 
-    @Test fun billedUsageBelowEightyPercentNeverCompactsEvenWithLargeLocalHistory() {
+    @Test fun initialEstimateDoesNotOverrideLaterBelowThresholdCloudUsage() {
         val messages = largeHistory()
         assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
         val events = mutableListOf<AgentEvent>()
@@ -81,8 +77,8 @@ class AgentAutomaticCompactionTest {
             compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
 
         assertEquals(1, provider.requests.size)
-        assertEquals(0, summaries)
-        assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
+        assertEquals(1, summaries)
+        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
         assertEquals(AUTO_PRESSURE - 1,
             requireNotNull(events.filterIsInstance<AgentEvent.UsageReceived>().single().usage.inputTokens))
     }

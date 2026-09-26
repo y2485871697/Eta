@@ -1,5 +1,6 @@
 package io.github.mangi.eta.ui.components
 
+import io.github.mangi.eta.ui.model.AgentContextUsageUi
 import androidx.compose.runtime.staticCompositionLocalOf
 import io.github.mangi.eta.agent.delegation.SubAgentContextStats
 import io.github.mangi.eta.ui.model.AgentContextUsageUi
@@ -43,3 +44,8 @@ internal fun SubAgentContextStats.contextStatusLabel(): String = when {
     status == "cancelled" -> "已取消"
     else -> "失败"
 }
+
+internal fun SubAgentContextStats.cloudContextUsage(): AgentContextUsageUi = AgentContextUsageUi(
+    contextTokens = contextTokens?.takeIf { !projected && it > 0 },
+    contextWindow = contextWindow,
+)

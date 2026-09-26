@@ -2,6 +2,9 @@ package io.github.mangi.eta.ui.model
 
 import androidx.compose.runtime.Immutable
 import io.github.mangi.eta.agent.model.AgentContextBudget
+import io.github.mangi.eta.agent.model.AgentFileReference
+import io.github.mangi.eta.agent.model.AgentFileReferenceKind
+import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ReasoningEffort
@@ -103,8 +106,8 @@ internal object AgentModelPickerProjector {
         val seen = HashSet<String>()
         return SpeechSynthesisModels.mergeCatalog(provider).filter { model ->
             if (!model.isEnabled) return@filter false
-            if (!includeSpeechModels && model.supportsSpeechSynthesis) return@filter false
             if (speechOnly && !SpeechSynthesisModels.isReadAloudModel(model, provider)) return@filter false
+            if (!includeSpeechModels && model.supportsSpeechSynthesis) return@filter false
             seen.add(model.modelId.lowercase())
         }
     }
@@ -323,31 +326,30 @@ internal fun shouldBlockSendForContextWindow(
 ): Boolean = !autoCompressEnabled && isContextWindowExceeded(usage)
 
 internal fun contextUsageProgress(contextTokens: Int?, contextWindow: Int?): Float? {
-    if (contextTokens == null || contextTokens <= 0 || contextWindow == null || contextWindow <= 0) {
+    if (contextTokens == null || contextTokens < 0 || contextWindow == null || contextWindow <= 0) {
         return null
     }
     return (contextTokens.toFloat() / contextWindow.toFloat()).coerceIn(0f, 1f)
 }
 
+@Suppress("UNUSED_PARAMETER")
 internal fun formatContextUsage(
     usage: AgentContextUsageUi,
     noUsageText: String = "No conversation context yet",
     noLimitText: String = "The current model does not provide a context limit",
     locale: Locale = Locale.getDefault(),
-): String = when {
-    usage.contextTokens == null || usage.contextTokens <= 0 -> noUsageText
-    usage.contextWindow == null || usage.contextWindow <= 0 ->
-        "${formatCompactTokenCount(usage.contextTokens, locale)} tokens\n$noLimitText"
-    else -> {
-        val percent = usage.contextTokens.toDouble() / usage.contextWindow.toDouble() * 100.0
-        val percentFormat = NumberFormat.getNumberInstance(locale).apply {
-            minimumFractionDigits = 1
-            maximumFractionDigits = 1
-        }
-        "${formatCompactTokenCount(usage.contextTokens, locale)} / " +
-            "${formatCompactTokenCount(usage.contextWindow, locale)} tokens · " +
-            "${percentFormat.format(percent)}%"
+): String {
+    // Zero is a display placeholder, never a fabricated cloud measurement.
+    val tokens = usage.contextTokens?.coerceAtLeast(0) ?: 0
+    val tokenText = if (tokens == 0) "0K" else formatCompactTokenCount(tokens, locale)
+    val window = usage.contextWindow
+    if (window == null || window <= 0) return "$tokenText tokens" + 10.toChar() + noLimitText
+    val percentFormat = NumberFormat.getNumberInstance(locale).apply {
+        minimumFractionDigits = 1
+        maximumFractionDigits = 1
     }
+    return "$tokenText / ${formatCompactTokenCount(window, locale)} tokens · " +
+        "${percentFormat.format(tokens.toDouble() / window * 100.0)}%"
 }
 
 internal fun formatCompactTokenCount(value: Int, locale: Locale = Locale.getDefault()): String {

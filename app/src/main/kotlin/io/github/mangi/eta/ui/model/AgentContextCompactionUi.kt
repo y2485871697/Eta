@@ -5,6 +5,12 @@ import io.github.mangi.eta.agent.model.AgentModelClient
 
 /** 把压缩结果变成时间线上的分界标记，摘要原文原样保留。 */
 internal object AgentContextCompactionUi {
+    /** Pruning may commit before a manual summary fails. Until a new bill or a successful
+     * summary baseline arrives, keep the latest measured occupancy instead of falling back
+     * to a historical compaction marker. This is the last bill, not a pruning estimate. */
+    internal fun pendingPruningUsage(livePromptTokens: Int?, messages: List<AgentChatMessageUi>): Int? =
+        livePromptTokens?.takeIf { it > 0 } ?: latestBilledContextTokens(messages)
+
     fun applyMarker(
         messages: List<AgentChatMessageUi>,
         originalHistory: List<AgentModelClient.ConversationMessage>,

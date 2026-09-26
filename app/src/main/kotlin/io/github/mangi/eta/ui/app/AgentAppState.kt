@@ -75,8 +75,6 @@ import io.github.mangi.eta.data.repository.ModelRepository
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 
-import io.github.mangi.eta.ui.model.CloudContextUsageState
-import io.github.mangi.eta.ui.model.ContextUsageScope
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.isSteerSupplement
 import io.github.mangi.eta.ui.model.hasPartialAssistantAfterLastUser
@@ -165,8 +163,9 @@ internal class AgentAppState(
 
     private val skillZipImportGateway = skillZipImportGateway ?: CoreSkillZipImportGateway(appContext)
     private val runConversationIds = mutableMapOf<String, String>()
-    private val runCloudUsage = mutableMapOf<String, CloudContextUsageState>()
     private val runUsageResumeRounds = mutableMapOf<String, Int>()
+    private val runUsageOwners = mutableMapOf<String, Pair<String, String>>()
+    private val invalidatedUsageRuns = mutableSetOf<String>()
     private val runGeneratedAtMillis = mutableMapOf<String, Long>()
     // A stopped worker still owns its transcript until its terminal result is committed.
     private val stoppingRuns = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
@@ -852,7 +851,7 @@ internal class AgentAppState(
         val existing = conversationsById[conversationId] ?: return false
         if (AgentRuntimeHistoryReducer.wasApplied(existing, runId)) return false
 
-        bindRunConversation(runId, conversationId)
+        bindUsageRun(runId, conversationId)
         updateConversation(conversationId, existing.copy(isStreaming = true))
         restoreRunEvents(runId, checkpoint.events)
         flushPendingRunDelta(runId)
@@ -880,9 +879,7 @@ internal class AgentAppState(
         setConversationStreaming(runId, false)
         runMessageProjector.clearRun(runId)
         runGeneratedAtMillis.remove(runId)
-        runConversationIds.remove(runId)
-        runCloudUsage.remove(runId)
-        runUsageResumeRounds.remove(runId)
+        runConversationIds.remove(runId); runUsageOwners.remove(runId); runUsageResumeRounds.remove(runId); invalidatedUsageRuns.remove(runId)
         runOverheadTokens.remove(runId)
         conversationUpdatedAt = conversationUpdatedAt +
             (conversationId to checkpoint.updatedAt)
@@ -897,7 +894,7 @@ internal class AgentAppState(
         val existing = conversationsById[conversationId] ?: return
         if (runId in runJobs || AgentRuntimeHistoryReducer.wasApplied(existing, runId)) return
 
-        bindRunConversation(runId, conversationId)
+        bindUsageRun(runId, conversationId)
         updateConversation(conversationId, existing.copy(isStreaming = true))
         refreshConversationSummaries()
         runJobs[runId] = scope.launch(Dispatchers.IO) {
@@ -996,7 +993,7 @@ internal class AgentAppState(
         if (conversationTitles[conversationId].isNullOrBlank()) {
             conversationTitles = conversationTitles + (conversationId to payload.title)
         }
-        bindRunConversation(runId, conversationId)
+        bindUsageRun(runId, conversationId)
         updateConversation(
             conversationId,
             existingState.copy(
@@ -2039,8 +2036,7 @@ internal class AgentAppState(
         val runOverhead = requestOverheadTokens
         val runBilledOverhead = billedOverheadTokens
         val taggedUserHistoryMessage = userHistoryMessage.copy(turnId = logicalTurnId)
-        bindRunConversation(runId, conversationId)
-        runCloudUsage[runId] = CloudContextUsageState(ContextUsageScope(conversationId, state.providerId, state.modelId, 0))
+        bindUsageRun(runId, conversationId)
         runOverheadTokens[runId] = requestOverheadTokens
         val generateVideo = runModel.supportsVideoGeneration
         val generateImage = !generateVideo && runModel.supportsImageGeneration
@@ -2076,7 +2072,7 @@ internal class AgentAppState(
             state.copy(
                 isStreaming = true,
                 isPaused = false,
-                livePromptTokens = null,
+                livePromptTokens = if (history == state.history) state.livePromptTokens else null,
                 isCompressingContext = willCompress,
                 history = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(history) + taggedUserHistoryMessage,
                 messages = runMessages,
@@ -2430,9 +2426,7 @@ internal class AgentAppState(
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
         runGeneratedAtMillis.remove(runId)
-        runConversationIds.remove(runId)
-        runCloudUsage.remove(runId)
-        runUsageResumeRounds.remove(runId)
+        runConversationIds.remove(runId); runUsageOwners.remove(runId); runUsageResumeRounds.remove(runId); invalidatedUsageRuns.remove(runId)
         runOverheadTokens.remove(runId)
         runCompressedDuringRun.remove(runId)
         refreshConversationSummaries()
@@ -2451,9 +2445,7 @@ internal class AgentAppState(
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
         runGeneratedAtMillis.remove(runId)
-        runConversationIds.remove(runId)
-        runCloudUsage.remove(runId)
-        runUsageResumeRounds.remove(runId)
+        runConversationIds.remove(runId); runUsageOwners.remove(runId); runUsageResumeRounds.remove(runId); invalidatedUsageRuns.remove(runId)
         runOverheadTokens.remove(runId)
         runCompressedDuringRun.remove(runId)
         refreshConversationSummaries()
@@ -2940,9 +2932,7 @@ internal class AgentAppState(
         if (imageGen) {
             runMessageProjector.clearRun(runId)
             runGeneratedAtMillis.remove(runId)
-            runConversationIds.remove(runId)
-            runCloudUsage.remove(runId)
-            runUsageResumeRounds.remove(runId)
+            runConversationIds.remove(runId); runUsageOwners.remove(runId); runUsageResumeRounds.remove(runId)
             runOverheadTokens.remove(runId)
             runCompressedDuringRun.remove(runId)
         }
@@ -3021,9 +3011,7 @@ internal class AgentAppState(
             }
             runMessageProjector.clearRun(runId)
             runGeneratedAtMillis.remove(runId)
-            runConversationIds.remove(runId)
-            runCloudUsage.remove(runId)
-            runUsageResumeRounds.remove(runId)
+            runConversationIds.remove(runId); runUsageOwners.remove(runId); runUsageResumeRounds.remove(runId)
             runOverheadTokens.remove(runId)
             runCompressedDuringRun.remove(runId)
         }
@@ -3753,9 +3741,8 @@ internal class AgentAppState(
             }
 
             is AgentEvent.UsageReceived -> {
-                // Projected events from older runtimes never change cloud occupancy.
                 if (!event.projected && !isStaleUsageAfterCompact(runId, event.round)) {
-                    val occupancy = event.usage.occupancyTokens()
+                    val occupancy = io.github.mangi.eta.ui.model.windowTokensFromUsage(event.usage.toUi())
                     updateAssistantUsage(runId, event.round, event.usage.toUi())
                     updateLivePromptTokens(runId, occupancy)
                 }
@@ -3862,7 +3849,6 @@ internal class AgentAppState(
             }
 
             is AgentEvent.ProviderRequestStarted -> {
-                resetLiveUsageForRequest(runId)
                 if (contextBudgetBlockedRuns.remove(runId) != null) {
                     if (contextBudgetPrompt?.runId == runId) contextBudgetPrompt = null
                     conversationIdForRun(runId)?.let { id -> conversationsById[id]?.let { updateConversation(id, it.copy(isPaused = false)) } }
@@ -3903,15 +3889,14 @@ internal class AgentAppState(
         }
         runCompressedDuringRun.add(runId)
         runUsageResumeRounds[runId] = event.round
-        runCloudUsage[runId]?.let { runCloudUsage[runId] = it.invalidate() }
         val current = conversationsById[conversationId] ?: return
         if (conversationId in pendingInRunCompactConversationIds &&
             AgentContextCompactionUi.isPruningOnly(current.history, event.history, event.compressorLabel)) {
             updateConversation(conversationId, current.copy(
                 history = event.history,
-                livePromptTokens = null,
+                livePromptTokens = AgentContextCompactionUi.pendingPruningUsage(current.livePromptTokens, current.messages),
             ))
-            // Pruning committed a different context; wait for a new provider measurement.
+            // Retain the last cloud bill while the summary is pending; do not estimate usage.
             persistConversations()
             return
         }
@@ -3928,7 +3913,7 @@ internal class AgentAppState(
                     compressedHistory = event.history,
                     extraKeptUserMessages = 0,
                     compressorLabel = event.compressorLabel,
-                    baselineTokens = event.history.sumOf { AgentContextBudget.countMessage(it) },
+                    baselineTokens = 0,
                     resumeRound = event.round,
                 ),
             ),
@@ -4068,9 +4053,7 @@ internal class AgentAppState(
         conversationId?.let(pendingInRunCompactConversationIds::remove)
         runMessageProjector.clearRun(runId)
         runGeneratedAtMillis.remove(runId)
-        runConversationIds.remove(runId)
-        runCloudUsage.remove(runId)
-        runUsageResumeRounds.remove(runId)
+        runConversationIds.remove(runId); runUsageOwners.remove(runId); runUsageResumeRounds.remove(runId); invalidatedUsageRuns.remove(runId)
         runOverheadTokens.remove(runId)
         runCompressedDuringRun.remove(runId)
         refreshConversationSummaries()
@@ -4137,38 +4120,28 @@ internal class AgentAppState(
         billedOverheadTokens = overhead
     }
 
-    private fun bindRunConversation(runId: String, conversationId: String) {
+    private fun bindUsageRun(runId: String, conversationId: String) {
         runConversationIds[runId] = conversationId
         runUsageResumeRounds.remove(runId)
-        conversationsById[conversationId]?.let { state ->
-            runCloudUsage[runId] = CloudContextUsageState(
-                ContextUsageScope(conversationId, state.providerId, state.modelId, 0))
+        invalidatedUsageRuns.remove(runId)
+        conversationsById[conversationId]?.let {
+            runUsageOwners[runId] = it.providerId to it.modelId
         }
-    }
-
-    private fun resetLiveUsageForRequest(runId: String) {
-        if (stoppingRuns.containsKey(runId)) return
-        val id = conversationIdForRun(runId) ?: return
-        val state = conversationsById[id] ?: return
-        val previous = runCloudUsage[runId] ?: CloudContextUsageState(
-            ContextUsageScope(id, state.providerId, state.modelId, 0))
-        if (previous.scope.providerId != state.providerId || previous.scope.modelId != state.modelId) return
-        runCloudUsage[runId] = previous.invalidate()
-        runUsageResumeRounds.remove(runId)
-        if (state.livePromptTokens != null) updateConversation(id, state.copy(livePromptTokens = null), updateTimestamp = false)
     }
 
     private fun updateLivePromptTokens(runId: String, tokens: Int?) {
         if (stoppingRuns.containsKey(runId)) return
-        val id = conversationIdForRun(runId) ?: return
-        val state = conversationsById[id] ?: return
-        val previous = runCloudUsage[runId] ?: return
-        if (previous.scope.conversationId != id || previous.scope.providerId != state.providerId ||
-            previous.scope.modelId != state.modelId) return
-        val next = previous.receive(previous.scope, TokenUsageUi(inputTokens = tokens))
-        runCloudUsage[runId] = next
-        if (state.livePromptTokens == next.inputTokens) return
-        updateConversation(id, state.copy(livePromptTokens = next.inputTokens), updateTimestamp = false)
+        if (tokens == null || tokens <= 0 || runId in invalidatedUsageRuns) return
+        val conversationId = conversationIdForRun(runId) ?: return
+        val state = conversationsById[conversationId] ?: return
+        val owner = runUsageOwners.getOrPut(runId) { state.providerId to state.modelId }
+        if (owner != (state.providerId to state.modelId)) return
+        if (state.livePromptTokens == tokens) return
+        updateConversation(
+            conversationId,
+            state.copy(livePromptTokens = tokens),
+            updateTimestamp = false,
+        )
     }
 
     private fun insertSupplementMessage(
@@ -4352,12 +4325,16 @@ internal class AgentAppState(
         updateTimestamp: Boolean = true,
     ) {
         val previous = conversationsById[conversationId]
-        conversationsById = conversationsById + (conversationId to state)
+        val modelChanged = previous != null &&
+            (previous.providerId != state.providerId || previous.modelId != state.modelId)
+        if (modelChanged) runConversationIds.filterValues { it == conversationId }.keys.forEach { invalidatedUsageRuns.add(it) }
+        val current = if (modelChanged) state.copy(livePromptTokens = null) else state
+        conversationsById = conversationsById + (conversationId to current)
         if (updateTimestamp) {
             conversationUpdatedAt = conversationUpdatedAt + (conversationId to System.currentTimeMillis())
         }
         if (conversationId == selectedConversationId) {
-            homeState = state
+            homeState = current
         }
         if (previous?.isStreaming != state.isStreaming) {
             refreshConversationSummaries()

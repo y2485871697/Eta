@@ -13,9 +13,13 @@ DB = MAIN / 'kotlin/io/github/mangi/eta/data/db'
 class VirtualDeliveryMigrationSqlTest(unittest.TestCase):
     def test_additive_migration_preserves_rows_and_defaults_false(self):
         source = (DB / 'EtaDatabase.kt').read_text()
-        start = source.index('internal val MIGRATION_28_29')
+        start = source.index('internal val MIGRATION_29_30')
         end = source.index('internal val MIGRATION_27_28', start)
-        statements = re.findall(r'"(ALTER TABLE [^"]+)"', source[start:end])
+        calls = [line.split(chr(34))[1::2] for line in source[start:end].splitlines()
+                 if line.strip().startswith('addColumnIfMissing(')
+        ]
+        statements = [f'ALTER TABLE {table} ADD COLUMN {column} {definition}'
+                      for table, column, definition in calls if column == 'virtual_delivery_completed']
         self.assertEqual(2, len(statements))
         with closing(sqlite3.connect(':memory:')) as db:
             for table in ('runtime_results', 'runtime_archive_runs'):
@@ -37,7 +41,7 @@ class VirtualDeliveryMigrationSqlTest(unittest.TestCase):
         self.assertEqual(2, entities.replace(' ', '').count('@ColumnInfo(name="virtual_delivery_completed",defaultValue="0")'))
         self.assertEqual(2, entities.count('val virtualDeliveryCompleted: Boolean = false'))
         database = (DB / 'EtaDatabase.kt').read_text()
-        self.assertIn('version = 29,', database)
+        self.assertIn('version = 30,', database)
         self.assertEqual(2, database.count('MIGRATION_28_29'))
 
     def test_completed_label_is_unique_in_all_supported_locales(self):

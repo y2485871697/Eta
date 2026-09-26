@@ -47,6 +47,20 @@ class AgentConversationStoreTest {
         context.deleteDatabase("eta.db")
     }
 
+    @Test fun cloudInputSurvivesDatabaseReopenAndInvalidationStaysEmpty() {
+        val original = AgentChatHomeUiState(messages = emptyList(),
+            history = listOf(AgentModelClient.ConversationMessage("user", "task")),
+            input = "", isStreaming = false, thinkingEnabled = false,
+            providerId = "p", modelId = "m", livePromptTokens = 152885)
+        runBlocking { AgentConversationStore.save(context, "c", mapOf("c" to original), mapOf("c" to "task"), mapOf("c" to 1L)) }
+        EtaDatabase.closeForTests()
+        val restored = requireNotNull(AgentConversationStore.load(context).conversationsById["c"])
+        assertEquals(152885, restored.livePromptTokens)
+        runBlocking { AgentConversationStore.save(context, "c", mapOf("c" to restored.copy(livePromptTokens = null)), mapOf("c" to "task"), mapOf("c" to 1L)) }
+        EtaDatabase.closeForTests()
+        assertEquals(null, AgentConversationStore.load(context).conversationsById["c"]?.livePromptTokens)
+    }
+
     @Test
     fun saveAndLoadPreservesConversations() {
         val conversation = AgentChatHomeUiState(

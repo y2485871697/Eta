@@ -97,7 +97,7 @@ internal class AgentLoop(
         }
     }
     private var lastUsage: AgentTokenUsage? = null
-    private var hasSentRequest = false
+    private val requestBudget = AgentRequestBudgetPolicy()
     private var suppressThinkingForNextRequest = false
     private val continuationBlocks = AgentContinuationBlocks()
     private val continuationReasoning = AgentContinuationReasoning()
@@ -184,7 +184,7 @@ internal class AgentLoop(
             continuationBlocks.beginRequest(continuingInterruptedRequest && !supplementStartsNewBlock)
             supplementStartsNewBlock = false
             continuingInterruptedRequest = false
-            hasSentRequest = true
+            requestBudget.requestStarted()
             lastUsage = null // A new request must not inherit missing fields from the preceding bill.
             val completedRound = try {
                 modelRetry.complete(
@@ -208,7 +208,7 @@ internal class AgentLoop(
                                 cachedTokens = incoming.cachedTokens ?: previous?.cachedTokens,
                             )
                         }
-                        continuationReasoning.visibleEvent(providerEvent)?.let { visibleEvent ->
+                        continuationReasoning.visibleEvent(if (providerEvent is ProviderEvent.Usage) ProviderEvent.Usage(requireNotNull(lastUsage)) else providerEvent)?.let { visibleEvent ->
                             if (visibleEvent is ProviderEvent.BlockDelta &&
                                 visibleEvent.kind == AssistantBlockKind.THINKING
                             ) {
@@ -401,10 +401,9 @@ internal class AgentLoop(
     // Zero here means no usable measurement for a decision, never a published usage value.
     private fun reportedRequestTokens(): Int = lastUsage?.occupancyTokens() ?: 0
 
-    private fun firstRequestFixedTokens(): Int =
-        (0 until systemCount.coerceIn(0, messages.length())).sumOf {
-            AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(messages.getJSONObject(it)))
-        } + AgentContextBudget.countTokens(currentRoundTools.toString())
+    private fun requestBudgetTokens(): Int = requestBudget.tokens(lastUsage?.occupancyTokens()) {
+        AgentContextBudget.estimate(messages) + AgentContextBudget.countTokens(currentRoundTools.toString())
+    }
 
     private fun storedHistoryChars(): Long {
         val safeHistory = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds)
@@ -428,7 +427,7 @@ internal class AgentLoop(
             return true
         }
         val window = config.contextWindow?.takeIf { it > 0 } ?: return false
-        val tokens = if (!hasSentRequest && lastUsage == null) firstRequestFixedTokens() else reportedRequestTokens()
+        val tokens = requestBudgetTokens()
         return tokens > AgentCompressionBoundary.inputLimit(window, AgentCompressionBoundary.outputReserve(config))
     }
 
@@ -441,7 +440,8 @@ internal class AgentLoop(
         if (!forced && !pressureRetry && skipIneffectiveAutoCompact && !requestOverBudget()) return
         // Soft scheduling uses request tokens only. Hard input/storage limits and
         // confirmed provider overflow are handled separately by tryBudgetCompaction.
-        var decisionTokens = reportedRequestTokens()
+        if (!forced && storedHistoryChars() > persistenceCharLimit()) return
+        var decisionTokens = requestBudgetTokens()
         if (!forced && decisionTokens < AgentContextCompactor.autoPressureTokens(window)) return
         budgetCompressModelConfig = override?.compressModelConfig
             ?: if (pressureRetry) budgetCompressModelConfig else compactPolicy.compressModelConfig
@@ -461,7 +461,7 @@ internal class AgentLoop(
             // Both the DTO and same-model JSON replay must come from this new snapshot.
             history = historyForCompaction()
             cut = compactionStart(history)
-            decisionTokens = reportedRequestTokens()
+            decisionTokens = requestBudgetTokens()
             if (!forced && decisionTokens < AgentContextCompactor.autoPressureTokens(window)) return
         }
         if (forced && cut <= 0) {
@@ -474,7 +474,7 @@ internal class AgentLoop(
             skipIneffectiveAutoCompact = false
             // Re-evaluate the whole request, not a desired summary length. At most
             // one additional pressure pass, and only after measurable progress.
-            if (reduced && !pressureRetry && reportedRequestTokens() >= AgentContextCompactor.autoPressureTokens(window)) {
+            if (reduced && !pressureRetry && requestBudgetTokens() >= AgentContextCompactor.autoPressureTokens(window)) {
                 maybeCompactBeforeRound(round, pressureRetry = true)
             }
         } else if (!forced) {
@@ -540,6 +540,7 @@ internal class AgentLoop(
         runController.throwIfCancelled()
         replacements.forEach { (index, message) -> messages.put(index, message) }
         lastUsage = null
+        requestBudget.contextReplaced()
         onHistoryCompacted()
         onEvent(AgentEvent.ContextCompacted(round, true, messages.length(), messages.length(),
             history = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds),
@@ -558,7 +559,7 @@ internal class AgentLoop(
         val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
         // 80% schedules ordinary automatic summaries, not recovery from a hard limit.
         // A soft no-op must not replace the real archive/summary failure on a later pause.
-        if (!manualBudgetAttempt && !hardPressure && reportedRequestTokens() < AgentContextCompactor.autoPressureTokens(window)) {
+        if (!manualBudgetAttempt && !hardPressure && decisionTokens < AgentContextCompactor.autoPressureTokens(window)) {
             return false
         }
         val compressConfig = budgetCompressModelConfig?.let { model ->
@@ -637,6 +638,7 @@ internal class AgentLoop(
         newPrefix.forEach { messages.put(AgentConversationCodec.toJsonObject(it)) }
         keptJson.forEach(messages::put)
         lastUsage = null
+        requestBudget.contextReplaced()
         compactionFailure = ""
         onHistoryCompacted()
         onEvent(AgentEvent.ContextCompacted(round, true, originalCount, messages.length(),
