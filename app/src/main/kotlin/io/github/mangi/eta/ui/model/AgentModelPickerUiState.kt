@@ -144,12 +144,10 @@ internal fun latestContextUsage(
  */
 internal fun latestBilledContextTokens(messages: List<AgentChatMessageUi>): Int? {
     val compactIndex = messages.indexOfLast { it is ContextCompactedMessageUi }
-    val marker = compactIndex.takeIf { it >= 0 }?.let { messages[it] as ContextCompactedMessageUi }
-    val resumeRound = marker?.resumeRound ?: 0
     val billedIndex = messages.indexOfLast { it is AgentMessageUi }
     if (billedIndex <= compactIndex) return null
     val message = messages[billedIndex] as AgentMessageUi
-    if (resumeRound > 0 && (messageRoundFromId(message.id) ?: 0) < resumeRound) return null
+    // Round numbers restart each run; only the run event reducer may filter stale rounds.
     // Do not skip a missing/output-only bill and resurrect an older prompt.
     return windowTokensFromUsage(message.usage)
 }

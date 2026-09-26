@@ -95,7 +95,6 @@ import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
 import io.github.mangi.eta.ui.app.LocalAppearanceSettings
 import io.github.mangi.eta.ui.app.LocalBlurEnabled
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
-import io.github.mangi.eta.ui.model.countUncommittedLiveTokens
 import io.github.mangi.eta.ui.model.latestBilledContextTokens
 import io.github.mangi.eta.ui.model.canContinueDisconnectedRun
 import io.github.mangi.eta.ui.model.isRetryableFailure
@@ -296,10 +295,7 @@ internal fun AgentChatBody(
             livePromptTokens
         }
     }
-    val uncommittedLiveTokens = remember(visibleMessages, billedContextTokens, messageEdit) {
-        if (messageEdit != null || billedContextTokens != null) 0
-        else countUncommittedLiveTokens(visibleMessages)
-    }
+    val uncommittedLiveTokens = 0 // Cloud-only metering: do not scan streaming text for local estimates.
     val imageSourceCache = remember { ChatImageSourceCache() }
     val previewGallery by produceState<List<String>>(emptyList(), visibleMessages, pendingImages) {
         // This used to parse EVERY historical reply synchronously on each text delta.

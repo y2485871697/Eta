@@ -30,9 +30,9 @@ internal data class CloudContextUsageState(
         projected: Boolean = false,
     ): CloudContextUsageState {
         if (requestScope != scope || projected) return this
-        // Missing/output-only usage is unknown, not the previous request's bill.
+        // Preserve input across same-request partials; invalidate() starts a fresh request.
         // Assignment intentionally permits a real measurement to decrease.
-        return copy(inputTokens = windowTokensFromUsage(usage))
+        return copy(inputTokens = windowTokensFromUsage(usage) ?: inputTokens)
     }
 
     /** Use for committed pruning, compaction, history edits and model changes.
