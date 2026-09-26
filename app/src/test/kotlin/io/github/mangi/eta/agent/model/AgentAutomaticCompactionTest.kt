@@ -187,7 +187,7 @@ class AgentAutomaticCompactionTest {
             .getJSONObject(provider.requests.single().length() - 1).getString("content"))
     }
 
-    @Test fun outputReserveBelowAutoThresholdBlocksWithoutSummarizing() {
+    @Test fun outputReserveBelowAutoThresholdRecoversWithAutomaticSummary() {
         for ((config, messages) in listOf(
             modelConfig().copy(extraBodyJson = """{"max_tokens":200000}""") to history("x".repeat(24_000), count = 10),
             // Above the policy's threshold, but below the actual larger window's threshold.
@@ -199,27 +199,32 @@ class AgentAutomaticCompactionTest {
             val inputLimit = AgentCompressionBoundary.inputLimit(window, AgentCompressionBoundary.outputReserve(config))
             assertTrue(decisionTokens > inputLimit)
             assertTrue(decisionTokens < AgentContextCompactor.autoPressureTokens(window))
-            val provider = ScriptedProvider(emptyList())
+            val provider = ScriptedProvider(listOf({ request, _ ->
+                assertTrue(requestTokens(request.messages) <= inputLimit)
+                assistant(promptTokens = 20)
+            }))
 
-            assertBlockedWithoutAutomaticSummary(messages, provider, config)
+            assertAutomaticRecovery(messages, provider, config)
 
-            assertTrue(provider.requests.isEmpty())
+            assertEquals(1, provider.requests.size)
         }
     }
 
-    @Test fun hardStorageCapBelowAutoThresholdBlocksWithoutSummarizing() {
+    @Test fun hardStorageCapBelowAutoThresholdRecoversWithAutomaticSummary() {
         val messages = escapedHistory(charsPerMessage = 40_000)
         assertTrue(storedChars(messages) > HARD_STORAGE_CAP)
         assertTrue(requestTokens(messages) < AUTO_PRESSURE)
-        val provider = ScriptedProvider(emptyList())
+        val provider = ScriptedProvider(listOf({ request, _ ->
+            assertTrue(storedChars(request.messages) < HARD_STORAGE_CAP)
+            assistant(promptTokens = 20)
+        }))
 
-        assertBlockedWithoutAutomaticSummary(messages, provider)
+        assertAutomaticRecovery(messages, provider)
 
-        assertTrue(provider.requests.isEmpty())
+        assertEquals(1, provider.requests.size)
     }
 
     @Test fun unsafeHardBudgetSummaryBlocksWithoutChangingProtectedHistory() {
-        // Keep this validation test above the gate so the unsafe summary is actually attempted.
         val messages = history("x".repeat(84_000), count = 10)
         val decisionTokens = requestTokens(messages)
         assertTrue(decisionTokens >= AUTO_PRESSURE)
@@ -238,40 +243,210 @@ class AgentAutomaticCompactionTest {
         assertEquals(original, messages.toString())
     }
 
-    @Test fun genuineProviderOverflowBelowThresholdBlocksWithoutSummaryOrRetry() {
+    @Test fun genuineProviderOverflowBelowThresholdRecoversBeforeRetry() {
         val messages = smallHistory()
         assertTrue(requestTokens(messages) < AUTO_PRESSURE)
-        val provider = ScriptedProvider(listOf({ _, _ -> throw overflow() }))
+        val originalTokens = requestTokens(messages)
+        val provider = ScriptedProvider(listOf(
+            { _, _ -> throw overflow() },
+            { request, _ ->
+                assertTrue(requestTokens(request.messages) < originalTokens)
+                assistant(promptTokens = 20)
+            },
+        ))
 
-        assertBlockedWithoutAutomaticSummary(messages, provider)
+        assertAutomaticRecovery(messages, provider)
 
-        assertEquals(1, provider.requests.size)
+        assertEquals(2, provider.requests.size)
     }
 
-    private fun assertBlockedWithoutAutomaticSummary(
+    @Test fun postPruneBelowThresholdStillRecoversWhenHardStoragePressureRemains() {
+        val messages = JSONArray()
+            .put(AgentConversationCodec.userTextMessage("old task"))
+            .put(toolReply("old"))
+            .put(JSONObject().put("role", "tool").put("tool_call_id", "old")
+                .put("content", "x".repeat(240_000)).put(AgentTurnIdentity.JSON_KEY, "old-turn"))
+        val tail = escapedHistory(charsPerMessage = 40_000)
+        for (i in 0 until tail.length()) messages.put(tail.getJSONObject(i))
+        assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
+        assertTrue(storedChars(messages) > HARD_STORAGE_CAP)
+        val events = mutableListOf<AgentEvent>()
+        var summaries = 0
+        var postPruneTokens = 0
+        val provider = ScriptedProvider(listOf({ request, _ ->
+            assertTrue(storedChars(request.messages) < HARD_STORAGE_CAP)
+            assistant(promptTokens = 20)
+        }))
+        assertEquals("done", runLoop(messages, provider, events,
+            archive = AgentCompactionArchive(temporary.root, "hard-post-prune"),
+            compactHistory = { source, policy ->
+                summaries++
+                postPruneTokens = requestTokens(messages)
+                assertTrue(postPruneTokens < AUTO_PRESSURE)
+                assertTrue(storedChars(messages) > HARD_STORAGE_CAP)
+                assertTrue(source.single { it.toolCallId == "old" }.content.contains("[Eta tool output pruned;"))
+                val cut = requireNotNull(policy.keepStartOverride)
+                assertTrue(AgentCompressionBoundary.balancedCuts(source).contains(cut))
+                summarize(source, policy)
+            }).content)
+
+        assertEquals(1, summaries)
+        assertEquals(1, provider.requests.size)
+        assertUsageBeforeStart(events, postPruneTokens)
+        val compactions = events.filterIsInstance<AgentEvent.ContextCompacted>()
+        assertEquals(2, compactions.size) // Pruning commits first, summary uses that fresh snapshot.
+        assertTrue(compactions.all { it.applied && !it.blocked })
+    }
+
+    @Test fun belowThresholdSummaryFailureKeepsHistoryAndReasonAcrossResumesWithoutRepeating() {
+        for (outcome in listOf("throw", "unchanged", "lost-tail", "no-reduction")) {
+            val messages = escapedHistory(charsPerMessage = 40_000)
+            val original = messages.toString()
+            val events = mutableListOf<AgentEvent>()
+            val provider = ScriptedProvider(emptyList())
+            var summaries = 0
+            var pauses = 0
+            assertThrows(AgentRunCancelledException::class.java) {
+                runLoop(messages, provider, events,
+                    onBlocked = { controller ->
+                        if (++pauses < 3) controller.resume() else controller.cancel()
+                    },
+                    compactHistory = { source, policy ->
+                        summaries++
+                        when (outcome) {
+                            "throw" -> error("summary transport failed")
+                            "unchanged" -> source
+                            "lost-tail" -> listOf(AgentModelClient.ConversationMessage("system", "lost tail"))
+                            else -> listOf(AgentModelClient.ConversationMessage("system", "x".repeat(900_000))) +
+                                source.drop(requireNotNull(policy.keepStartOverride))
+                        }
+                    })
+            }
+
+            assertEquals(1, summaries)
+            assertEquals(3, pauses)
+            assertEquals(original, messages.toString())
+            assertTrue(provider.requests.isEmpty())
+            assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
+            val compactions = events.filterIsInstance<AgentEvent.ContextCompacted>()
+            assertFalse(compactions.any { it.applied })
+            val failure = compactions.single { !it.blocked }.reason
+            assertTrue(!failure.isNullOrBlank())
+            if (outcome == "throw") assertEquals("summary transport failed", failure)
+            assertTrue(compactions.filter { it.blocked }.all { it.reason == failure })
+            assertFalse(failure.orEmpty().contains("80%"))
+        }
+    }
+
+    @Test fun hardPressureDoesNotEnableDisabledOrUnconfiguredAutomaticSummary() {
+        for (enabled in listOf(false, true)) {
+            val messages = escapedHistory(charsPerMessage = 40_000)
+            val original = messages.toString()
+            val events = mutableListOf<AgentEvent>()
+            val provider = ScriptedProvider(emptyList())
+            var summaries = 0
+            assertThrows(AgentRunCancelledException::class.java) {
+                runLoop(messages, provider, events, enabled = enabled,
+                    compressor = if (enabled) null else modelConfig(),
+                    compactHistory = { source, policy -> summaries++; summarize(source, policy) })
+            }
+            assertEquals(0, summaries)
+            assertEquals(original, messages.toString())
+            assertTrue(provider.requests.isEmpty())
+            assertFalse(events.any { it is AgentEvent.ContextCompactionStarted })
+            assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().single().blocked)
+        }
+    }
+
+    @Test fun cancellationDuringHardPressureSummaryNeverCommits() {
+        val messages = escapedHistory(charsPerMessage = 40_000)
+        val original = messages.toString()
+        val controller = AgentRunController()
+        val events = mutableListOf<AgentEvent>()
+        val provider = ScriptedProvider(emptyList())
+        var summaries = 0
+        assertThrows(AgentRunCancelledException::class.java) {
+            runLoop(messages, provider, events, controller = controller,
+                compactHistory = { source, policy ->
+                    summaries++
+                    controller.cancel()
+                    summarize(source, policy)
+                })
+        }
+        assertEquals(1, summaries)
+        assertEquals(original, messages.toString())
+        assertTrue(provider.requests.isEmpty())
+        assertFalse(events.filterIsInstance<AgentEvent.ContextCompacted>().any { it.applied })
+    }
+
+    @Test fun repeatedProviderOverflowStopsAfterOneSuccessfulReductionAndRetry() {
+        val messages = smallHistory()
+        val provider = ScriptedProvider(listOf(
+            { _, _ -> throw overflow() },
+            { _, _ -> throw overflow() },
+        ))
+        val events = mutableListOf<AgentEvent>()
+        var summaries = 0
+        assertThrows(AgentRunCancelledException::class.java) {
+            runLoop(messages, provider, events,
+                compactHistory = { source, policy -> summaries++; summarize(source, policy) })
+        }
+        assertEquals(1, summaries)
+        assertEquals(2, provider.requests.size)
+        assertEquals(provider.requests.last().toString(), messages.toString())
+        val blocked = events.filterIsInstance<AgentEvent.ContextCompacted>().single { it.blocked }
+        assertTrue(blocked.reason.orEmpty().contains("提供方确认上下文超限"))
+    }
+
+    @Test fun belowThresholdOverflowKeepsCompleteLiveToolPairAndTurnIdentityVerbatim() {
+        val messages = smallHistory()
+            .put(toolReply("live").put(AgentTurnIdentity.JSON_KEY, "current-turn")
+                .put("provider_private", "opaque-call"))
+            .put(JSONObject().put("role", "tool").put("tool_call_id", "live")
+                .put("content", "live evidence").put(AgentTurnIdentity.JSON_KEY, "current-turn")
+                .put("provider_private", "opaque-result"))
+        val liveTail = (messages.length() - 2 until messages.length()).map { messages.getJSONObject(it).toString() }
+        val provider = ScriptedProvider(listOf(
+            { _, _ -> throw overflow() },
+            { request, _ ->
+                val tail = (request.messages.length() - 2 until request.messages.length())
+                    .map { request.messages.getJSONObject(it).toString() }
+                assertEquals(liveTail, tail)
+                assistant(promptTokens = 20)
+            },
+        ))
+        assertAutomaticRecovery(messages, provider)
+        assertEquals("current-turn", messages.getJSONObject(messages.length() - 1).getString(AgentTurnIdentity.JSON_KEY))
+    }
+
+    private fun assertAutomaticRecovery(
         messages: JSONArray,
         provider: ScriptedProvider,
         config: AgentModelClient.ModelConfig = modelConfig(),
     ) {
-        val original = messages.toString()
         val events = mutableListOf<AgentEvent>()
-        val archiveRoot = temporary.newFolder()
+        val decisionTokens = requestTokens(messages)
         var summaries = 0
-        assertThrows(AgentRunCancelledException::class.java) {
-            runLoop(messages, provider, events, config = config,
-                archive = AgentCompactionArchive(archiveRoot, "below-threshold"),
-                compactHistory = { source, policy -> summaries++; summarize(source, policy) })
-        }
+        var keptJson = emptyList<String>()
+        assertEquals("done", runLoop(messages, provider, events, config = config,
+            archive = AgentCompactionArchive(temporary.newFolder(), "hard-recovery"),
+            compactHistory = { source, policy ->
+                summaries++
+                val cut = requireNotNull(policy.keepStartOverride)
+                assertTrue(cut > 0 && cut < source.size)
+                assertTrue(AgentCompressionBoundary.balancedCuts(source).contains(cut))
+                keptJson = (cut until messages.length()).map { messages.getJSONObject(it).toString() }
+                summarize(source, policy)
+            }).content)
 
-        assertEquals(0, summaries)
-        assertFalse(events.any { it is AgentEvent.ContextCompactionStarted })
-        val blocked = events.filterIsInstance<AgentEvent.ContextCompacted>().single()
-        assertTrue(blocked.blocked)
-        assertFalse(blocked.applied)
-        assertTrue(blocked.reason.orEmpty().contains("80% 自动摘要阈值"))
-        assertTrue(blocked.reason.orEmpty().contains("未删除受保护历史"))
-        assertEquals(original, messages.toString())
-        assertFalse("Blocked summaries must not write checkpoints", archiveRoot.walkTopDown().any { it.isFile })
+        assertEquals(1, summaries)
+        assertUsageBeforeStart(events, decisionTokens)
+        val applied = events.filterIsInstance<AgentEvent.ContextCompacted>().single()
+        assertTrue(applied.applied)
+        assertFalse(applied.blocked)
+        // Only the natural response is appended after the verbatim protected tail.
+        assertEquals(keptJson, (messages.length() - 1 - keptJson.size until messages.length() - 1)
+            .map { messages.getJSONObject(it).toString() })
     }
 
     private fun runLoop(
@@ -283,6 +458,8 @@ class AgentAutomaticCompactionTest {
         controller: AgentRunController = AgentRunController(),
         archive: AgentCompactionArchive? = null,
         toolExecutor: AgentModelClient.ToolExecutor = AgentModelClient.ToolExecutor { error("Unexpected tool") },
+        compressor: AgentModelClient.ModelConfig? = config,
+        onBlocked: (AgentRunController) -> Unit = { it.cancel() },
         compactHistory: (List<AgentModelClient.ConversationMessage>, AgentLoop.CompactPolicy) -> List<AgentModelClient.ConversationMessage> = ::summarize,
     ): AgentLoop.Result = AgentLoop(
         config = config, messages = messages, tools = tools(), provider = provider,
@@ -290,9 +467,9 @@ class AgentAutomaticCompactionTest {
         onEvent = { event ->
             events += event
             // Turn an unexpected pause into a deterministic failure, never a hanging test.
-            if (event is AgentEvent.ContextCompacted && event.blocked) controller.cancel()
+            if (event is AgentEvent.ContextCompacted && event.blocked) onBlocked(controller)
         },
-        compactPolicy = AgentLoop.CompactPolicy(enabled, WINDOW, 2, config),
+        compactPolicy = AgentLoop.CompactPolicy(enabled, WINDOW, 2, compressor),
         compactionArchive = archive, turnId = "current-turn", compactHistory = compactHistory,
     ).run()
 

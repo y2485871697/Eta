@@ -485,7 +485,8 @@ internal class AgentLoop(
         // Commit a pruning-only reduction first. The caller remeasures and takes a
         // fresh snapshot before attempting a summary if pressure is still high.
         if (pruneOversizedToolResults(round, systemCount + cut)) return true
-        return applyCompaction(round, history, cut)
+        // Only reached from the hard input/storage or confirmed-provider-overflow guard.
+        return applyCompaction(round, history, cut, hardPressure = true)
     }
 
     /** Only prune the selected prefix; the retained tail is always verbatim. */
@@ -537,11 +538,12 @@ internal class AgentLoop(
         history: List<AgentModelClient.ConversationMessage>,
         cut: Int,
         decisionTokens: Int = estimatedRequestTokens(),
+        hardPressure: Boolean = false,
     ): Boolean {
         val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
-        // Every automatic summary, including hard-pressure recovery, obeys the same gate.
-        if (!manualBudgetAttempt && estimatedRequestTokens() < AgentContextCompactor.autoPressureTokens(window)) {
-            compactionFailure = "上下文空间不足，但当前请求估算占用未达到配置窗口的 80% 自动摘要阈值；已暂停，未删除受保护历史。可手动压缩或停止后选择更大窗口模型。"
+        // 80% schedules ordinary automatic summaries, not recovery from a hard limit.
+        // A soft no-op must not replace the real archive/summary failure on a later pause.
+        if (!manualBudgetAttempt && !hardPressure && estimatedRequestTokens() < AgentContextCompactor.autoPressureTokens(window)) {
             return false
         }
         val compressConfig = budgetCompressModelConfig?.let { model ->

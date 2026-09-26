@@ -237,11 +237,12 @@ class AgentSummaryPipelineTest {
         assertEquals(history().last(), result.last())
     }
 
-    @Test fun largeWindowSummariesStartAtTheGenerationCap() {
+    @Test fun largeWindowInitialBudgetLeavesRoomBelowTheRetryCap() {
         assertEquals(16384, AgentContextCompactor.summaryGenerationLimit(200_000))
         assertEquals(16000, AgentContextCompactor.summaryGenerationLimit(128_000))
         assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(64_000))
         assertEquals(2048, AgentContextCompactor.summaryGenerationLimit(8192))
+        assertTrue(AgentContextCompactor.SUMMARY_GENERATION_INITIAL_CAP < AgentContextCompactor.SUMMARY_GENERATION_CAP)
     }
 
     @Test fun repeatedOutputLimitStopsAfterOneRetryAndPreservesHistory() {
@@ -254,21 +255,21 @@ class AgentSummaryPipelineTest {
                 response(validSummary(), "length")
             }))
         }
-        assertEquals(1, calls)
-        assertTrue(error.message.orEmpty().contains("生成上限=16000"))
-        assertTrue(error.message.orEmpty().contains("已重试=0"))
+        assertEquals(2, calls)
+        assertTrue(error.message.orEmpty().contains("生成上限=32000"))
+        assertTrue(error.message.orEmpty().contains("已重试=1"))
         assertEquals(snapshot, source)
     }
 
     @Test fun outputRetryRespectsWindowRoomAndHardCap() {
         assertEquals(16384, AgentContextCompactor.summaryGenerationLimit(200_000))
-        assertEquals(16384, AgentContextCompactor.summaryGenerationLimit(200_000))
         assertEquals(2048, AgentContextCompactor.summaryGenerationLimit(8192))
-        assertEquals(16384, AgentContextCompactor.summaryRetryLimit(12_000, 200_000, 1000))
-        assertNull(AgentContextCompactor.summaryRetryLimit(16000, 128_000, 1000))
+        assertEquals(24000, AgentContextCompactor.summaryRetryLimit(12_000, 200_000, 1000))
+        assertEquals(32000, AgentContextCompactor.summaryRetryLimit(16000, 128_000, 1000))
         // Tiny leftover room is not worth a second request.
         assertNull(AgentContextCompactor.summaryRetryLimit(2048, 10_000, 6500))
-        assertNull(AgentContextCompactor.summaryRetryLimit(16384, 200_000, 1000))
+        assertEquals(32768, AgentContextCompactor.summaryRetryLimit(16384, 200_000, 1000))
+        assertNull(AgentContextCompactor.summaryRetryLimit(32768, 200_000, 1000))
     }
 
     @Test fun cancellationAfterTruncationPreventsRetry() {
