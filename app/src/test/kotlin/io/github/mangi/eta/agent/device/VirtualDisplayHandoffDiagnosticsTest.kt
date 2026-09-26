@@ -198,6 +198,21 @@ class VirtualDisplayHandoffDiagnosticsTest {
         assertFalse(existing.getBoolean("mutation_uncertain"))
     }
 
+    private fun jsonValue(value: Any?): Any? = when (value) {
+        is JSONObject -> value.keys().asSequence().associateWith { jsonValue(value.get(it)) }
+        is JSONArray -> List(value.length()) { jsonValue(value.get(it)) }
+        else -> value
+    }
+
+    @Test fun receiptComparisonIgnoresObjectKeyOrderButPreservesArrayOrderAndTypes() {
+        val first = JSONObject().put("ids", JSONArray().put(16).put(17)).put("ok", false)
+        val reordered = JSONObject().put("ok", false).put("ids", JSONArray().put(16).put(17))
+        assertEquals(jsonValue(first), jsonValue(reordered))
+        assertFalse(jsonValue(first) == jsonValue(JSONObject().put("ids", JSONArray().put(17).put(16)).put("ok", false)))
+        assertFalse(jsonValue(first) == jsonValue(JSONObject().put("ids", JSONArray().put("16").put(17)).put("ok", false)))
+        assertFalse(jsonValue(first) == jsonValue(JSONObject().put("ids", JSONArray().put(16).put(17))))
+    }
+
     @Test fun preservedReceiptIsDetachedHistoryWithOriginalFactualFailureUnchanged() {
         val prior = diagnostics.annotate(receipt(), diagnostics.sanitizeFailure(owner()), uncertain = true)
             .put("handoffAttempts", JSONArray().put(receipt()))
@@ -213,9 +228,10 @@ class VirtualDisplayHandoffDiagnosticsTest {
             "retryable", "automatic_retry_allowed", "handoff_diagnostic")) {
             assertEquals(key, prior.get(key), preserved.get(key))
         }
-        assertEquals(prior.getJSONObject("handoffProgress").toString(),
-            preserved.getJSONObject("handoffProgress").toString())
-        assertEquals(preserved.toString(), diagnostics.preservedReceipt(preserved).toString())
+        // JSONObject member order is not part of the receipt contract; array order is.
+        assertEquals(jsonValue(prior.getJSONObject("handoffProgress")),
+            jsonValue(preserved.getJSONObject("handoffProgress")))
+        assertEquals(jsonValue(preserved), jsonValue(diagnostics.preservedReceipt(preserved)))
         preserved.getJSONArray("handoffAttempts").getJSONObject(0).put("error", "changed copy")
         assertEquals(before, prior.toString())
     }
