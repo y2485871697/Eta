@@ -50,20 +50,29 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
             .headers(headers)
             .post(body)
             .build()
-        val deliveryGuard = ResponsesToolEnvelopeRecovery.DeliveryGuard()
+        val deliveryGuard = ResponsesToolEnvelopeRecovery.DeliveryGuard(!config.hostedWebSearchEnabled)
+        var callbackFailure: Throwable? = null
+        val deliver: (ProviderEvent) -> Unit = { event ->
+            try { onEvent(event) } catch (failure: Throwable) {
+                callbackFailure = failure
+                throw failure
+            }
+        }
         try {
             runController.throwIfCancelled()
-            onEvent(ProviderEvent.RequestStarted)
+            deliver(ProviderEvent.RequestStarted)
             val assistant = readStreamingResponse(
                 request = httpRequest,
                 runController = runController,
-                onEvent = onEvent,
+                onEvent = deliver,
                 deliveryGuard = deliveryGuard,
             )
+            callbackFailure?.let { throw it }
             ResponsesReasoningState.capture(assistant, config)
-            onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
+            deliver(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
             return ProviderResponse(assistant)
         } catch (throwable: Throwable) {
+            callbackFailure?.let { throw it }
             runCatching { runController.throwIfCancelled() }
                 .getOrElse { interruption -> throw interruption }
             throw deliveryGuard.protect(throwable)

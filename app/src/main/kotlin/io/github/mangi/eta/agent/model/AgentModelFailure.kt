@@ -29,6 +29,7 @@ internal class AgentModelFailure(
         private fun toolEnvelopeRejected() = AgentModelFailure(
             code = ResponsesToolEnvelopeRecovery.CODE,
             retryable = false,
+            envelopeCorrectionAllowed = true,
             message = "模型生成的工具封装未通过代理 JSON 校验（missing-separator）。",
             // Never retain the rejected code, request body, headers, or provider text.
             diagnostic = "responses_tool_envelope_rejected; json_failure=missing-separator",
@@ -45,7 +46,11 @@ internal class AgentModelFailure(
             } catch (_: org.json.JSONException) {
                 null
             }
-            if (ResponsesToolEnvelopeRecovery.matches(error, status)) return toolEnvelopeRejected()
+            if (ResponsesToolEnvelopeRecovery.matches(error, status)) {
+                val guard = ResponsesToolEnvelopeRecovery.DeliveryGuard()
+                guard.inspectEnvelope(JSONObject(body))
+                return guard.protect(toolEnvelopeRejected()) as AgentModelFailure
+            }
             val diagnostic = AgentHttpFailureDiagnostics.collect(status, body, headers, secrets)
             if (status in setOf(400, 413) && isContextOverflow(error)) {
                 return AgentModelFailure("CONTEXT_WINDOW_EXCEEDED", false, "提供方确认上下文超限，需缩减上下文后重试。", diagnostic = diagnostic)
