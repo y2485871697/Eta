@@ -81,6 +81,15 @@ internal object ResponsesToolEnvelopeRecovery {
             for (index in 0 until output.length()) inspectItem(output.optJSONObject(index))
         }
 
+        fun inspectHttpBody(body: String) {
+            // Inspect all HTTP statuses, not only the recognized validator rejection.
+            val text = body.trimStart()
+            if (text.startsWith("{") || text.startsWith("[")) {
+                val envelope = runCatching { JSONObject(body) }.getOrNull()
+                if (envelope == null) toolDeliveryPossible = true else inspectEnvelope(envelope)
+            }
+        }
+
         fun inspectEnvelope(envelope: JSONObject) {
             inspectOutput(envelope)
             if (envelope.has("response")) {

@@ -71,6 +71,21 @@ class ResponsesEnvelopeIntegrationTest {
             assertEquals(3, calls.get())
         }
     }
+    @Test fun transientHttpErrorWithOutputForbidsRetryBeforeOrAfterCorrection() {
+        for (afterCorrection in listOf(false, true)) for (status in listOf(502, 503, 504)) {
+            val output = JSONArray().put(JSONObject().put("type", "function_call")
+                .put("name", "already_generated").put("arguments", "{}"))
+            val body = JSONObject().put("error", JSONObject().put("message", "temporary"))
+                .put("output", output).toString()
+            server({ n -> if (afterCorrection && n == 1)
+                500 to JSONObject().put("error", error()).toString()
+                else status to body }) { url, calls ->
+                assertThrows(AgentModelFailure::class.java) { run(url) }
+                assertEquals(if (afterCorrection) 2 else 1, calls.get())
+            }
+        }
+    }
+
     private fun server(reply: (Int) -> Pair<Int, String>, block: (String, AtomicInteger) -> Unit) {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val executor = Executors.newCachedThreadPool()

@@ -361,6 +361,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
             request = request,
             runController = runController,
             onOpen = { code -> onEvent(ProviderEvent.ResponseHeaders(code)) },
+            inspectHttpErrorBody = { body -> deliveryGuard.inspectHttpBody(body) },
             onEvent = sseEvent@{ _, _, data ->
                 val payload = data.trim()
                 if (payload.isBlank()) return@sseEvent
