@@ -232,9 +232,11 @@ class AgentAutomaticCompactionTest {
         }
         val messages = smallHistory()
         val events = mutableListOf<AgentEvent>()
+        lateinit var liveBeforeOverflow: String
         val provider = ScriptedProvider(listOf(
             { request, _ ->
                 assertTrue(requestTokens(request.messages) < AUTO_PRESSURE)
+                liveBeforeOverflow = messages.toString()
                 throw overflow()
             },
             // A leaked override would wrongly recover and reach this request instead of pausing.
@@ -257,7 +259,8 @@ class AgentAutomaticCompactionTest {
 
         assertEquals(1, summaries)
         assertEquals(1, provider.requests.size)
-        assertEquals(provider.requests.single().toString(), messages.toString())
+        assertEquals(liveBeforeOverflow, messages.toString())
+        assertEquals(wireJson(JSONArray(liveBeforeOverflow)), provider.requests.single().toString())
         assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
         val compactions = events.filterIsInstance<AgentEvent.ContextCompacted>()
         assertEquals(1, compactions.count { it.applied })
@@ -335,8 +338,9 @@ class AgentAutomaticCompactionTest {
                 assertEquals(1, summaries)
                 assertEquals(ids, executions)
                 assertTrue(requestTokens(request.messages) <= inputLimit)
-                assertEquals(keptJson, (request.messages.length() - keptJson.size until request.messages.length())
-                    .map { request.messages.getJSONObject(it).toString() })
+                assertEquals(wireJson(JSONArray(keptJson.map { JSONObject(it) })),
+                    JSONArray((request.messages.length() - keptJson.size until request.messages.length())
+                        .map { request.messages.getJSONObject(it) }).toString())
                 assistant(promptTokens = 20)
             },
         ))
@@ -569,9 +573,13 @@ class AgentAutomaticCompactionTest {
 
     @Test fun repeatedProviderOverflowStopsAfterOneSuccessfulReductionAndRetry() {
         val messages = smallHistory()
+        lateinit var liveBeforeRetryOverflow: String
         val provider = ScriptedProvider(listOf(
             { _, _ -> throw overflow() },
-            { _, _ -> throw overflow() },
+            { _, _ ->
+                liveBeforeRetryOverflow = messages.toString()
+                throw overflow()
+            },
         ))
         val events = mutableListOf<AgentEvent>()
         var summaries = 0
@@ -581,7 +589,8 @@ class AgentAutomaticCompactionTest {
         }
         assertEquals(1, summaries)
         assertEquals(2, provider.requests.size)
-        assertEquals(provider.requests.last().toString(), messages.toString())
+        assertEquals(liveBeforeRetryOverflow, messages.toString())
+        assertEquals(wireJson(JSONArray(liveBeforeRetryOverflow)), provider.requests.last().toString())
         val blocked = events.filterIsInstance<AgentEvent.ContextCompacted>().single { it.blocked }
         assertTrue(blocked.reason.orEmpty().contains("提供方确认上下文超限"))
     }
@@ -597,15 +606,21 @@ class AgentAutomaticCompactionTest {
         val provider = ScriptedProvider(listOf(
             { _, _ -> throw overflow() },
             { request, _ ->
-                val tail = (request.messages.length() - 2 until request.messages.length())
-                    .map { request.messages.getJSONObject(it).toString() }
-                assertEquals(liveTail, tail)
+                val tail = JSONArray((request.messages.length() - 2 until request.messages.length())
+                    .map { request.messages.getJSONObject(it) })
+                assertEquals(wireJson(JSONArray(liveTail.map { JSONObject(it) })), tail.toString())
                 assistant(promptTokens = 20)
             },
         ))
         assertAutomaticRecovery(messages, provider)
+        assertEquals(liveTail, (messages.length() - 3 until messages.length() - 1)
+            .map { messages.getJSONObject(it).toString() })
         assertEquals("current-turn", messages.getJSONObject(messages.length() - 1).getString(AgentTurnIdentity.JSON_KEY))
     }
+
+    // Request expectations use the same text-only wire projection as AgentLoop.
+    private fun wireJson(messages: JSONArray): String =
+        AgentRequestMediaPolicy.filter(messages, false, false).toString()
 
     private fun assertAutomaticRecovery(
         messages: JSONArray,
