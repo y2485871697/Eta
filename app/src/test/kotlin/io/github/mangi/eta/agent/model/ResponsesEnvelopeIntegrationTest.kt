@@ -13,6 +13,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ResponsesEnvelopeIntegrationTest {
+    @get:org.junit.Rule val timeout = org.junit.rules.Timeout.seconds(60)
     private fun error() = JSONObject().put("code", "server_error").put("message",
         "basispoints tool transport code must contain one JSON client-tool envelope; " +
         "OfficeJS and multiple calls are unsupported (format=json_object; bytes=7941; " +

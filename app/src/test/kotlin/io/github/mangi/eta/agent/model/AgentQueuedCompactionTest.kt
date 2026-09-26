@@ -50,7 +50,7 @@ class AgentQueuedCompactionTest {
                     check(compactions <= if (freshUsage) 2 else 1)
                     val tail = source.drop(requireNotNull(policy.keepStartOverride))
                     listOf(AgentModelClient.ConversationMessage("user", "[Conversation summary] " +
-                        "x".repeat(if (compactions == 1) 360_000 else 4000))) + tail
+                        "x".repeat(if (compactions == 1) 340_000 else 4000))) + tail
                 }).run()
             assertEquals(if (freshUsage) 2 else 1, compactions)
             assertEquals(compactions + 1, requests)
