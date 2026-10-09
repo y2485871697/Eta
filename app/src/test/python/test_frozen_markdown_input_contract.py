@@ -33,15 +33,18 @@ class FrozenMarkdownInputContract(unittest.TestCase):
 
     def test_only_streaming_host_supplies_the_conservative_transformer(self):
         text = (ROOT / 'ui/components/ChatMessageItem.kt').read_text()
-        self.assertEqual(1, text.count('rememberStreamingMarkdownImageTransformer(parsed.state.content)'))
+        self.assertEqual(1, text.count('rememberStreamingMarkdownImageTransformer(parsed)'))
         start = text.index('private fun StreamingMarkdown(')
         end = text.index('private fun StreamingGfmSuccess(', start)
         body = text[start:end]
-        self.assertIn('val imageTransformer = rememberStreamingMarkdownImageTransformer(parsed.state.content)', body)
+        self.assertIn('val imageTransformer = rememberStreamingMarkdownImageTransformer(parsed)', body)
         self.assertIn('imageTransformer = imageTransformer,', body)
         helper = (ROOT / 'ui/components/StreamingMarkdownImageTransformer.kt').read_text()
-        for token in ('private var bracketSyntaxSeen = false', "'[' in content", 'if (bracketSyntaxSeen) NoOpImageTransformerImpl() else retained', 'remember { StreamingMarkdownImageTransformerPolicy() }'):
+        for token in ('private var bracketSyntaxSeen = false', "'[' in snapshot.state.content", 'if (bracketSyntaxSeen) NoOpImageTransformerImpl() else retained', 'remember { StreamingMarkdownImageTransformerPolicy() }'):
             self.assertIn(token, helper)
+        self.assertIn('if (lastSnapshot === snapshot) return lastTransformer', helper)
+        self.assertIn('return policy.forSnapshot(snapshot)', helper)
+        self.assertNotIn('remember(snapshot', helper)
         for token in ('ReferenceLinkHandlerImpl', 'parseMarkdown(', 'LocalMarkdown', 'LaunchedEffect', 'mutableStateOf'):
             self.assertNotIn(token, helper)
 

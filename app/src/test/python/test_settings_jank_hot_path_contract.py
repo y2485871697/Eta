@@ -56,7 +56,7 @@ class SettingsJankHotPathContract(unittest.TestCase):
         helper = (ROOT / 'components/ChatUiActive.kt').read_text()
         self.assertIn('staticCompositionLocalOf { true }', helper)
         self.assertIn('val LocalChatUiActive', helper)
-        self.assertIn('val LocalChatRouteCovered = staticCompositionLocalOf { false }', helper)
+        self.assertIn('val LocalChatRouteCovered = compositionLocalOf { false }', helper)
         root = (ROOT / 'app/AgentAppRoot.kt').read_text()
         # 半遮住时聊天还在组合里，继续用实时消息；完全盖住后导航移出组合。
         self.assertIn('LocalChatUiActive provides true', root)

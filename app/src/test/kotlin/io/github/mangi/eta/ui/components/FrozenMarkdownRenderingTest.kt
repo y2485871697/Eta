@@ -97,7 +97,7 @@ class FrozenMarkdownRenderingTest {
             modifier = Modifier.width(width).testTag(tag),
             animations = markdownAnimations(animateTextSize = { this }),
             components = components,
-            imageTransformer = if (candidate) rememberStreamingMarkdownImageTransformer(hostState.content) else NoOpImageTransformerImpl(),
+            imageTransformer = if (candidate) rememberStreamingMarkdownImageTransformer(frame.snapshot) else NoOpImageTransformerImpl(),
             success = { state, components, modifier ->
                 Column(modifier) {
                     val node = topLevelMarkdownBlocks(state.node).first()
@@ -236,7 +236,7 @@ class FrozenMarkdownRenderingTest {
     ) {
         val components = remember { markdownComponents() }
         val transformer = if (candidate) {
-            rememberStreamingMarkdownImageTransformer(snapshot.state.content)
+            rememberStreamingMarkdownImageTransformer(snapshot)
         } else {
             NoOpImageTransformerImpl()
         }
@@ -303,6 +303,39 @@ class FrozenMarkdownRenderingTest {
                 previousTail = fixed.getValue(offsets.last())
             }
         }
+    }
+
+    @Test fun compositionReentryReusesBracketSnapshotButNewPublicationRefreshes() {
+        val parser = StreamingGfmParserSession()
+        val current = mutableStateOf(parser.parse("[link](https://example.test)", true))
+        val navigationTick = mutableStateOf(0)
+        val observed = mutableListOf<com.mikepenz.markdown.model.ImageTransformer>()
+        compose.setContent {
+            val tick = navigationTick.value
+            val transformer = rememberStreamingMarkdownImageTransformer(current.value)
+            SideEffect {
+                check(tick >= 0)
+                observed.add(transformer)
+            }
+        }
+        compose.waitForIdle()
+        val first = observed.last()
+        val initialCommits = observed.size
+        repeat(3) {
+            compose.runOnIdle { navigationTick.value++ }
+            compose.waitForIdle()
+            compose.runOnIdle { assertSame(first, observed.last()) }
+        }
+        assertTrue("fixture must re-enter composition", observed.size > initialCommits)
+        compose.runOnIdle {
+            current.value = parser.parse("[link](https://example.test)\n\nTail", true)
+        }
+        compose.waitForIdle()
+        val changed = observed.last()
+        assertNotSame(first, changed)
+        compose.runOnIdle { navigationTick.value++ }
+        compose.waitForIdle()
+        compose.runOnIdle { assertSame(changed, observed.last()) }
     }
 
     @Test fun optimizedPlainRendererPreservesGeometryAndCurrentTypography() {

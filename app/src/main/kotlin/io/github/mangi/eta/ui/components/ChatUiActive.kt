@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.components
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -23,7 +24,8 @@ val LocalChatUiActive = staticCompositionLocalOf { true }
  * 聊天还在组合里，但已经不是栈顶。半遮住时仍要显示实时消息；
  * 整列离屏裁剪只留给完全打开的聊天，避免被盖住时每帧重录。
  */
-val LocalChatRouteCovered = staticCompositionLocalOf { false }
+// This value changes on navigation: invalidate readers, not the entire routed subtree.
+val LocalChatRouteCovered = compositionLocalOf { false }
 
 /** 完成且不再逐帧变化的内容复用一张离屏纹理。层始终挂着，只切换合成策略，避免插入时重挂。 */
 @Composable

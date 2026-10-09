@@ -1214,7 +1214,7 @@ private fun StreamingMarkdown(
     }
 
     snapshot?.let { parsed ->
-        val imageTransformer = rememberStreamingMarkdownImageTransformer(parsed.state.content)
+        val imageTransformer = rememberStreamingMarkdownImageTransformer(parsed)
         Markdown(
             state = parsed.state,
             annotator = preparedAnnotator,

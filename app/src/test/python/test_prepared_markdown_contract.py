@@ -19,7 +19,7 @@ class PreparedMarkdownContract(unittest.TestCase):
         for forbidden in ('@Stable', '@Immutable', 'TextLayoutResult', 'Usage', 'LocalContext', 'LaunchedEffect'):
             self.assertNotIn(forbidden, helper)
         ui = (ROOT / 'ui/components/ChatMessageItem.kt').read_text()
-        for token in ('preparedBlocks = parsed.preparedBlocks.takeIf { parsed.renderSpec == renderSpec }', 'remember(blockSource, preparedBlock?.spec) { Triple(node, content, preparedBlock) }', 'it.node === frozenNode && it.source === frozenContent', 'MarkdownElement(', 'ChatSelectableText(text = text, style = style, modifier = modifier)', 'rememberStreamingMarkdownImageTransformer(parsed.state.content)'):
+        for token in ('preparedBlocks = parsed.preparedBlocks.takeIf { parsed.renderSpec == renderSpec }', 'remember(blockSource, preparedBlock?.spec) { Triple(node, content, preparedBlock) }', 'it.node === frozenNode && it.source === frozenContent', 'MarkdownElement(', 'ChatSelectableText(text = text, style = style, modifier = modifier)', 'rememberStreamingMarkdownImageTransformer(parsed)'):
             self.assertIn(token, ui)
         self.assertEqual(3, ui.count('val text = prepared ?: remember('))
 
