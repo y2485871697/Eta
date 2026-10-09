@@ -30,6 +30,20 @@ internal object AssistantRepository {
     @Volatile
     private lateinit var applicationContext: Context
 
+    private val avatarCache = AssistantAvatarBitmapCache()
+    private val _avatarRevision = MutableStateFlow(0L)
+    val avatarRevision: StateFlow<Long> = _avatarRevision.asStateFlow()
+
+    private fun invalidateAvatarBitmaps(fileName: String? = null) {
+        _avatarRevision.value = avatarCache.invalidate(fileName)
+    }
+
+    fun cachedAvatarBitmap(fileName: String?, revision: Long): Bitmap? =
+        avatarCache.cached(fileName, revision)
+
+    suspend fun loadAvatarBitmap(fileName: String?, revision: Long): Bitmap? =
+        avatarCache.load(fileName, revision, ::avatarBitmap)
+
     private val _profiles = MutableStateFlow<List<AssistantProfile>>(emptyList())
     val profiles: StateFlow<List<AssistantProfile>> = _profiles.asStateFlow()
 
@@ -41,6 +55,7 @@ internal object AssistantRepository {
     @Synchronized
     fun init(context: Context) {
         applicationContext = context.applicationContext
+        invalidateAvatarBitmaps()
         directory().mkdirs()
         avatarsDirectory().mkdirs()
         val active = withIndexLock {
@@ -80,6 +95,7 @@ internal object AssistantRepository {
         return file.takeIf { it.isFile }
     }
 
+    @Synchronized
     fun avatarBitmap(fileName: String?): Bitmap? {
         val file = avatarFile(fileName) ?: return null
         return runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
@@ -171,11 +187,13 @@ internal object AssistantRepository {
             val remaining = profiles.value.filterNot { it.id == id }
             require(remaining.isNotEmpty()) { "必须保留至少一个助手" }
             val next = if (activeId.value == id) remaining.first().id else activeId.value
-            val avatar = avatarFile(profile(id)?.avatarFileName)
+            val avatarFileName = profile(id)?.avatarFileName
+            val avatar = avatarFile(avatarFileName)
             val snapshot = Snapshot(next, remaining)
             writeIndex(snapshot)
             publish(snapshot)
             avatar?.delete()
+            avatarFileName?.let(::invalidateAvatarBitmaps)
             next
         }
         AgentMemoryRepository.delete(id)
@@ -225,15 +243,20 @@ internal object AssistantRepository {
         return result
     }
 
+    @Synchronized
     fun importAvatars(files: Map<String, ByteArray>) {
         if (!::applicationContext.isInitialized) return
         val dir = avatarsDirectory()
         require(files.keys.all { it.isNotBlank() && File(it).name == it && !it.contains('\\') }) { "头像文件名无效" }
         check(dir.mkdirs() || dir.isDirectory) { "无法创建头像目录" }
-        dir.listFiles().orEmpty().forEach { check(it.delete()) { "无法清理旧头像" } }
-        files.forEach { (name, bytes) ->
-            val safe = File(name).name
-            File(dir, safe).writeBytes(bytes)
+        try {
+            dir.listFiles().orEmpty().forEach { check(it.delete()) { "无法清理旧头像" } }
+            files.forEach { (name, bytes) ->
+                val safe = File(name).name
+                File(dir, safe).writeBytes(bytes)
+            }
+        } finally {
+            invalidateAvatarBitmaps()
         }
     }
 
@@ -273,10 +296,14 @@ internal object AssistantRepository {
         val fileName = "$id.png"
         val target = File(avatarsDirectory(), fileName)
         val scaled = scaleAvatar(bitmap)
-        target.outputStream().use { output ->
-            scaled.compress(Bitmap.CompressFormat.PNG, 100, output)
+        try {
+            target.outputStream().use { output ->
+                scaled.compress(Bitmap.CompressFormat.PNG, 100, output)
+            }
+        } finally {
+            if (scaled !== bitmap) scaled.recycle()
+            invalidateAvatarBitmaps(fileName)
         }
-        if (scaled !== bitmap) scaled.recycle()
         return update(current.copy(avatarFileName = fileName))
     }
 
@@ -285,6 +312,7 @@ internal object AssistantRepository {
         ensureReady()
         val current = requireNotNull(currentProfile(id)) { "助手不存在" }
         avatarFile(current.avatarFileName)?.delete()
+        current.avatarFileName?.let(::invalidateAvatarBitmaps)
         return update(current.copy(avatarFileName = null))
     }
 
@@ -373,7 +401,7 @@ internal object AssistantRepository {
         return runCatching {
             source.copyTo(target, overwrite = true)
             fileName
-        }.getOrNull()
+        }.also { invalidateAvatarBitmaps(fileName) }.getOrNull()
     }
 
     private fun scaleAvatar(bitmap: Bitmap): Bitmap {

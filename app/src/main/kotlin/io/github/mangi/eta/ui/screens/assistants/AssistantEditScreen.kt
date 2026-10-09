@@ -34,6 +34,7 @@ import io.github.mangi.eta.data.repository.AgentMemoryStore
 import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.components.AssistantAvatar
+import io.github.mangi.eta.ui.components.rememberAssistantAvatarBitmap
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.model.SkillItemUi
 import io.github.mangi.eta.ui.screens.skills.SkillSwitchRow
@@ -72,9 +73,7 @@ internal fun AssistantEditScreen(
     var installedSkills by remember(assistantId) { mutableStateOf<List<SkillIndexEntry>>(emptyList()) }
     var cropBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var saving by remember { mutableStateOf(false) }
-    val avatarBitmap = remember(assistantId, avatarFileName) {
-        AssistantRepository.avatarBitmap(avatarFileName)
-    }
+    val avatarBitmap = rememberAssistantAvatarBitmap(assistantId, avatarFileName)
     val memoryBytes = remember(memoryDraft) { memoryDraft.toByteArray(Charsets.UTF_8).size }
     val memoryOverLimit = memoryBytes > AgentMemoryStore.MAX_FILE_BYTES
     val dirty = name.trim() != original.name ||

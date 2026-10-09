@@ -4,6 +4,7 @@ import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.AgentIncrementalList
 import io.github.mangi.eta.ui.model.incrementalSnapshot
 import io.github.mangi.eta.ui.model.AgentMessageUi
+import io.github.mangi.eta.ui.model.canAppendAssistantAfterTerminalOrdering
 import io.github.mangi.eta.ui.model.UserMessageUi
 import io.github.mangi.eta.ui.model.isSteerSupplement
 
@@ -14,7 +15,8 @@ import io.github.mangi.eta.ui.model.isSteerSupplement
  * slot and ID, with every other source object unchanged. Terminal ordering reads
  * an assistant's ID/type, not its body or streaming flags, and assistants are
  * individual Message entries rather than work-group members. Every structural
- * change and every non-assistant replacement uses the original full projection.
+ * change uses the full projection except a certified unique assistant append
+ * that cannot reorder a terminal run. Non-assistant replacements stay authoritative.
  * Duplicate source IDs disable the fast path: ordering may select a later payload
  * or synthesize a notice ID, so a map keyed only by ID would be unsafe.
  */
@@ -28,6 +30,24 @@ internal class AgentTimelineProjectionCache(
     fun project(messages: List<AgentChatMessageUi>): List<AgentTimelineEntry> {
         val previous = source
         val mapping = sourceToEntry
+        // Appending cannot live inside the equal-size replacement branch. Keep
+        // authoritative terminal ordering for late bodies and ambiguous inputs.
+        if (previous != null && mapping != null && previous.size + 1 == messages.size) {
+            val appended = messages.last() as? AgentMessageUi
+            if (appended != null &&
+                previous.indices.all { previous[it] === messages[it] } &&
+                previous.none { it.id == appended.id } &&
+                previous.canAppendAssistantAfterTerminalOrdering(appended)
+            ) {
+                val projected = (entries + AgentTimelineEntry.Message(appended)).incrementalSnapshot()
+                val nextMapping = mapping.copyOf(messages.size)
+                nextMapping[previous.size] = entries.size
+                source = messages.incrementalSnapshot()
+                entries = projected
+                sourceToEntry = nextMapping
+                return projected
+            }
+        }
         if (previous != null && mapping != null && previous.size == messages.size) {
             val changed = (messages as? AgentIncrementalList<AgentChatMessageUi>)?.singleReplacementFrom(previous)
             if (changed != null) {
@@ -39,17 +59,6 @@ internal class AgentTimelineProjectionCache(
                     source = messages
                     return entries
                 }
-            }
-            if (changed == null && previous.size + 1 == messages.size &&
-                messages.last() is AgentMessageUi &&
-                previous.indices.all { previous[it] === messages[it] }
-            ) {
-                val input = messages.incrementalSnapshot()
-                val projected = (entries + AgentTimelineEntry.Message(messages.last())).incrementalSnapshot()
-                source = input
-                entries = projected
-                sourceToEntry = mapAssistantSlots(input, projected)
-                return projected
             }
             if (changed == null) {
                 val changedIndices = ArrayList<Int>(1)

@@ -2,6 +2,8 @@ package io.github.mangi.eta.ui.components
 
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.AgentMessageUi
+import io.github.mangi.eta.ui.model.AgentIncrementalList
+import io.github.mangi.eta.ui.model.incrementalSnapshot
 import io.github.mangi.eta.ui.model.SystemNoticeCode
 import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
@@ -131,7 +133,7 @@ class AgentTimelineProjectionCacheTest {
             AgentMessageUi("assistant-run-1", "body", true),
         )
         val variants: List<List<AgentChatMessageUi>> = listOf(
-            base + AgentMessageUi("new", "append"), base.dropLast(1), base.reversed(),
+            base + UserMessageUi("user-new", "append"), base.dropLast(1), base.reversed(),
             base.toMutableList().apply { this[4] = (base[4] as AgentMessageUi).copy(id = "different") },
             base.toMutableList().apply { this[4] = ThinkingMessageUi("assistant-run-1", "different type", false) },
             base.toMutableList().apply { this[0] = (base[0] as UserMessageUi).copy(content = "edit") },
@@ -206,7 +208,7 @@ class AgentTimelineProjectionCacheTest {
         val next = listOf<AgentChatMessageUi>(AgentMessageUi("same", "new conversation"))
         assertEquivalent(next, fixture.project(next))
         assertEquivalent(next, AgentTimelineProjectionCache().project(next))
-        assertEquals(4, fixture.builds)
+        assertEquals(2, fixture.builds)
     }
 
     @Test fun unexpectedProjectionIdentityOrMissingMappingFailsClosed() {
@@ -221,6 +223,149 @@ class AgentTimelineProjectionCacheTest {
             cache.project(listOf(AgentMessageUi("a", "new")))
             assertEquals(2, count)
         }
+    }
+
+    @Test fun appendWithHistoricalTerminalRunKeepsFastPathAndStreamingSlot() {
+        val fixture = Fixture()
+        val base: List<AgentChatMessageUi> = listOf(
+            UserMessageUi("user-old", "history"),
+            ThinkingMessageUi("old-thinking-1", "work", false),
+            SystemNoticeMessageUi("interrupted-old", SystemNoticeCode.Interrupted),
+            AgentMessageUi("assistant-old-1", "historical body"),
+            UserMessageUi("user-live", "new turn"),
+        )
+        val before = fixture.project(base)
+        val assistant = AgentMessageUi("assistant-live-1", "start", true)
+        val appended = base + assistant
+        val after = fixture.project(appended)
+        assertEquivalent(appended, after)
+        assertEquals(1, fixture.builds)
+        before.zip(after).forEach { (old, current) -> assertSame(old, current) }
+        val updated = assistant.copy(content = "start more")
+        val streamed = appended.dropLast(1) + updated
+        val result = fixture.project(streamed)
+        assertEquivalent(streamed, result)
+        assertSame(updated, (result.last() as AgentTimelineEntry.Message).message)
+        assertEquals(1, fixture.builds)
+        assertEquals(base.toTimelineEntries(), before)
+        assertEquals(appended.toTimelineEntries(), after)
+    }
+
+    @Test fun lateTerminalBodyAndDuplicateAppendUseAuthoritativeOrdering() {
+        for (suffix in listOf("", "-1", "-1-result", "-1-2")) {
+            val fixture = Fixture()
+            val base: List<AgentChatMessageUi> = listOf(
+                UserMessageUi("user-old", "task"),
+                SystemNoticeMessageUi("interrupted-old", SystemNoticeCode.Interrupted),
+            )
+            fixture.project(base)
+            val current = base + AgentMessageUi("assistant-old$suffix", "late")
+            assertEquivalent(current, fixture.project(current))
+            assertEquals(2, fixture.builds)
+        }
+        val fixture = Fixture()
+        val first = AgentMessageUi("same", "old")
+        val base: List<AgentChatMessageUi> = listOf(UserMessageUi("u", "task"), first)
+        fixture.project(base)
+        assertEquivalent(base + first.copy(content = "new"), fixture.project(base + first.copy(content = "new")))
+        assertEquals(2, fixture.builds)
+    }
+
+    @Test fun appendRequiresExactPrefixAndUniqueIdsAcrossTypes() {
+        val base: List<AgentChatMessageUi> = listOf(UserMessageUi("user-r", "task"), AgentMessageUi("a", "body"))
+        for (current in listOf(
+            listOf(base[0], AgentMessageUi("new", "body"), base[1]),
+            listOf((base[0] as UserMessageUi).copy(content = "edited"), base[1], AgentMessageUi("new", "body")),
+            base + AgentMessageUi("user-r", "collision"),
+            base + ThinkingMessageUi("r-thinking-1", "work", true),
+            base + SystemNoticeMessageUi("interrupted-r", SystemNoticeCode.Interrupted),
+        )) {
+            val fixture = Fixture()
+            val before = fixture.project(base)
+            assertEquivalent(current, fixture.project(current))
+            assertEquals(2, fixture.builds)
+            assertEquals(base.toTimelineEntries(), before)
+        }
+    }
+
+    @Test fun longestOwnerAndRetryNoticeKeepLegacyAppendRules() {
+        val fixture = Fixture()
+        val base: List<AgentChatMessageUi> = listOf(
+            UserMessageUi("user-r", "old"),
+            SystemNoticeMessageUi("interrupted-r", SystemNoticeCode.Completed),
+            UserMessageUi("user-r-1", "new"),
+            SystemNoticeMessageUi("retry", SystemNoticeCode.ModelRetry),
+        )
+        fixture.project(base)
+        // Exact known longer owner r-1 wins over numeric suffix interpretation of r.
+        val next = base + AgentMessageUi("assistant-r-1", "new body", true)
+        assertEquivalent(next, fixture.project(next))
+        assertEquals(1, fixture.builds)
+        val input = next.dropLast(1) + (next.last() as AgentMessageUi).copy(content = "new body more", isStreaming = false)
+        assertEquivalent(input, fixture.project(input))
+        assertEquals(1, fixture.builds)
+    }
+
+    @Test fun appendedCertifiedDeltaKeepsGroupedAndRelocatedOldMappings() {
+        val fixture = Fixture()
+        val base = buildList<AgentChatMessageUi> {
+            add(UserMessageUi("user-old", "old"))
+            repeat(65) { add(ThinkingMessageUi("old-thinking-$it", "work", false)) }
+            add(SystemNoticeMessageUi("interrupted-old", SystemNoticeCode.Completed))
+            add(AgentMessageUi("assistant-old-1", "old body", false))
+            add(UserMessageUi("user-live", "next"))
+        }.incrementalSnapshot()
+        val before = fixture.project(base)
+        assertTrue(before.size < base.size)
+        val live = AgentMessageUi("assistant-live-1", "start", true)
+        val appended = (base + live).incrementalSnapshot()
+        val after = fixture.project(appended)
+        val changed = appended.replacing(appended.lastIndex, live.copy(content = "start more"))
+        val result = fixture.project(changed)
+        assertEquivalent(changed, result)
+        assertEquals(result.lastIndex, (result as AgentIncrementalList<*>).singleReplacementFrom(after))
+        val historicalIndex = changed.indexOfFirst { it.id == "assistant-old-1" }
+        val historical = (changed[historicalIndex] as AgentMessageUi).copy(content = "edited historical body")
+        // Historical edits deliberately use the original reference scan, not a live certificate.
+        val edited = changed.replacing(historicalIndex, historical).withoutReplacementHint()
+        val projectedEdit = fixture.project(edited)
+        assertEquivalent(edited, projectedEdit)
+        val projectedHistorical = projectedEdit.indexOfFirst { it.key == historical.id }
+        assertNotEquals(historicalIndex, projectedHistorical)
+        assertSame(historical, (projectedEdit[projectedHistorical] as AgentTimelineEntry.Message).message)
+        assertEquals(1, fixture.builds)
+        assertEquals(base.toTimelineEntries(), before)
+        assertEquals(appended.toTimelineEntries(), after)
+        assertEquals(changed.toTimelineEntries(), result)
+    }
+
+    @Test fun allTerminalCodesAndNoticeFormsFallbackForTheirOwnLateBody() {
+        for (code in SystemNoticeCode.entries.filter { it != SystemNoticeCode.ModelRetry }) {
+            for (noticeId in listOf("interrupted-r", "virtual-completed-r", "assistant-r-2-usage")) {
+                val fixture = Fixture()
+                val base: List<AgentChatMessageUi> = listOf(UserMessageUi("user-r", "task"),
+                    SystemNoticeMessageUi(noticeId, code))
+                fixture.project(base)
+                val next = base + AgentMessageUi("assistant-r-2-result", "late")
+                assertEquivalent(next, fixture.project(next))
+                assertEquals(2, fixture.builds)
+            }
+        }
+    }
+
+    @Test fun oldDuplicatePrefixAndEqualButRecreatedPrefixUseFullFallback() {
+        val duplicate: List<AgentChatMessageUi> = listOf(UserMessageUi("same", "task"), AgentMessageUi("same", "body"))
+        val fixture = Fixture()
+        fixture.project(duplicate)
+        val next = duplicate + AgentMessageUi("unique", "append")
+        assertEquivalent(next, fixture.project(next))
+        assertEquals(2, fixture.builds)
+        val other = Fixture()
+        val base: List<AgentChatMessageUi> = listOf(UserMessageUi("user-r", "task"))
+        other.project(base)
+        val recreated = listOf((base[0] as UserMessageUi).copy(), AgentMessageUi("assistant-r-1", "body"))
+        assertEquivalent(recreated, other.project(recreated))
+        assertEquals(2, other.builds)
     }
 
     @Test fun seededMixedChangesMatchLegacyGroupingOrderingAndEveryRowPolicy() {

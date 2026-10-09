@@ -17,6 +17,16 @@ internal fun normalizeTerminalRunMessages(
 internal fun List<AgentChatMessageUi>.withTerminalBodiesInOrder(): List<AgentChatMessageUi> =
     orderTerminalBodies(this, onlyRunId = null)
 
+/** Reuse the exact ownership grammar; an assistant append cannot add an owner. */
+internal fun List<AgentChatMessageUi>.canAppendAssistantAfterTerminalOrdering(
+    appended: AgentMessageUi,
+): Boolean {
+    if (none { it is SystemNoticeMessageUi && it.code.isTerminal() }) return true
+    val owners = knownTerminalRunIds()
+    val owner = appended.ownerAmong(owners) ?: return true
+    return none { it is SystemNoticeMessageUi && it.code.isTerminal() && it.ownerAmong(owners) == owner }
+}
+
 private class TerminalBodyOrder(
     val firstNoticeIndex: Int,
     val firstNoticeId: String,
