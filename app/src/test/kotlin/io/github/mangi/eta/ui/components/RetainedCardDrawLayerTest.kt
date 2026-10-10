@@ -18,6 +18,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -72,6 +74,8 @@ class RetainedCardDrawLayerTest {
     private val visibility = MutableTransitionState(false)
     private val contentHeight = mutableIntStateOf(80)
     private val bodyColor = mutableStateOf(Color.Red)
+    private val retentionEnabled = mutableStateOf(true)
+    private var bodyIdentity: Any? = null
     private var observation: LayerObservation? = null
     private lateinit var scrollState: ScrollState
     private lateinit var scope: CoroutineScope
@@ -118,6 +122,51 @@ class RetainedCardDrawLayerTest {
         assertEquals(elementTypes, assertLayer(CompositingStrategy.Auto).elements.map { it.javaClass })
         awaitVisibilitySettled(visible = true)
         assertLayer(CompositingStrategy.Offscreen)
+    }
+
+    @Test fun completionAndVisibilityShareOneLayerWithoutRemountingContent() {
+        retentionEnabled.value = false
+        setUpCard()
+        compose.runOnIdle { visibility.targetState = true }
+        advance(32)
+        val elementTypes = assertLayer(CompositingStrategy.Auto).elements.map { it.javaClass }
+        val identity = checkNotNull(bodyIdentity)
+
+        // Completion alone cannot retain while the appearance animation is still running.
+        compose.runOnIdle { retentionEnabled.value = true }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        assertEquals(elementTypes, assertLayer(CompositingStrategy.Auto).elements.map { it.javaClass })
+        assertSame(identity, bodyIdentity)
+
+        awaitVisibilitySettled(visible = true)
+        assertEquals(elementTypes, assertLayer(CompositingStrategy.Offscreen).elements.map { it.javaClass })
+        assertSame(identity, bodyIdentity)
+
+        // A visible but still-streaming body must not acquire a second completed-content layer.
+        compose.runOnIdle { retentionEnabled.value = false }
+        advance(32)
+        assertEquals(elementTypes, assertLayer(CompositingStrategy.Auto).elements.map { it.javaClass })
+        assertSame(identity, bodyIdentity)
+        compose.runOnIdle { retentionEnabled.value = true }
+        advance(32)
+        assertEquals(elementTypes, assertLayer(CompositingStrategy.Offscreen).elements.map { it.javaClass })
+        assertSame(identity, bodyIdentity)
+    }
+
+    @Test fun zeroHeightUsesAutoAndOnePixelHeightIsRetainedWithoutChangingTheChain() {
+        contentHeight.intValue = 0
+        setUpCard()
+        compose.runOnIdle { visibility.targetState = true }
+        awaitVisibilitySettled(visible = true)
+        val elementTypes = assertLayer(CompositingStrategy.Auto).elements.map { it.javaClass }
+
+        compose.runOnIdle { contentHeight.intValue = 1 }
+        advance(256)
+        assertEquals(elementTypes, assertLayer(CompositingStrategy.Offscreen).elements.map { it.javaClass })
+        compose.runOnIdle { contentHeight.intValue = 0 }
+        advance(256)
+        assertEquals(elementTypes, assertLayer(CompositingStrategy.Auto).elements.map { it.javaClass })
     }
 
     @Test fun heightLimitChangesStrategyWithoutRemovingLayerOrClippingTheTail() {
@@ -239,13 +288,17 @@ class RetainedCardDrawLayerTest {
                         enter = tailDetailsEnter(fromBottom = false),
                         exit = tailDetailsExit(toBottom = false),
                     ) {
-                        val retained = retainDrawLayerWhenIdle()
+                        val retained = retainDrawLayerWhenIdle(enabled = retentionEnabled.value)
+                        val identity = remember { Any() }
                         val current = transition.currentState
                         val target = transition.targetState
                         val elements = retained.foldIn(emptyList<Modifier.Element>()) { list, element ->
                             list + element
                         }
-                        SideEffect { observation = LayerObservation(current, target, elements) }
+                        SideEffect {
+                            observation = LayerObservation(current, target, elements)
+                            bodyIdentity = identity
+                        }
                         Box(
                             retained.width(48.dp)
                                 .height(contentHeight.intValue.dp)

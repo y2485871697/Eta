@@ -2785,7 +2785,7 @@ private fun ThinkingRow(
             modifier = Modifier.toggleProbe(toggleProbeRef, "visible"),
         ) {
             HapticSelectionContainer(
-                modifier = completedContentDrawLayer(retainDrawLayerWhenIdle(), streamingState == null)
+                modifier = retainDrawLayerWhenIdle(enabled = streamingState == null)
                     .toggleProbe(toggleProbeRef, "content"),
             ) {
                 Column {
@@ -2851,19 +2851,20 @@ internal fun tailDetailsEnter(fromBottom: Boolean): androidx.compose.animation.E
  * 停在展开之后，把内容画进一张与屏幕同分辨率的离屏纹理。
  * 之后滑动只移动这张纹理，渲染线程不再重放正文的文字命令。
  * 文字、选择和流式更新都不变；内容变化时纹理会重画。
+ * enabled 同时承接内容完成条件，不能再在同一边界叠 completedContentDrawLayer。
  * 高于 [MAX_RETAINED_LAYER_HEIGHT_PX] 的内容不缓存，避免纹理被裁切。
  */
 private const val MAX_RETAINED_LAYER_HEIGHT_PX = 8192
 
 @Composable
-internal fun AnimatedVisibilityScope.retainDrawLayerWhenIdle(): Modifier {
+internal fun AnimatedVisibilityScope.retainDrawLayerWhenIdle(enabled: Boolean = true): Modifier {
     val settled = transition.currentState == EnterExitState.Visible &&
         transition.targetState == EnterExitState.Visible
     // 带代码块的 graphicsLayer 每次重组都是新实例，Compose 会作废纹理并重录。
     // 工具行运行时整行都在重组，离屏纹理因此每帧失效。这里用稳定参数，内容不变就不重录。
     // 过高的内容超过纹理上限就会被裁切，宁可不缓存。
     var heightPx by remember { mutableIntStateOf(0) }
-    val cache = settled && heightPx in 1..MAX_RETAINED_LAYER_HEIGHT_PX
+    val cache = enabled && settled && heightPx in 1..MAX_RETAINED_LAYER_HEIGHT_PX
     return Modifier
         .onSizeChanged { heightPx = it.height }
         // 保留同一个绘制层节点，只切换合成策略；展开终态或高度越界时不插拔正文绘制层。
@@ -3082,8 +3083,10 @@ private fun ToolActivityInline(
             exit = tailDetailsExit(anchorBottom),
             modifier = Modifier.toggleProbe(toggleProbeRef, "visible"),
         ) {
+            // squircleSurface 已用自己的离屏层完成填充和遮罩；不要在外层再缓存相同正文。
+            // 遮罩层是视觉必需的（含动画期间），与仅停稳后启用的 retain 缓存层不同。
             Column(
-                modifier = retainDrawLayerWhenIdle()
+                modifier = Modifier
                     .toggleProbe(toggleProbeRef, "content")
                     .fillMaxWidth()
                     .padding(start = 27.dp, top = 2.dp, bottom = 6.dp)
