@@ -1,13 +1,19 @@
 package io.github.mangi.eta.ui.components
 
 import android.app.Application
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.ComposeTimeoutException
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.Density
@@ -51,18 +57,22 @@ class PreparedMarkdownProductionTest {
             MiuixTheme(colors = if (dark.value) darkColorScheme() else lightColorScheme()) {
                 val density = LocalDensity.current.density
                 CompositionLocalProvider(LocalDensity provides Density(density, scale.value)) {
-                    Column(Modifier.width(width.value)) {
-                        ChatMessageItem(
-                            message.value, remember { ChatMessageActions() }, false,
-                            retainedStreamingState = retained, showCopyAction = false,
-                            isPaused = paused.value,
-                        )
+                    // A stable, non-zero viewport allows Robolectric to perform
+                    // an Android measure/draw after asynchronous publications.
+                    Box(Modifier.width(width.value).height(240.dp).testTag("prepared-host")) {
+                        Column {
+                            ChatMessageItem(
+                                message.value, remember { ChatMessageActions() }, false,
+                                retainedStreamingState = retained, showCopyAction = false,
+                                isPaused = paused.value,
+                            )
+                        }
                     }
                 }
             }
         }
         fun await(source: String, terminal: Boolean = false) {
-            compose.waitUntil(15_000) {
+            awaitProductionState("publication source=$source terminal=$terminal", retained) {
                 retained.documentState.snapshot?.let { it.originalSource == source && it.isComplete == terminal &&
                     it.document.blocks.isNotEmpty() } == true
             }
@@ -79,7 +89,9 @@ class PreparedMarkdownProductionTest {
         compose.onNodeWithText("Tail grows", useUnmergedTree = true).assertExists()
 
         compose.runOnIdle { dark.value = true }
-        compose.waitUntil(15_000) { retained.documentState.snapshot?.document?.inlineStyle != firstStyle }
+        awaitProductionState("theme publication", retained) {
+            retained.documentState.snapshot?.document?.inlineStyle != firstStyle
+        }
         compose.waitForIdle()
         val themed = requireNotNull(retained.documentState.snapshot).document.blocks.first()
         assertNotSame(first, themed)
@@ -100,4 +112,34 @@ class PreparedMarkdownProductionTest {
         assertEquals(message.value.content, final.renderedSource)
         compose.onNodeWithText("New tail", useUnmergedTree = true).assertExists()
     }
+
+    private fun awaitProductionState(
+        stage: String,
+        retained: StreamingMarkdownState,
+        condition: () -> Boolean,
+    ) {
+        val previousAutoAdvance = compose.mainClock.autoAdvance
+        try {
+            compose.mainClock.autoAdvance = false
+            compose.waitUntil(15_000) {
+                // Drive only the real production parser/composition/frame runner.
+                // Never force completion, invoke another runner, or extend timeouts.
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+                compose.onNodeWithTag("prepared-host").captureToImage()
+                compose.runOnIdle(condition)
+            }
+        } catch (timeout: ComposeTimeoutException) {
+            throw AssertionError(
+                "$stage timed out: snapshotSource=${retained.documentState.snapshot?.originalSource} " +
+                    "snapshotComplete=${retained.documentState.snapshot?.isComplete} " +
+                    "composedSource=${retained.documentState.composedSource} " +
+                    "clock=${compose.mainClock.currentTime}",
+                timeout,
+            )
+        } finally {
+            compose.mainClock.autoAdvance = previousAutoAdvance
+        }
+    }
+
 }

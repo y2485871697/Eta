@@ -72,16 +72,20 @@ class StreamingRowPinningTest {
                 }
             }
         }
-        compose.waitUntil(15_000) { retained.documentState.snapshot?.originalSource == message.value.content }
+        awaitRowState("initial document parse", retained) {
+            retained.documentState.snapshot?.originalSource == message.value.content
+        }
         compose.runOnIdle { scope.launch { list.scrollToItem(30) } }
-        compose.waitUntil(15_000) { list.firstVisibleItemIndex >= 25 }
+        awaitRowState("scroll away from live row", retained) { list.firstVisibleItemIndex >= 25 }
         compose.runOnIdle {
             assertEquals(1, mounts)
             assertEquals("A live row may not be disposed by scrolling", 0, disposals)
             assertFalse(list.layoutInfo.visibleItemsInfo.any { it.key == "live" })
             message.value = message.value.copy(content = "First live words\n\nNew words while offscreen")
         }
-        compose.waitUntil(15_000) { retained.documentState.snapshot?.originalSource == message.value.content }
+        awaitRowState("offscreen append publication", retained) {
+            retained.documentState.snapshot?.originalSource == message.value.content
+        }
         compose.runOnIdle {
             assertFalse(retained.documentState.revealCoordinator.isAnimationPaused)
             assertFalse(retained.documentState.revealCoordinator.isAnimationHeld)
@@ -98,7 +102,7 @@ class StreamingRowPinningTest {
         }
         // Releasing a pin permits disposal on the next lazy measurement.
         compose.runOnIdle { scope.launch { list.scrollToItem(31) } }
-        compose.waitUntil(15_000) { disposals == 1 }
+        awaitRowState("released pin disposal", retained) { disposals == 1 }
         compose.runOnIdle {
             assertEquals(1, mounts)
             assertTrue(retained.documentState.revealCoordinator.drained.value)

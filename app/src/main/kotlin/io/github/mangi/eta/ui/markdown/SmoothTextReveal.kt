@@ -188,18 +188,33 @@ internal class SmoothTextRevealCoordinator {
                 val totalBacklog = records.values.sumOf { candidate ->
                     max(0.0, (candidate.targetCount - candidate.progress).toDouble())
                 }.toFloat()
-                val record = firstPendingRecord() ?: break
-                val previous = record.progress
-                record.progress = io.github.mangi.eta.ui.components.advanceSmoothReveal(
-                    current = record.progress, target = record.targetCount,
+                // Keep the existing adaptive speed (including its 240-grapheme/s
+                // ceiling), but carry one frame's budget across leaves as upstream
+                // does. A short block must not discard the rest of this frame.
+                var remainingAdvance = io.github.mangi.eta.ui.components.advanceSmoothReveal(
+                    current = 0f, target = totalBacklog,
                     elapsedSeconds = elapsedSeconds, totalBacklog = totalBacklog,
                 )
-                val advance = record.progress - previous
-                if (advance > 0f && record.key !in startedState.value) {
-                    startedState.value = startedState.value + record.key
+                var frameAdvance = 0f
+                val newlyStarted = mutableSetOf<RevealBlockKey>()
+                for (record in records.values) {
+                    if (remainingAdvance <= 0f) break
+                    if (record.node == null || record.layoutResult == null) continue
+                    val pending = record.targetCount - record.progress
+                    if (pending <= 0f) continue
+                    val previous = record.progress
+                    record.progress = (previous + remainingAdvance.coerceAtMost(pending))
+                        .coerceAtMost(record.targetCount)
+                    val advance = record.progress - previous
+                    remainingAdvance = (remainingAdvance - advance).coerceAtLeast(0f)
+                    frameAdvance += advance
+                    if (advance > 0f && record.key !in startedState.value) newlyStarted += record.key
+                    record.node?.onRevealDataChanged()
                 }
-                record.node?.onRevealDataChanged()
-                if (advance > 0f) onRevealAdvanced?.invoke(advance)
+                if (newlyStarted.isNotEmpty()) startedState.value = startedState.value + newlyStarted
+                // One feedback callback per advancing frame, never per block or
+                // for restore/detach/hold. This does not add catch-up vibration.
+                if (frameAdvance > 0f) onRevealAdvanced?.invoke(frameAdvance)
                 updateDrainedState()
             }
         }
