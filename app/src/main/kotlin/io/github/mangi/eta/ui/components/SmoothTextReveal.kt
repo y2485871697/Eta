@@ -378,6 +378,9 @@ internal class SmoothTextRevealNode(
     private var cachedFullPath: Path? = null
     private var cachedNextPath: Path? = null
     private var cachedVisibleHeight = -1
+    private var cachedSettledPicture: androidx.compose.ui.graphics.layer.GraphicsLayer? = null
+    private var cachedSettledLine = -1
+    private var cachedSettledLayout: TextLayoutResult? = null
 
     override fun onAttach() {
         state.attach(this)
@@ -458,29 +461,38 @@ internal class SmoothTextRevealNode(
         }
 
         val fullCount = floor(snapshot.progress).toInt().coerceIn(0, targetCount)
-        ensurePaths(snapshot, fullCount)
-        cachedFullPath?.let { path ->
-            clipPath(path) { contentScope.drawDiagnosticContent() }
+        val layout = snapshot.layoutResult
+        val textLength = layout.layoutInput.text.length
+        val fullEnd = snapshot.boundaries[fullCount].coerceIn(0, textLength)
+        // Finished lines are one rectangle. Rebuilding a glyph path for the whole
+        // visible prefix was the scroll-time cost; the current line stays a second clip.
+        if (fullEnd > 0 && layout.lineCount > 0) {
+            val line = layout.getLineForOffset((fullEnd - 1).coerceAtMost(textLength - 1))
+            val completedBottom = if (line > 0) layout.getLineBottom(line - 1) else 0f
+            if (completedBottom > 0f) {
+                clipRect(right = size.width, bottom = completedBottom) {
+                    contentScope.drawDiagnosticContent()
+                }
+            }
+            val cursor = layout.getHorizontalPosition(fullEnd, usePrimaryDirection = true).coerceAtLeast(0f)
+            if (cursor > 0f) {
+                clipRect(
+                    top = layout.getLineTop(line),
+                    right = cursor,
+                    bottom = layout.getLineBottom(line),
+                ) { contentScope.drawDiagnosticContent() }
+            }
         }
-
         val partialAlpha = (snapshot.progress - fullCount).coerceIn(0f, 1f)
-        if (partialAlpha > 0f) {
+        if (partialAlpha > 0f && fullCount < targetCount) {
+            ensurePaths(snapshot, fullCount)
             cachedNextPath?.let { path ->
                 clipPath(path) {
                     alphaPaint.alpha = partialAlpha
                     StreamPerformanceDiagnostics.measure("reveal.saveLayer") {
-                        drawContext.canvas.saveLayer(
-                            // Only the fading grapheme needs an offscreen alpha layer.
-                            // A paragraph-sized layer grows with the answer on every frame.
-                            path.getBounds(),
-                            alphaPaint,
-                        )
+                        drawContext.canvas.saveLayer(path.getBounds(), alphaPaint)
                     }
-                    try {
-                        contentScope.drawDiagnosticContent()
-                    } finally {
-                        drawContext.canvas.restore()
-                    }
+                    try { contentScope.drawDiagnosticContent() } finally { drawContext.canvas.restore() }
                 }
             }
         }
