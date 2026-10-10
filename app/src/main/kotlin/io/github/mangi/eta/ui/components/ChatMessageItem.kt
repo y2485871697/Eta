@@ -1319,15 +1319,15 @@ private fun ChatMarkdownDocument(
         val firstBudget = if (streamingReveal) STREAMING_PROGRESSIVE_FIRST_FRAME_CHARS else PROGRESSIVE_FIRST_FRAME_CHARS
         val frameBudget = if (streamingReveal) STREAMING_PROGRESSIVE_FRAME_CHARS else PROGRESSIVE_FRAME_CHARS
         val lengths = remember(blocks) { blocks.map { (it.endOffset - it.startOffset).coerceAtLeast(0) } }
-        var limit by remember(blocks) {
-            // 点击那一帧已经要重组标题行、启动展开动画；超出预算时这一帧不纳入任何正文块。
-            // 流式正文第一次出现时必须至少排一块，否则整段会先空白一帧。
+        // 不用 blocks 当 key。流式增量每次都是新列表，重新记住会把已显示的块清掉，看起来整页闪。
+        // 上限只增不减；新块到了，由下面的长度变化继续往前排。
+        var limit by remember {
             mutableIntStateOf(
                 nextProgressiveBlockLimit(lengths, 0, firstBudget, mustAdvance = streamingReveal),
             )
         }
         val probeRef = LocalToggleProbe.current
-        LaunchedEffect(lengths) {
+        LaunchedEffect(lengths.size) {
             probeRef?.let { ref ->
                 StreamPerformanceDiagnostics.probeEvent(
                     ref.token, "progressive", "blocks=$limit/${lengths.size} chars=${lengths.sum()}",
