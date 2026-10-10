@@ -235,8 +235,10 @@ internal fun AgentChatBody(
     val uiMessages = frozenChatSnapshot?.first ?: messages
     val uiStreaming = frozenChatSnapshot?.second ?: isStreaming
     val uiPaused = frozenChatSnapshot?.third ?: isPaused
+    // 停稳盖住时打字机不再逐帧震动，但输出本身还在。门保持开着，改走离开页面的补震。
     io.github.mangi.eta.ui.haptics.StreamingHaptics.Observe(
-        enabled = followLiveTranscript && !isPaused,
+        enabled = !isPaused,
+        visibleReveal = followLiveTranscript,
         conversationId = collaborationConversationId,
     )
     SideEffect {

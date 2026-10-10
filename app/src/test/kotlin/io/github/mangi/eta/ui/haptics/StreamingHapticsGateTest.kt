@@ -95,6 +95,34 @@ class StreamingHapticsGateTest {
     }
 
     @Test
+    fun coveredPageKeepsOutputTicksWithoutUsingTheVisibleTypewriter() {
+        val owner = Owner().apply { resume() }
+        var reveal by mutableStateOf(false)
+        var paused by mutableStateOf(false)
+        lateinit var view: android.view.View
+        compose.setContent {
+            CompositionLocalProvider(LocalLifecycleOwner provides owner) {
+                view = LocalView.current
+                StreamingHaptics.Observe(
+                    enabled = !paused,
+                    visibleReveal = reveal,
+                    conversationId = "conv-current",
+                )
+            }
+        }
+        compose.runOnIdle { assertFalse(ticked { StreamingHaptics.onVisibleAdvance(view) }) }
+        compose.runOnIdle { assertTrue(ticked { StreamingHaptics.noteBackgroundOutput(3, "conv-current") }) }
+        reveal = true
+        compose.waitForIdle()
+        compose.runOnIdle { assertFalse(ticked { StreamingHaptics.noteBackgroundOutput(3, "conv-current") }) }
+        compose.runOnIdle { assertTrue(ticked { StreamingHaptics.onVisibleAdvance(view) }) }
+        paused = true
+        reveal = false
+        compose.waitForIdle()
+        compose.runOnIdle { assertFalse(ticked { StreamingHaptics.noteBackgroundOutput(3, "conv-current") }) }
+    }
+
+    @Test
     fun disabledObserverAndUnknownViewNeverTick() {
         val owner = Owner().apply { resume() }
         lateinit var view: android.view.View

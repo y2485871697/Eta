@@ -16,6 +16,7 @@ internal object StreamingHaptics {
         val lifecycle: Lifecycle,
         val conversationId: String?,
         val enabled: () -> Boolean,
+        val visibleReveal: () -> Boolean,
     )
 
     /**
@@ -132,7 +133,7 @@ internal object StreamingHaptics {
 
     private fun foregroundGate(view: View): Boolean = synchronized(gates) {
         gates.any { gate ->
-            gate.view === view && gate.enabled() &&
+            gate.view === view && gate.enabled() && gate.visibleReveal() &&
                 gate.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
         }
     }
@@ -143,7 +144,7 @@ internal object StreamingHaptics {
             gates.any { it.view === view && it.conversationId == id }
         if (!ownsView) return false
         val visible = gates.any { gate ->
-            gate.conversationId == id && gate.enabled() &&
+            gate.conversationId == id && gate.enabled() && gate.visibleReveal() &&
                 gate.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
         }
         !visible
@@ -158,12 +159,17 @@ internal object StreamingHaptics {
     }
 
     @Composable
-    fun Observe(enabled: Boolean, conversationId: String? = null) {
+    fun Observe(
+        enabled: Boolean,
+        conversationId: String? = null,
+        visibleReveal: Boolean = enabled,
+    ) {
         val view = LocalView.current
         val lifecycle = LocalLifecycleOwner.current.lifecycle
         val active by rememberUpdatedState(enabled)
+        val revealing by rememberUpdatedState(visibleReveal)
         DisposableEffect(view, lifecycle, conversationId) {
-            val gate = Gate(view, lifecycle, conversationId) { active }
+            val gate = Gate(view, lifecycle, conversationId, { active }, { revealing })
             val observer = LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
                     synchronized(gates) { claimForeground(conversationId, view) }
