@@ -32,6 +32,8 @@ data class ConversationSummaryUi(
     val isActiveRun: Boolean = false,
     val hasCompletionMarker: Boolean = false,
     val folderId: String? = null,
+    // Captured with timeLabel; consumers must not classify it using a live clock.
+    val isToday: Boolean = false,
 )
 
 @Immutable

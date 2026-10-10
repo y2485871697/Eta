@@ -4,6 +4,8 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConversationTimeLabelsTest {
@@ -37,6 +39,28 @@ class ConversationTimeLabelsTest {
     @Test
     fun labelFallsBackForInvalidTimestamp() {
         assertEquals("最近", label(0L, millis(2026, Calendar.JULY, 4, 19, 32)))
+    }
+
+    @Test
+    fun todayClassificationAndLabelCrossTheSameLocalMidnight() {
+        val timestamp = millis(2026, Calendar.OCTOBER, 10, 9, 5)
+        val beforeMidnight = millis(2026, Calendar.OCTOBER, 10, 23, 59) + 59_000L
+        val afterMidnight = millis(2026, Calendar.OCTOBER, 11, 0, 0) + 1_000L
+
+        assertTrue(ConversationTimeLabels.isToday(timestamp, beforeMidnight, timeZone))
+        assertEquals("09:05", label(timestamp, beforeMidnight))
+        assertFalse(ConversationTimeLabels.isToday(timestamp, afterMidnight, timeZone))
+        assertEquals("昨天", label(timestamp, afterMidnight))
+    }
+
+    @Test
+    fun todayClassificationUsesTheSuppliedZoneAndHandlesMissingTimestamps() {
+        val now = millis(2026, Calendar.OCTOBER, 11, 0, 1)
+        val timestamp = millis(2026, Calendar.OCTOBER, 10, 23, 59)
+        assertFalse(ConversationTimeLabels.isToday(timestamp, now, timeZone))
+        assertTrue(ConversationTimeLabels.isToday(timestamp, now, TimeZone.getTimeZone("UTC")))
+        assertTrue(ConversationTimeLabels.isToday(0L, now, timeZone))
+        assertEquals("最近", label(0L, now))
     }
 
     @Test

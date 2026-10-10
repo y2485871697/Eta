@@ -421,7 +421,7 @@ private fun ConversationPanePanel(
                     }
                 } else {
                     groups.forEach { group ->
-                        item(key = "section-${group.section}") {
+                        item(key = group.key) {
                             ConversationSectionHeader(group = group)
                         }
                         items(
@@ -1187,12 +1187,14 @@ private fun DrawerState.applyEtaDrawerMotion() {
     DrawerMotionSetters.apply(this)
 }
 
-private data class ConversationDrawerGroup(
+internal data class ConversationDrawerGroup(
     val section: ConversationDrawerSection,
     val items: List<ConversationSummaryUi>,
-)
+) {
+    val key: String get() = "section-$section"
+}
 
-private sealed interface ConversationDrawerSection {
+internal sealed interface ConversationDrawerSection {
     data object Pinned : ConversationDrawerSection
     data object Today : ConversationDrawerSection
     data class Dated(val label: String) : ConversationDrawerSection
@@ -1205,32 +1207,18 @@ private fun ConversationDrawerGroup.localizedLabel(): String = when (val value =
     is ConversationDrawerSection.Dated -> value.label
 }
 
-private fun List<ConversationSummaryUi>.groupForDrawer(): List<ConversationDrawerGroup> {
-    if (isEmpty()) return emptyList()
-    val groups = mutableListOf<ConversationDrawerGroup>()
+internal fun List<ConversationSummaryUi>.groupForDrawer(): List<ConversationDrawerGroup> {
+    // A cached label or a differently ordered input can put the same section in disjoint
+    // runs. Merge all of them, keeping the first section occurrence and row order stable.
+    val groups = linkedMapOf<ConversationDrawerSection, MutableList<ConversationSummaryUi>>()
     for (conversation in this) {
-        val section = conversation.drawerSection()
-        val last = groups.lastOrNull()
-        if (last?.section == section) {
-            groups[groups.lastIndex] = last.copy(items = last.items + conversation)
-        } else {
-            groups += ConversationDrawerGroup(section = section, items = listOf(conversation))
-        }
+        groups.getOrPut(conversation.drawerSection()) { mutableListOf() } += conversation
     }
-    return groups
+    return groups.map { (section, items) -> ConversationDrawerGroup(section, items.toList()) }
 }
 
 private fun ConversationSummaryUi.drawerSection(): ConversationDrawerSection = when {
     isPinned -> ConversationDrawerSection.Pinned
-    isUpdatedToday(createdAtMillis.takeIf { it > 0L } ?: updatedAtMillis) -> ConversationDrawerSection.Today
+    isToday -> ConversationDrawerSection.Today
     else -> ConversationDrawerSection.Dated(timeLabel)
-}
-
-private fun isUpdatedToday(timestampMillis: Long): Boolean {
-    if (timestampMillis <= 0L) return true
-    val now = java.util.Calendar.getInstance()
-    val target = java.util.Calendar.getInstance().apply { timeInMillis = timestampMillis }
-    return now.get(java.util.Calendar.ERA) == target.get(java.util.Calendar.ERA) &&
-        now.get(java.util.Calendar.YEAR) == target.get(java.util.Calendar.YEAR) &&
-        now.get(java.util.Calendar.DAY_OF_YEAR) == target.get(java.util.Calendar.DAY_OF_YEAR)
 }

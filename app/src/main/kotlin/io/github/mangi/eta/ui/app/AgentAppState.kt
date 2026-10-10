@@ -1,6 +1,8 @@
 package io.github.mangi.eta.ui.app
 
+import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.IntentFilter
 import io.github.mangi.eta.agent.delegation.ConversationSubAgentPreferences
 import io.github.mangi.eta.agent.delegation.SubAgentConfigKey
 import io.github.mangi.eta.agent.runtime.AgentChildTaskGroups
@@ -643,6 +645,7 @@ internal class AgentAppState(
 
     init {
         refreshConversationSummaries()
+        observeConversationSummaryDates()
         observeRuntimeSelection()
         observeAutoCompressEnabled()
         scope.launch(Dispatchers.Main.immediate) {
@@ -6235,6 +6238,32 @@ internal class AgentAppState(
         }
     }
 
+    private fun observeConversationSummaryDates() {
+        scope.launch(Dispatchers.Main.immediate) {
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    // Summary labels are cached; invalidate even when no conversation changes.
+                    refreshConversationSummaries()
+                }
+            }
+            appContext.registerReceiver(
+                receiver,
+                IntentFilter().apply {
+                    addAction(Intent.ACTION_DATE_CHANGED)
+                    addAction(Intent.ACTION_TIME_CHANGED)
+                    addAction(Intent.ACTION_TIMEZONE_CHANGED)
+                    addAction(Intent.ACTION_LOCALE_CHANGED)
+                },
+                Context.RECEIVER_NOT_EXPORTED,
+            )
+            try {
+                kotlinx.coroutines.awaitCancellation()
+            } finally {
+                appContext.unregisterReceiver(receiver)
+            }
+        }
+    }
+
     private fun refreshConversationSummaries() {
         if (runReplayBatch.isActive) return
         StreamUiEventDiagnostics.measure("ui.summaries.refresh", conversationsById.size.toLong()) {
@@ -6251,7 +6280,8 @@ internal class AgentAppState(
         val locale = appContext.resources.configuration.locales[0]
         val use24HourClock = DateFormat.is24HourFormat(appContext)
         val environment = ConversationSummaryEnvironment(
-            configuration = appContext.resources.configuration.toString(),
+            // Only the locale affects labels; orientation/uiMode must not invalidate the cache.
+            configuration = appContext.resources.configuration.locales.toLanguageTags(),
             localDay = java.time.Instant.ofEpochMilli(nowMillis).atZone(timeZone.toZoneId()).toLocalDate().toEpochDay(),
             timeZone = timeZone,
             use24HourClock = use24HourClock,
@@ -6279,9 +6309,10 @@ internal class AgentAppState(
                     environment = environment,
                 )
                 // The open conversation's preview changes on every token. Keep the last
-                // summary while it is streaming so the manage list is not rebuilt per delta.
+                // summary while it is streaming so the manage list is not rebuilt per delta,
+                // but never keep its old day/locale/zone after the label environment changes.
                 val cached = if (state.isStreaming && id == selectedConversationId) {
-                    conversationSummaryCache.current(id)
+                    conversationSummaryCache.current(id, environment)
                 } else {
                     null
                 }
@@ -6338,6 +6369,11 @@ internal class AgentAppState(
                         isActiveRun = state.isStreaming,
                         hasCompletionMarker = id in conversationCompletionMarkers,
                         folderId = conversationFolderIds[id],
+                        isToday = ConversationTimeLabels.isToday(
+                            timestampMillis = conversationCreatedAt[id] ?: conversationUpdatedAt[id] ?: 0L,
+                            nowMillis = nowMillis,
+                            timeZone = timeZone,
+                        ),
                     )
                 }
             }
@@ -7368,7 +7404,8 @@ internal class ConversationSummaryCache {
     private data class Entry(val key: ConversationSummaryKey, val summary: ConversationSummaryUi)
     private val entries = mutableMapOf<String, Entry>()
 
-    fun current(id: String): ConversationSummaryUi? = entries[id]?.summary
+    fun current(id: String, environment: ConversationSummaryEnvironment): ConversationSummaryUi? =
+        entries[id]?.takeIf { it.key.environment == environment }?.summary
 
     fun retain(ids: Set<String>) {
         entries.keys.retainAll(ids)

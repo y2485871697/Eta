@@ -5,6 +5,7 @@ import io.github.mangi.eta.ui.model.ConversationModeUi
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
 import java.util.TimeZone
@@ -66,6 +67,28 @@ class ConversationSummaryCacheTest {
             assertNotSame(first, second)
             assertEquals(project("c", changed), second)
         }
+    }
+
+    @Test fun streamingSnapshotReuseRequiresTheSameDateEnvironment() {
+        val cache = ConversationSummaryCache()
+        val original = key("streaming").copy(isActiveRun = true)
+        val first = cache.getOrBuild("streaming", original) { project("streaming", original) }
+        assertSame(first, cache.current("streaming", environment.copy()))
+
+        val changedEnvironments = listOf(
+            environment.copy(localDay = environment.localDay + 1),
+            environment.copy(timeZone = TimeZone.getTimeZone("Asia/Shanghai")),
+            environment.copy(configuration = "zh-CN"),
+            environment.copy(use24HourClock = false),
+        )
+        changedEnvironments.forEach { changed ->
+            assertNull(cache.current("streaming", changed))
+        }
+        val nextDay = original.copy(environment = changedEnvironments.first())
+        val refreshed = cache.getOrBuild("streaming", nextDay) { project("streaming", nextDay) }
+        assertNotSame(first, refreshed)
+        assertSame(refreshed, cache.current("streaming", nextDay.environment))
+        assertNull(cache.current("missing", nextDay.environment))
     }
 
     @Test fun irrelevantMessageFieldsAndThinkingContentDoNotInvalidatePreview() {

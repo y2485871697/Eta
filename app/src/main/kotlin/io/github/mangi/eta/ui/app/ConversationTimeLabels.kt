@@ -21,10 +21,7 @@ internal object ConversationTimeLabels {
     ): String {
         if (timestampMillis <= 0L) return recentLabel
 
-        val zoneId = timeZone.toZoneId()
-        val nowDate = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
-        val targetDate = Instant.ofEpochMilli(timestampMillis).atZone(zoneId).toLocalDate()
-        val dayDelta = ChronoUnit.DAYS.between(targetDate, nowDate).toInt()
+        val dayDelta = dayDelta(timestampMillis, nowMillis, timeZone)
 
         return when {
             dayDelta <= 0 -> formatPattern(
@@ -33,14 +30,27 @@ internal object ConversationTimeLabels {
                 locale,
                 timeZone,
             )
-            dayDelta == 1 -> yesterdayLabel
-            dayDelta in 2..6 -> formatPattern("EEE", timestampMillis, locale, timeZone)
+            dayDelta == 1L -> yesterdayLabel
+            dayDelta in 2L..6L -> formatPattern("EEE", timestampMillis, locale, timeZone)
             sameYear(timestampMillis, nowMillis, locale, timeZone) ->
                 formatPattern(sameYearPattern(locale), timestampMillis, locale, timeZone)
             else -> DateFormat.getDateInstance(DateFormat.MEDIUM, locale)
                 .also { it.timeZone = timeZone }
                 .format(Date(timestampMillis))
         }
+    }
+
+    fun isToday(
+        timestampMillis: Long,
+        nowMillis: Long,
+        timeZone: TimeZone,
+    ): Boolean = timestampMillis <= 0L || dayDelta(timestampMillis, nowMillis, timeZone) == 0L
+
+    private fun dayDelta(timestampMillis: Long, nowMillis: Long, timeZone: TimeZone): Long {
+        val zoneId = timeZone.toZoneId()
+        val nowDate = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
+        val targetDate = Instant.ofEpochMilli(timestampMillis).atZone(zoneId).toLocalDate()
+        return ChronoUnit.DAYS.between(targetDate, nowDate)
     }
 
     private fun sameYear(
