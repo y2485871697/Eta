@@ -106,6 +106,33 @@ class AgentTimelineRowsTest {
         assertEquals(1, done.toLazyTimelineRows(emptyMap(), false).size)
     }
 
+    @Test fun streamingDefaultKeyPreservesRowsForEveryTrailingPolicy() {
+        val completed = listOf(tool(0), tool(1)).toTimelineEntries()
+        val running = listOf(tool(0, running = true), tool(1)).toTimelineEntries()
+        val variants = listOf(
+            emptyList(),
+            listOf(AgentTimelineEntry.Message(AgentMessageUi("a", "answer"))),
+            completed,
+            running,
+            completed + AgentTimelineEntry.Message(AgentMessageUi("a", "answer")),
+            running + AgentTimelineEntry.Message(AgentMessageUi("a", "answer")),
+            List(33) { tool(it) }.toTimelineEntries(),
+        )
+        for (entries in variants) {
+            val workKeys = entries.filterIsInstance<AgentTimelineEntry.WorkProcess>().map { it.key }
+            for (overrides in listOf(emptyMap(), workKeys.associateWith { false }, workKeys.associateWith { true })) {
+                for (streaming in listOf(false, true)) {
+                    val key = entries.streamingWorkDefault(overrides, streaming)
+                    for (retained in listOf(emptyMap(), workKeys.associateWith { setOf("work-step:tool-1") })) {
+                        assertEquals(entries.toLazyTimelineRows(overrides, streaming, retained), entries.toLazyTimelineRows(overrides, key, retained))
+                    }
+                    val trailing = entries.lastOrNull() as? AgentTimelineEntry.WorkProcess
+                    assertEquals(streaming && trailing != null && trailing.key !in overrides, key)
+                }
+            }
+        }
+    }
+
     @Test fun keysAndNavigationFollowFlattenedRowsNotGroupIndices() {
         val first = listOf<AgentChatMessageUi>(UserMessageUi("u1", "one"), tool(0), tool(1), UserMessageUi("u2", "two"))
         val groups = first.toTimelineEntries()

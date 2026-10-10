@@ -6,7 +6,11 @@ ROOT = Path(__file__).resolve().parents[3] / 'src/main/kotlin/io/github/mangi/et
 class SettingsJankHotPathContract(unittest.TestCase):
     def test_live_run_does_not_resolve_every_body_owner_before_notice_check(self):
         source = (ROOT / 'model/AgentTerminalMessageOrder.kt').read_text()
-        self.assertLess(source.index('if (runs.isEmpty()) return messages'), source.index('val messageOwners = messages.map'))
+        # Ownership must not be resolved for every body before the notice check, and
+        # the live-run path must not materialize an ownership list at all.
+        self.assertLess(source.index('if (runs.isEmpty()) return messages'), source.index('val messageOwners = arrayOfNulls'))
+        self.assertNotIn('messages.map { it.ownerAmong(owners) }', source)
+        self.assertIn('if (!needsOrdering) return messages', source)
         self.assertIn('if (message !is SystemNoticeMessageUi || !message.code.isTerminal()) return@forEachIndexed', source)
 
     def test_usage_replaces_one_immutable_slot_and_preserves_holder_fallback(self):

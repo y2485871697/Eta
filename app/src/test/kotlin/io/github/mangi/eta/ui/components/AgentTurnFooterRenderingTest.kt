@@ -208,11 +208,35 @@ class AgentTurnFooterRenderingTest {
         footer("answer").assertDoesNotExist()
     }
 
+    @Test fun suppliedProjectionAndStandaloneFallbackKeepRowsExpansionAndFooterOwner() {
+        val answer = AgentMessageUi("answer", "Answer", renderMarkdown = false)
+        val step = tool("step", "Initial step")
+        val messages = mutableStateOf<List<AgentChatMessageUi>>(listOf(
+            UserMessageUi("user", "Question"), answer, step,
+        ))
+        val supplied = mutableStateOf(true)
+        showConversation(messages, supplyTimelineEntries = supplied)
+        footer(answer.id).assertIsDisplayed()
+        compose.onNodeWithContentDescription(text(R.string.work_expand)).performClick()
+        compose.onNodeWithText("Initial step").assertIsDisplayed()
+        compose.runOnIdle {
+            supplied.value = false
+            messages.value = messages.value.dropLast(1) + step.copy(argumentsSummary = "Updated step")
+        }
+        compose.onNodeWithText("Updated step").assertIsDisplayed()
+        assertBelow(footer(answer.id), compose.onNodeWithText("Updated step"))
+        compose.runOnIdle { supplied.value = true }
+        compose.onNodeWithText("Updated step").assertIsDisplayed()
+        footerAction(answer.id, R.string.ui_delete_this_conversation_3f351b).performClick()
+        assertEquals(listOf("delete:answer"), callbacks)
+    }
+
     private fun showConversation(
         messages: MutableState<List<AgentChatMessageUi>>,
         streaming: MutableState<Boolean> = mutableStateOf(false),
         states: MutableMap<String, StreamingMarkdownState> = mutableStateMapOf(),
         paused: Boolean = false,
+        supplyTimelineEntries: MutableState<Boolean> = mutableStateOf(false),
     ) {
         compose.setContent {
             MiuixTheme(colors = lightColorScheme()) {
@@ -220,6 +244,7 @@ class AgentTurnFooterRenderingTest {
                     Box(Modifier.fillMaxSize()) {
                         AgentConversationMessages(
                             visibleMessages = messages.value,
+                            timelineEntries = if (supplyTimelineEntries.value) messages.value.toTimelineEntries() else null,
                             scrollState = rememberLazyListState(),
                             isStreaming = streaming.value,
                             isPaused = paused,

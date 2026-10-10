@@ -72,10 +72,18 @@ private fun MutableList<AgentTimelineRow>.addWorkGroupRows(
     }
 }
 
+/** The streaming flag only affects the un-overridden trailing work group's default. */
+internal fun List<AgentTimelineEntry>.streamingWorkDefault(
+    expandedOverrides: Map<String, Boolean>,
+    isStreaming: Boolean,
+): Boolean = isStreaming && (lastOrNull() as? AgentTimelineEntry.WorkProcess)?.let {
+    it.key !in expandedOverrides
+} == true
+
 /**
- * Keep the exact row policy and work groups from the full projection. Only plain
- * assistant Message rows can be patched, at the same entry slot and ID. Changes
- * to expansion, retained exit rows, streaming defaults or structure fall back.
+ * Keep the exact row policy and work groups from the full projection. Assistant
+ * rows and same-key/step-ID work payloads can be patched at their existing slots.
+ * Changes to policy, structure or a group's projected row count fall back.
  */
 internal class AgentTimelineRowsCache(
     private val fullProjection: (
@@ -100,7 +108,7 @@ internal class AgentTimelineRowsCache(
     ): List<AgentTimelineRow> {
         val previous = source
         val mapping = entryToRow
-        if (previous != null && mapping != null && previous.size == entries.size &&
+        if (previous != null && mapping != null && groupRowStart != null && previous.size == entries.size &&
             expanded == expandedOverrides && streaming == isStreaming && retained == retainedSteps
         ) {
             val changed = (entries as? AgentIncrementalList<AgentTimelineEntry>)?.singleReplacementFrom(previous)
@@ -121,11 +129,16 @@ internal class AgentTimelineRowsCache(
             }
             if (changed == null) {
                 val changedIndices = ArrayList<Int>(1)
+                var changedWorkGroup = -1
                 var compatible = true
                 for (index in entries.indices) {
                     val old = previous[index]
                     val current = entries[index]
-                    if (old === current) continue
+                    if (old === current || old.hasSamePayloadReferences(current)) continue
+                    if (old is AgentTimelineEntry.WorkProcess && current is AgentTimelineEntry.WorkProcess && changedWorkGroup < 0) {
+                        changedWorkGroup = index
+                        continue
+                    }
                     val oldMessage = (old as? AgentTimelineEntry.Message)?.message as? AgentMessageUi
                     val newMessage = (current as? AgentTimelineEntry.Message)?.message as? AgentMessageUi
                     if (oldMessage == null || newMessage == null || oldMessage.id != newMessage.id || mapping[index] < 0) {
@@ -134,8 +147,20 @@ internal class AgentTimelineRowsCache(
                     }
                     changedIndices += index
                 }
-                if (compatible) {
-                    if (changedIndices.isEmpty()) return rows
+                // A full/unhinted entry snapshot can still be one ordinary work
+                // payload delta. Certify the unchanged entries before patching it.
+                if (compatible && changedWorkGroup >= 0 && changedIndices.isEmpty()) {
+                    patchWorkGroup(previous, entries, changedWorkGroup)?.let { patched ->
+                        rows = patched
+                        source = entries.incrementalSnapshot()
+                        return rows
+                    }
+                }
+                if (compatible && changedWorkGroup < 0) {
+                    if (changedIndices.isEmpty()) {
+                        source = entries.incrementalSnapshot()
+                        return rows
+                    }
                     val updated = rows.toMutableList()
                     changedIndices.forEach { index ->
                         updated[mapping[index]] = AgentTimelineRow.Message((entries[index] as AgentTimelineEntry.Message).message)
@@ -156,6 +181,14 @@ internal class AgentTimelineRowsCache(
         entryToRow = mapAssistantRows(input, result)
         groupRowStart = if (entryToRow == null) null else mapGroupRows(input, result)
         return result
+    }
+
+    // Full timeline projection recreates entry wrappers, even when their payload
+    // objects are unchanged. Compare only references, never historical text bodies.
+    private fun AgentTimelineEntry.hasSamePayloadReferences(other: AgentTimelineEntry): Boolean = when (this) {
+        is AgentTimelineEntry.Message -> other is AgentTimelineEntry.Message && message === other.message
+        is AgentTimelineEntry.WorkProcess -> other is AgentTimelineEntry.WorkProcess && key == other.key &&
+            messages.size == other.messages.size && messages.indices.all { messages[it] === other.messages[it] }
     }
 
     /**

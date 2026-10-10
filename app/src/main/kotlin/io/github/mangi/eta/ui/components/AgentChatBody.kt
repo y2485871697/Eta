@@ -292,12 +292,13 @@ internal fun AgentChatBody(
     val timelineEntries = remember(visibleMessages) {
         StreamPerformanceDiagnostics.measure("timeline.project", visibleMessages.size.toLong()) { timelineProjection.project(visibleMessages) }
     }
-    val initialBottomItemIndex = remember(visibleMessages, isCompressingContext, isWaitingForCompression, childContexts) {
+    val hasCompactingChildContext = remember(childContexts) { childContexts.any { it.isCompacting } }
+    val initialBottomItemIndex = remember(timelineEntries.size, isCompressingContext, isWaitingForCompression, hasCompactingChildContext) {
         initialTimelineItemIndex(
             timelineEntries = timelineEntries,
             isCompressingContext = isCompressingContext,
             isWaitingForCompression = isWaitingForCompression,
-            hasCompactingChildContext = childContexts.any { it.isCompacting },
+            hasCompactingChildContext = hasCompactingChildContext,
         )
     }
     // A default one-item prefetch is too shallow for mixed short tool rows and tall Markdown.
@@ -687,10 +688,12 @@ internal fun AgentConversationMessages(
     // AgentChatBody supplies this projection so the initial tail anchor and the
     // rendered rows share one remembered full-list derivation. The standalone voice
     // panel still computes it here when it calls this renderer directly.
-    val standaloneTimelineProjection = remember { AgentTimelineProjectionCache() }
-    val projectedTimelineEntries = timelineEntries ?: remember(visibleMessages) {
-        StreamPerformanceDiagnostics.measure("timeline.project", visibleMessages.size.toLong()) {
-            standaloneTimelineProjection.project(visibleMessages)
+    val projectedTimelineEntries = timelineEntries ?: run {
+        val standaloneTimelineProjection = remember { AgentTimelineProjectionCache() }
+        remember(visibleMessages) {
+            StreamPerformanceDiagnostics.measure("timeline.project", visibleMessages.size.toLong()) {
+                standaloneTimelineProjection.project(visibleMessages)
+            }
         }
     }
     val expansionSaver = remember {
@@ -736,9 +739,12 @@ internal fun AgentConversationMessages(
     }
     val retainedWorkSteps = workAnimations.mapValues { it.value.retainedStepKeys }
     val timelineRowsProjection = remember { AgentTimelineRowsCache() }
-    val timelineRows = remember(projectedTimelineEntries, workExpansionOverrides, isStreaming, retainedWorkSteps) {
+    // Run state still drives footers/reveal below. Row projection only reads it
+    // for the trailing work default; ordinary message rows do not depend on it.
+    val rowStreamingDefault = projectedTimelineEntries.streamingWorkDefault(workExpansionOverrides, isStreaming)
+    val timelineRows = remember(projectedTimelineEntries, workExpansionOverrides, rowStreamingDefault, retainedWorkSteps) {
         StreamPerformanceDiagnostics.measure("timeline.project", projectedTimelineEntries.size.toLong()) {
-            timelineRowsProjection.project(projectedTimelineEntries, workExpansionOverrides, isStreaming, retainedWorkSteps)
+            timelineRowsProjection.project(projectedTimelineEntries, workExpansionOverrides, rowStreamingDefault, retainedWorkSteps)
         }
     }
     LaunchedEffect(scrollToMessageId, timelineRows) {
