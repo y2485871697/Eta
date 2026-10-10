@@ -539,7 +539,8 @@ internal class SmoothTextRevealNode(
         val prefix = if (currentLine in 0 until layout.lineCount) layout.getLineStart(currentLine) else 0
         if (widthPx <= 0 || heightPx <= 0 || heightPx > 8192) {
             releaseSettledLayer()
-            clipRect(right = size.width, bottom = completedBottom) { drawDiagnosticContent() }
+            val contentScope = this
+            clipRect(right = size.width, bottom = completedBottom) { contentScope.drawDiagnosticContent() }
             return
         }
         val reusable = cachedSettledPicture != null &&
