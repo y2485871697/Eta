@@ -53,8 +53,8 @@ class WireRequestEstimateContractTest(unittest.TestCase):
         self.assertNotIn('else sendBudget', ring)
         for path in ('ui/screens/chat/AgentChatScreen.kt', 'ui/screens/home/AgentHomeScreen.kt'):
             screen = self.text(path)
-            self.assertIn('measuredContextTokens: Int? = null,', screen)
-            self.assertIn('measuredContextTokens = measuredContextTokens,', screen)
+            self.assertIn('measuredContextTokens: () -> Int? = { null },', screen)
+            self.assertIn('measuredContextTokens = measuredContextTokens(),', screen)
             self.assertNotIn('overheadCalibrationTokens', screen)
             self.assertNotIn('previewRequestOverheadTokens', screen)
 

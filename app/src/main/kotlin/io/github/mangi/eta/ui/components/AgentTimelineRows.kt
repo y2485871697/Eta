@@ -39,26 +39,36 @@ internal fun List<AgentTimelineEntry>.toLazyTimelineRows(
     this@toLazyTimelineRows.forEach { entry ->
         when (entry) {
             is AgentTimelineEntry.Message -> add(AgentTimelineRow.Message(entry.message))
-            is AgentTimelineEntry.WorkProcess -> {
-                val running = entry.messages.any { message ->
-                    (message is ThinkingMessageUi && message.isStreaming) ||
-                        (message is ToolActivityMessageUi && message.status == ToolActivityStatusUi.Running)
-                }
-                val expanded = expandedOverrides[entry.key] ?: (running || (isStreaming && entry.key == trailingWorkKey))
-                add(AgentTimelineRow.WorkHeader(entry, expanded))
-                // During exit only retained rows are projected. A newly appended
-                // hidden step (or a deleted old tail) must not steal the card bottom.
-                val projectedMessages = if (expanded) entry.messages else entry.messages.filter { message ->
-                    "work-step:${message.id}" in retainedSteps[entry.key].orEmpty()
-                }
-                projectedMessages.forEachIndexed { index, message ->
-                    add(AgentTimelineRow.WorkStep(entry.key, message,
-                        isFirst = message.id == entry.messages.firstOrNull()?.id,
-                        isLast = index == projectedMessages.lastIndex,
-                        expanded = expanded))
-                }
-            }
+            is AgentTimelineEntry.WorkProcess ->
+                addWorkGroupRows(entry, trailingWorkKey, expandedOverrides, isStreaming, retainedSteps)
         }
+    }
+}
+
+/** One group's header and steps; shared by the full projection and the row cache. */
+private fun MutableList<AgentTimelineRow>.addWorkGroupRows(
+    entry: AgentTimelineEntry.WorkProcess,
+    trailingWorkKey: String?,
+    expandedOverrides: Map<String, Boolean>,
+    isStreaming: Boolean,
+    retainedSteps: Map<String, Set<String>>,
+) {
+    val running = entry.messages.any { message ->
+        (message is ThinkingMessageUi && message.isStreaming) ||
+            (message is ToolActivityMessageUi && message.status == ToolActivityStatusUi.Running)
+    }
+    val expanded = expandedOverrides[entry.key] ?: (running || (isStreaming && entry.key == trailingWorkKey))
+    add(AgentTimelineRow.WorkHeader(entry, expanded))
+    // During exit only retained rows are projected. A newly appended
+    // hidden step (or a deleted old tail) must not steal the card bottom.
+    val projectedMessages = if (expanded) entry.messages else entry.messages.filter { message ->
+        "work-step:${message.id}" in retainedSteps[entry.key].orEmpty()
+    }
+    projectedMessages.forEachIndexed { index, message ->
+        add(AgentTimelineRow.WorkStep(entry.key, message,
+            isFirst = message.id == entry.messages.firstOrNull()?.id,
+            isLast = index == projectedMessages.lastIndex,
+            expanded = expanded))
     }
 }
 
@@ -80,6 +90,7 @@ internal class AgentTimelineRowsCache(
     private var retained: Map<String, Set<String>> = emptyMap()
     private var rows: List<AgentTimelineRow> = emptyList()
     private var entryToRow: IntArray? = null
+    private var groupRowStart: IntArray? = null
 
     fun project(
         entries: List<AgentTimelineEntry>,
@@ -99,6 +110,11 @@ internal class AgentTimelineRowsCache(
                 if (old != null && current != null && old.id == current.id && old.isStreaming && current.isStreaming &&
                     current.content.startsWith(old.content) && mapping[changed] >= 0) {
                     rows = rows.incrementalSnapshot().replacing(mapping[changed], AgentTimelineRow.Message(current))
+                    source = entries
+                    return rows
+                }
+                patchWorkGroup(previous, entries, changed)?.let { patched ->
+                    rows = patched
                     source = entries
                     return rows
                 }
@@ -138,7 +154,58 @@ internal class AgentTimelineRowsCache(
         retained = retainedSteps.mapValues { it.value.toSet() }
         rows = result
         entryToRow = mapAssistantRows(input, result)
+        groupRowStart = if (entryToRow == null) null else mapGroupRows(input, result)
         return result
+    }
+
+    /**
+     * A work group whose step IDs are unchanged (thinking text grows, a tool finishes)
+     * re-projects only its own header and steps. Group key, trailing key and policies
+     * are unchanged, so the result equals the full projection when the row count holds.
+     */
+    private fun patchWorkGroup(
+        previous: List<AgentTimelineEntry>,
+        entries: List<AgentTimelineEntry>,
+        changed: Int,
+    ): List<AgentTimelineRow>? {
+        val starts = groupRowStart ?: return null
+        val old = previous[changed] as? AgentTimelineEntry.WorkProcess ?: return null
+        val current = entries[changed] as? AgentTimelineEntry.WorkProcess ?: return null
+        val start = starts[changed]
+        if (start < 0 || old.key != current.key || old.messages.size != current.messages.size) return null
+        for (i in old.messages.indices) if (old.messages[i].id != current.messages[i].id) return null
+        val trailingWorkKey = (entries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
+        val oldCount = (if (changed + 1 < starts.size) starts[changed + 1] else rows.size) - start
+        val next = ArrayList<AgentTimelineRow>(oldCount)
+        next.addWorkGroupRows(current, trailingWorkKey, expanded, streaming, retained)
+        if (next.size != oldCount) return null
+        var updated = rows.incrementalSnapshot()
+        next.forEachIndexed { offset, row ->
+            if (row.key != updated[start + offset].key) return null
+            updated = updated.replacing(start + offset, row)
+        }
+        return updated.withoutReplacementHint()
+    }
+
+    /** First row of every entry; null when rows are not one contiguous run per entry. */
+    private fun mapGroupRows(entries: List<AgentTimelineEntry>, rows: List<AgentTimelineRow>): IntArray? {
+        val starts = IntArray(entries.size)
+        var row = 0
+        entries.forEachIndexed { index, entry ->
+            starts[index] = row
+            when (entry) {
+                is AgentTimelineEntry.Message -> {
+                    if ((rows.getOrNull(row) as? AgentTimelineRow.Message)?.message !== entry.message) return null
+                    row++
+                }
+                is AgentTimelineEntry.WorkProcess -> {
+                    if ((rows.getOrNull(row) as? AgentTimelineRow.WorkHeader)?.group !== entry) return null
+                    row++
+                    while ((rows.getOrNull(row) as? AgentTimelineRow.WorkStep)?.groupKey == entry.key) row++
+                }
+            }
+        }
+        return if (row == rows.size) starts else null
     }
 
     private fun mapAssistantRows(entries: List<AgentTimelineEntry>, rows: List<AgentTimelineRow>): IntArray? {

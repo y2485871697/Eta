@@ -18,12 +18,14 @@ import io.github.mangi.eta.ui.model.AgentModelPickerUiState
  */
 @Composable
 internal fun AgentChatScreen(
-    state: AgentChatUiState,
+    // Read the live state here, not in the caller: each streamed delta publishes a new
+    // homeState, and a caller-side read would recompose the whole navigation entry.
+    stateProvider: () -> AgentChatUiState,
     conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     modelPickerState: AgentModelPickerUiState,
     autoCompressEnabled: Boolean,
     requestOverheadTokens: Int = 0,
-    measuredContextTokens: Int? = null,
+    measuredContextTokens: () -> Int? = { null },
     billedOverheadTokens: Int? = null,
     conversationKey: String?,
     draftField: androidx.compose.foundation.text.input.TextFieldState? = null,
@@ -36,6 +38,7 @@ internal fun AgentChatScreen(
         onAction(AgentChatAction.SubmitMessage(text))
     }
     key(chatConversationCompositionKey(conversationKey)) {
+        val state = stateProvider()
         AgentChatBody(
             collaborationConversationId = conversationKey,
             voiceController = voiceController,
@@ -44,7 +47,7 @@ internal fun AgentChatScreen(
             modelPickerState = modelPickerState,
             autoCompressEnabled = autoCompressEnabled,
             requestOverheadTokens = requestOverheadTokens,
-            measuredContextTokens = measuredContextTokens,
+            measuredContextTokens = measuredContextTokens(),
             contextDisplayPolicy = io.github.mangi.eta.ui.model.contextDisplayPolicy(state),
             billedOverheadTokens = state.cloudRequestOverheadTokens,
             livePromptTokens = state.livePromptTokens,

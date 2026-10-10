@@ -68,7 +68,7 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleClip
-import top.yukonga.miuix.kmp.squircle.squircleSurface
+import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -84,7 +84,8 @@ internal fun MarkdownContent(
     modifier: Modifier = Modifier,
     reveal: SmoothTextRevealCoordinator? = null,
 ) {
-    val scope = remember(style, reveal) { MarkdownRenderScope(style, reveal) }
+    val mask12 = rememberMarkdownMask12()
+    val scope = remember(style, reveal, mask12) { MarkdownRenderScope(style, reveal, mask12) }
     MarkdownBlockColumn(blocks = document.blocks, scope = scope, compact = false, modifier = modifier)
 }
 
@@ -92,8 +93,25 @@ internal fun MarkdownContent(
 private class MarkdownRenderScope(
     val style: MarkdownStyle,
     val reveal: SmoothTextRevealCoordinator?,
+    /** One shared 12dp squircle mask per document; see [rememberMarkdownMask12]. */
+    val mask12: Modifier,
 ) {
-    fun muted() = MarkdownRenderScope(style.muted(), reveal)
+    fun muted() = MarkdownRenderScope(style.muted(), reveal, mask12)
+}
+
+/**
+ * miuix builds (and compiles) a fresh AGSL RuntimeShader for every squircleSurface/
+ * squircleClip call site the first time it composes. A long completed answer with many
+ * code/alert/table blocks paid that once per block on the frame it scrolled in. The mask
+ * brush is always white (fill is drawn separately), so one clip modifier can be shared by
+ * every block of the document: same shader, DstIn carve, banding and fallback paths.
+ */
+@Composable
+private fun rememberMarkdownMask12(): Modifier {
+    val density = LocalDensity.current
+    val enabled = isSquircleEnabled()
+    val built = Modifier.squircleClip(cornerRadius = 12.dp)
+    return remember(density, enabled) { built }
 }
 
 /** 嵌套列表的层级只影响 marker 字形，用 CompositionLocal 传递，块组件不必逐层转发。 */
@@ -178,7 +196,7 @@ private fun MarkdownText(
                     // and do not create artificial reveal identities from rendered offsets.
                     MarkdownText(MarkdownParagraph(block.offset + part.start,
                         block.text.subSequence(part.start, part.end)), style,
-                        remember(scope) { MarkdownRenderScope(scope.style, null) }, softWrap = softWrap)
+                        remember(scope) { MarkdownRenderScope(scope.style, null, scope.mask12) }, softWrap = softWrap)
                 }
             }
         }
@@ -220,7 +238,8 @@ private fun MarkdownCodeBlock(block: MarkdownCode, scope: MarkdownRenderScope) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .squircleSurface(color = style.codeBackground, cornerRadius = 12.dp),
+            .then(scope.mask12)
+            .background(style.codeBackground),
     ) {
         Row(
             modifier = Modifier
@@ -311,7 +330,8 @@ private fun MarkdownAlertBlock(block: MarkdownAlert, scope: MarkdownRenderScope)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .squircleSurface(color = accent.copy(alpha = 0.08f), cornerRadius = 12.dp)
+            .then(scope.mask12)
+            .background(accent.copy(alpha = 0.08f))
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -494,7 +514,7 @@ private fun MarkdownTableBlock(block: MarkdownTable, scope: MarkdownRenderScope)
             Layout(
                 modifier = Modifier
                     .squircleBorder(width = 0.5.dp, color = lineColor, cornerRadius = 12.dp)
-                    .squircleClip(cornerRadius = 12.dp)
+                    .then(scope.mask12)
                     .drawBehind {
                         val current = grid
                         val headerHeight = current.rowHeights.firstOrNull() ?: return@drawBehind

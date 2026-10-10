@@ -549,7 +549,7 @@ fun AgentAppRoot(
             entry<AppRoute.Home>(swipeDismiss = swipeDismiss) {
                 RoutedShell(route = AppRoute.Home) {
                     AgentHomeScreen(
-                        state = agentState.homeState,
+                        stateProvider = { agentState.homeState },
                         conversationMentions = io.github.mangi.eta.ui.model.ConversationMentionInputUi(
                             conversations = agentState.conversationPaneState.historyConversations,
                             currentConversationId = agentState.conversationPaneState.selectedConversationId,
@@ -560,7 +560,7 @@ fun AgentAppRoot(
                         modelPickerState = agentState.modelPickerState,
                         autoCompressEnabled = agentState.autoCompressEnabled,
                         requestOverheadTokens = agentState.requestOverheadTokens,
-                        measuredContextTokens = agentState.measuredContextTokens,
+                        measuredContextTokens = { agentState.measuredContextTokens },
                         billedOverheadTokens = agentState.billedOverheadTokens,
                         conversationKey = agentState.conversationPaneState.selectedConversationId,
                         draftField = agentState.currentDraftField(),
@@ -621,7 +621,7 @@ fun AgentAppRoot(
             entry<AppRoute.Chat>(swipeDismiss = swipeDismiss) {
                 RoutedShell(route = AppRoute.Chat) {
                     AgentChatScreen(
-                        state = agentState.homeState,
+                        stateProvider = { agentState.homeState },
                         conversationMentions = io.github.mangi.eta.ui.model.ConversationMentionInputUi(
                             conversations = agentState.conversationPaneState.historyConversations,
                             currentConversationId = agentState.conversationPaneState.selectedConversationId,
@@ -632,7 +632,7 @@ fun AgentAppRoot(
                         modelPickerState = agentState.modelPickerState,
                         autoCompressEnabled = agentState.autoCompressEnabled,
                         requestOverheadTokens = agentState.requestOverheadTokens,
-                        measuredContextTokens = agentState.measuredContextTokens,
+                        measuredContextTokens = { agentState.measuredContextTokens },
                         billedOverheadTokens = agentState.billedOverheadTokens,
                         conversationKey = agentState.conversationPaneState.selectedConversationId,
                         draftField = agentState.currentDraftField(),
