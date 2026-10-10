@@ -80,6 +80,8 @@ class PreparedMarkdownProductionTest {
         }
         await(message.value.content)
         val firstStyle = requireNotNull(retained.documentState.snapshot).document.inlineStyle
+        assertEquals(lightColorScheme().primary, firstStyle.linkColor)
+        assertEquals(lightColorScheme().onSurface.copy(alpha = 0.07f), firstStyle.codeBackground)
         val first = requireNotNull(retained.documentState.snapshot).document.blocks.first()
         assertEquals(expectedPrefix, (first as io.github.mangi.eta.ui.markdown.MarkdownTextBlock).text.text)
         compose.onNodeWithText(expectedPrefix, useUnmergedTree = true).assertExists()
@@ -93,7 +95,10 @@ class PreparedMarkdownProductionTest {
             retained.documentState.snapshot?.document?.inlineStyle != firstStyle
         }
         compose.waitForIdle()
-        val themed = requireNotNull(retained.documentState.snapshot).document.blocks.first()
+        val themedDocument = requireNotNull(retained.documentState.snapshot).document
+        assertEquals(darkColorScheme().primary, themedDocument.inlineStyle.linkColor)
+        assertEquals(darkColorScheme().onSurface.copy(alpha = 0.07f), themedDocument.inlineStyle.codeBackground)
+        val themed = themedDocument.blocks.first()
         assertNotSame(first, themed)
         assertEquals(expectedPrefix, (themed as io.github.mangi.eta.ui.markdown.MarkdownTextBlock).text.text)
         compose.runOnIdle { width.value = 220.dp; scale.value = 1.3f }

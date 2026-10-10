@@ -60,10 +60,20 @@ internal class MarkdownStyle(
 internal fun rememberMarkdownStyle(tone: MarkdownTone): MarkdownStyle {
     val colors = MiuixTheme.colorScheme
     val textStyles = MiuixTheme.textStyles
-    return remember(tone, colors, textStyles) {
+    // Miuix keeps these provider objects stable and updates their state fields
+    // in place. Read immutable values outside remember so theme changes both
+    // invalidate this composition and replace the prepared inline-style target.
+    val onSurface = colors.onSurface
+    val secondaryColor = colors.onSurfaceVariantSummary
+    val primary = colors.primary
+    val outline = colors.outline
+    val surfaceContainer = colors.surfaceContainer
+    val body1 = textStyles.body1
+    val body2 = textStyles.body2
+    return remember(tone, onSurface, secondaryColor, primary, outline, surfaceContainer, body1, body2) {
         val answer = tone == MarkdownTone.Answer
-        val textColor = if (answer) colors.onSurface else colors.onSurfaceVariantSummary
-        val body = (if (answer) textStyles.body1 else textStyles.body2).copy(
+        val textColor = if (answer) onSurface else secondaryColor
+        val body = (if (answer) body1 else body2).copy(
             fontSize = if (answer) 16.sp else 14.sp,
             lineHeight = if (answer) ANSWER_LINE_HEIGHT_SP.sp else THINKING_LINE_HEIGHT_SP.sp,
             color = textColor,
@@ -91,14 +101,14 @@ internal fun rememberMarkdownStyle(tone: MarkdownTone): MarkdownStyle {
             ),
             table = body.copy(fontSize = if (answer) 14.sp else 13.sp, lineHeight = if (answer) 21.sp else 19.sp),
             textColor = textColor,
-            secondaryColor = colors.onSurfaceVariantSummary,
-            markerColor = if (answer) colors.onSurface.copy(alpha = 0.55f) else colors.onSurfaceVariantSummary,
-            dividerColor = colors.outline.copy(alpha = 0.6f),
-            codeBackground = colors.surfaceContainer,
-            tableHeaderBackground = colors.surfaceContainer,
+            secondaryColor = secondaryColor,
+            markerColor = if (answer) onSurface.copy(alpha = 0.55f) else secondaryColor,
+            dividerColor = outline.copy(alpha = 0.6f),
+            codeBackground = surfaceContainer,
+            tableHeaderBackground = surfaceContainer,
             inline = MarkdownInlineStyle(
-                linkColor = colors.primary,
-                codeBackground = colors.onSurface.copy(alpha = 0.07f),
+                linkColor = primary,
+                codeBackground = onSurface.copy(alpha = 0.07f),
             ),
         )
     }
