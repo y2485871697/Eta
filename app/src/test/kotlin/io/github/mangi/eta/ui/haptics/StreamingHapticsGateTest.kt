@@ -127,4 +127,25 @@ class StreamingHapticsGateTest {
         val other = android.view.View(org.robolectric.RuntimeEnvironment.getApplication())
         compose.runOnIdle { assertFalse(ticked { StreamingHaptics.onVisibleAdvance(other) }) }
     }
+
+    @Test
+    fun scrolledAwayReplyKeepsOutputWhileTheChatPageStaysOpen() {
+        val owner = Owner().apply { resume() }
+        var messageVisible by mutableStateOf(true)
+        lateinit var view: android.view.View
+        compose.setContent {
+            CompositionLocalProvider(LocalLifecycleOwner provides owner) {
+                view = LocalView.current
+                StreamingHaptics.Observe(
+                    enabled = true,
+                    conversationId = "conv-current",
+                    visibleReveal = messageVisible,
+                )
+            }
+        }
+        compose.runOnIdle { assertTrue(ticked { StreamingHaptics.onVisibleAdvance(view) }) }
+        messageVisible = false
+        compose.waitForIdle()
+        compose.runOnIdle { assertTrue(ticked { StreamingHaptics.noteBackgroundOutput(3, "conv-current") }) }
+    }
 }
