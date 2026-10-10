@@ -1397,21 +1397,20 @@ internal fun AgentConversationMessages(
                 .streamDiagnosticMeasure("list.measure", diagnosticListAttribution)
                 .streamDiagnosticPlacement("list.place", diagnosticListAttribution)
                 .fillMaxSize()
-                .graphicsLayer {
-                    // 不跟底时不读滚动位置。滑动中读取会让这一层每帧失效，子内容的离屏纹理被整列重录。
-                    translationY = if (shouldLiftTail) {
+                // 层本身就会在滑动时整列重录。只有跟底上提才挂上；手指滑动时列表直接滚动，
+                // 已完成块的离屏纹理可以复用。打字机和振动不在这里停。
+                .then(if (shouldLiftTail) {
+                    Modifier.graphicsLayer {
                         val overflow = scrollState.followTailOverflow()
-                        // 与滚动步长同一套整像素。这一帧量不到尾部时沿用上一帧，避免底边掉下去再弹回。
-                        -nextHeldTailLift(
+                        translationY = -nextHeldTailLift(
                             shouldLift = true,
                             overflowPx = overflow,
                             heldPx = heldTailLift[0],
                         ).also { heldTailLift[0] = it }.toFloat()
-                    } else {
-                        heldTailLift[0] = 0
-                        0f
                     }
-                }
+                } else {
+                    Modifier.also { heldTailLift[0] = 0 }
+                })
                 .onGloballyPositioned {
                     StreamPerformanceDiagnostics.recordListGeometry(diagnosticList, scrollState, visibleMessages.size)
                     // Post-layout, before draw: pinned work insertion preserves a measured

@@ -163,8 +163,8 @@ class WorkExpansionViewportContractTest(unittest.TestCase):
         self.assertNotIn('bottomFollowLayer(', source)
 
     def test_rollback_keeps_inline_graphics_layer_and_no_placement_lift(self):
-        self.assertIn('.graphicsLayer {\n                    // 不跟底时不读滚动位置。滑动中读取会让这一层每帧失效，子内容的离屏纹理被整列重录。\n                    translationY = if (shouldLiftTail) {\n                        val overflow = scrollState.followTailOverflow()', BODY)
-        self.assertIn('translationY = if (shouldLiftTail)', BODY)
+        self.assertIn('.then(if (shouldLiftTail) {\n                    Modifier.graphicsLayer {\n                        val overflow = scrollState.followTailOverflow()', BODY)
+        self.assertNotIn('translationY = if (shouldLiftTail)', BODY)
         self.assertNotIn('bottomFollowLayer(', BODY + POLICY + RECOVERY)
         self.assertNotIn('placeWithLayer', POLICY)
         self.assertFalse((ROOT / 'test/kotlin/io/github/mangi/eta/ui/components/BottomFollowDrawPhaseTest.kt').exists())
