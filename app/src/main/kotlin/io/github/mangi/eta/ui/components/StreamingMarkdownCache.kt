@@ -11,7 +11,7 @@ internal class StreamingMarkdownCache(private val capacity: Int = 4) {
         val states = conversations.getOrPut(id) { mutableStateMapOf() }
         while (conversations.size > capacity.coerceAtLeast(1)) {
             val oldest = conversations.entries.iterator()
-            oldest.next().value.values.forEach { it.revealCoordinator.pauseAnimationsAndCatchUp() }
+            oldest.next().value.values.forEach { it.documentState.revealCoordinator.pauseAnimationsAndCatchUp() }
             oldest.remove()
         }
         return states

@@ -25,6 +25,7 @@ internal fun ChatSelectableText(
     style: TextStyle,
     modifier: Modifier = Modifier,
     onTextLayout: (TextLayoutResult) -> Unit = {},
+    softWrap: Boolean = true,
 ) {
     val links = remember(text) { text.getLinkAnnotations(0, text.length) }
     val selectable = remember(text) { selectableLinkText(text) }
@@ -37,6 +38,7 @@ internal fun ChatSelectableText(
     BasicText(
         text = selectable,
         style = style,
+        softWrap = softWrap,
         modifier = modifier.then(if (links.isEmpty()) Modifier else Modifier
             .semantics {
                 customActions = links.map { range ->

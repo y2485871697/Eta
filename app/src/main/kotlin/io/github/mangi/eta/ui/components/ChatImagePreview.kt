@@ -535,3 +535,16 @@ private fun ChatVideoPreviewPlayer(
         },
     )
 }
+
+/** Prepared document image entry; no AST traversal or reparsing in composition. */
+@Composable
+internal fun ChatDocumentImage(source: String, modifier: Modifier = Modifier) {
+    DisableSelection {
+        ChatRemoteClickableImage(
+            source = source,
+            modifier = modifier.fillMaxWidth().heightIn(max = 320.dp).clip(RoundedCornerShape(14.dp)),
+            contentScale = ContentScale.Fit,
+            compactLoading = false,
+        )
+    }
+}

@@ -40,8 +40,8 @@ class PreparedMarkdownProductionTest {
     @Test fun realWorkerReusesPlainPrefixAndRefreshesThemeCorrectionAndTerminal() {
         val retained = StreamingMarkdownState()
         val prefix = "Stable **bold** and `code`.\n\n"
-        // Keep the original mikepenz CODE_SPAN padding; assert exact text, not a trimmed oracle.
-        val expectedPrefix = "Stable bold and  code ."
+        // Match upstream inline-code background padding (thin spaces).
+        val expectedPrefix = "Stable bold and \u2009code\u2009."
         val message = mutableStateOf(AgentMessageUi("prepared", prefix + "Tail", isStreaming = true))
         val paused = mutableStateOf(true)
         val dark = mutableStateOf(false)
@@ -63,39 +63,40 @@ class PreparedMarkdownProductionTest {
         }
         fun await(source: String, terminal: Boolean = false) {
             compose.waitUntil(15_000) {
-                retained.snapshot?.let { it.originalSource == source && it.isComplete == terminal &&
-                    it.preparedBlocks.firstOrNull()?.spec != null } == true
+                retained.documentState.snapshot?.let { it.originalSource == source && it.isComplete == terminal &&
+                    it.document.blocks.isNotEmpty() } == true
             }
             compose.waitForIdle()
         }
         await(message.value.content)
-        val first = requireNotNull(retained.snapshot).preparedBlocks.first()
-        assertEquals(expectedPrefix, requireNotNull(first.text(first.node, requireNotNull(first.spec).typography.paragraph.toSpanStyle())).text)
+        val firstStyle = requireNotNull(retained.documentState.snapshot).document.inlineStyle
+        val first = requireNotNull(retained.documentState.snapshot).document.blocks.first()
+        assertEquals(expectedPrefix, (first as io.github.mangi.eta.ui.markdown.MarkdownTextBlock).text.text)
         compose.onNodeWithText(expectedPrefix, useUnmergedTree = true).assertExists()
         compose.runOnIdle { message.value = message.value.copy(content = prefix + "Tail grows") }
         await(message.value.content)
-        assertSame(first, requireNotNull(retained.snapshot).preparedBlocks.first())
+        assertSame(first, requireNotNull(retained.documentState.snapshot).document.blocks.first())
         compose.onNodeWithText("Tail grows", useUnmergedTree = true).assertExists()
 
         compose.runOnIdle { dark.value = true }
-        compose.waitUntil(15_000) { retained.snapshot?.preparedBlocks?.firstOrNull()?.spec != first.spec }
+        compose.waitUntil(15_000) { retained.documentState.snapshot?.document?.inlineStyle != firstStyle }
         compose.waitForIdle()
-        val themed = requireNotNull(retained.snapshot).preparedBlocks.first()
+        val themed = requireNotNull(retained.documentState.snapshot).document.blocks.first()
         assertNotSame(first, themed)
-        assertEquals(expectedPrefix, requireNotNull(themed.text(themed.node, requireNotNull(themed.spec).typography.paragraph.toSpanStyle())).text)
+        assertEquals(expectedPrefix, (themed as io.github.mangi.eta.ui.markdown.MarkdownTextBlock).text.text)
         compose.runOnIdle { width.value = 220.dp; scale.value = 1.3f }
         compose.waitForIdle()
         compose.onNodeWithText(expectedPrefix, useUnmergedTree = true).assertExists()
 
         compose.runOnIdle { message.value = message.value.copy(content = "Corrected **prefix**.\n\nNew tail") }
         await(message.value.content)
-        assertNotSame(themed, requireNotNull(retained.snapshot).preparedBlocks.first())
+        assertNotSame(themed, requireNotNull(retained.documentState.snapshot).document.blocks.first())
         compose.onNodeWithText("Corrected prefix.", useUnmergedTree = true).assertExists()
-        val pending = requireNotNull(retained.snapshot)
+        val pending = requireNotNull(retained.documentState.snapshot)
         compose.runOnIdle { message.value = message.value.copy(isStreaming = false); paused.value = false }
         await(message.value.content, terminal = true)
-        val final = requireNotNull(retained.snapshot)
-        assertNotSame(pending.preparedBlocks.first(), final.preparedBlocks.first())
+        val final = requireNotNull(retained.documentState.snapshot)
+        assertNotSame(pending.document.blocks.first(), final.document.blocks.first())
         assertEquals(message.value.content, final.renderedSource)
         compose.onNodeWithText("New tail", useUnmergedTree = true).assertExists()
     }

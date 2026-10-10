@@ -20,24 +20,24 @@ class StreamingRevealGateKeyTest {
             ?: throw AssertionError("source not found: ${candidates.map { it.absolutePath }}")
     }
 
-    private val chatItem by lazy {
-        source("src/main/kotlin/io/github/mangi/eta/ui/components/ChatMessageItem.kt").readText()
+    private val documentRenderer by lazy {
+        source("src/main/kotlin/io/github/mangi/eta/ui/markdown/DocumentStreamingMarkdown.kt").readText()
     }
 
     private fun launchedEffectContaining(marker: String): String {
-        val head = chatItem.indexOf(marker)
+        val head = documentRenderer.indexOf(marker)
         assertTrue("marker not found: $marker", head >= 0)
-        assertTrue("marker is not unique: $marker", chatItem.indexOf(marker, head + 1) < 0)
-        val start = chatItem.lastIndexOf("LaunchedEffect(", head)
+        assertTrue("marker is not unique: $marker", documentRenderer.indexOf(marker, head + 1) < 0)
+        val start = documentRenderer.lastIndexOf("LaunchedEffect(", head)
         assertTrue("no enclosing LaunchedEffect for $marker", start >= 0)
-        val effect = chatItem.substring(start, chatItem.indexOf('\n', head) + 1)
+        val effect = documentRenderer.substring(start, documentRenderer.indexOf('\n', head) + 1)
         assertTrue("marker escaped its effect: $effect", effect.count { it == '}' } <= effect.count { it == '{' })
         return effect
     }
 
     @Test
     fun catchUpBranchIsNotKeyedOnMessageContent() {
-        val keys = launchedEffectContaining("else if (!isPaused) revealCoordinator.pauseAnimationsAndCatchUp()")
+        val keys = launchedEffectContaining("else if (!isPaused) state.revealCoordinator.pauseAnimationsAndCatchUp()")
             .substringAfter("LaunchedEffect(")
             .substringBefore(')')
         assertFalse(keys, keys.contains("Content") || keys.contains("content"))
@@ -45,9 +45,15 @@ class StreamingRevealGateKeyTest {
     }
 
     @Test
+    fun coveredRestoreCannotBypassTheSettledCoverHold() {
+        assertTrue(documentRenderer.contains("!settledCoverNow && state.restoreState.animationsAllowed(currentPaused)"))
+        assertTrue(documentRenderer.contains("if (settledCoverNow) state.revealCoordinator.holdAnimations()"))
+    }
+
+    @Test
     fun explicitPauseStillFollowsNewText() {
         // The paused branch has nothing to animate later, so it must keep tracking content length.
-        val effect = launchedEffectContaining("if (isPaused) revealCoordinator.restoreHistoryThrough(content.length)")
+        val effect = launchedEffectContaining("if (isPaused) state.revealCoordinator.restoreHistoryThrough(targetContent.length)")
         val keys = effect.substringAfter("LaunchedEffect(").substringBefore(')')
         assertTrue(keys, keys.contains("content", ignoreCase = true))
         assertTrue(effect, effect.contains("isPaused"))

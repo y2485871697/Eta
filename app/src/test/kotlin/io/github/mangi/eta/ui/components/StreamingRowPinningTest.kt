@@ -72,7 +72,7 @@ class StreamingRowPinningTest {
                 }
             }
         }
-        compose.waitUntil(15_000) { retained.snapshot?.originalSource == message.value.content }
+        compose.waitUntil(15_000) { retained.documentState.snapshot?.originalSource == message.value.content }
         compose.runOnIdle { scope.launch { list.scrollToItem(30) } }
         compose.waitUntil(15_000) { list.firstVisibleItemIndex >= 25 }
         compose.runOnIdle {
@@ -81,27 +81,27 @@ class StreamingRowPinningTest {
             assertFalse(list.layoutInfo.visibleItemsInfo.any { it.key == "live" })
             message.value = message.value.copy(content = "First live words\n\nNew words while offscreen")
         }
-        compose.waitUntil(15_000) { retained.snapshot?.originalSource == message.value.content }
+        compose.waitUntil(15_000) { retained.documentState.snapshot?.originalSource == message.value.content }
         compose.runOnIdle {
-            assertFalse(retained.revealCoordinator.isAnimationPaused)
-            assertFalse(retained.revealCoordinator.isAnimationHeld)
+            assertFalse(retained.documentState.revealCoordinator.isAnimationPaused)
+            assertFalse(retained.documentState.revealCoordinator.isAnimationHeld)
             assertEquals(0, disposals)
             message.value = message.value.copy(isStreaming = false)
         }
         // A single 15-second budget covers parse, composition and terminal drain.
         awaitRowState("terminal parse/composition/reveal", retained) {
-            retained.completedRevealSource == message.value.content
+            retained.documentState.completedRevealSource == message.value.content
         }
         compose.runOnIdle {
-            assertTrue(retained.snapshot?.isComplete == true)
-            assertEquals(message.value.content, retained.compositionProgress.composedSource)
+            assertTrue(retained.documentState.snapshot?.isComplete == true)
+            assertEquals(message.value.content, retained.documentState.composedSource)
         }
         // Releasing a pin permits disposal on the next lazy measurement.
         compose.runOnIdle { scope.launch { list.scrollToItem(31) } }
         compose.waitUntil(15_000) { disposals == 1 }
         compose.runOnIdle {
             assertEquals(1, mounts)
-            assertTrue(retained.revealCoordinator.drained.value)
+            assertTrue(retained.documentState.revealCoordinator.drained.value)
         }
     }
     @Test fun completedMultiBlockDocumentReentryHasItsFullHeightOnTheFirstLayout() {
@@ -129,7 +129,7 @@ class StreamingRowPinningTest {
             }
         }
         awaitRowState("long-document completion", retained, timeoutMillis = 30_000) {
-            retained.completedRevealSource == source
+            retained.documentState.completedRevealSource == source
         }
         val fullHeight = compose.runOnIdle { heights.last() }
         assertTrue("Test must cover a multi-screen document", fullHeight > 900)
@@ -141,7 +141,7 @@ class StreamingRowPinningTest {
         awaitRowState("first reentry layout", retained) { heights.isNotEmpty() }
         compose.runOnIdle {
             assertEquals("First reentry layout may not shrink to the 480-char batch", fullHeight, heights.first())
-            assertEquals(source, retained.compositionProgress.composedSource)
+            assertEquals(source, retained.documentState.composedSource)
         }
     }
 
@@ -165,15 +165,15 @@ class StreamingRowPinningTest {
             }
         } catch (timeout: ComposeTimeoutException) {
             throw AssertionError(
-                "$stage timed out: snapshotComplete=${retained.snapshot?.isComplete} " +
-                    "snapshotSource=${retained.snapshot?.originalSource} " +
-                    "composedSource=${retained.compositionProgress.composedSource} " +
-                    "completedSource=${retained.completedRevealSource} " +
-                    "publication=${retained.compositionProgress.publication} " +
-                    "drained=${retained.revealCoordinator.drained.value} " +
-                    "started=${retained.revealCoordinator.started.value} " +
-                    "paused=${retained.revealCoordinator.isAnimationPaused} " +
-                    "held=${retained.revealCoordinator.isAnimationHeld} " +
+                "$stage timed out: snapshotComplete=${retained.documentState.snapshot?.isComplete} " +
+                    "snapshotSource=${retained.documentState.snapshot?.originalSource} " +
+                    "composedSource=${retained.documentState.composedSource} " +
+                    "completedSource=${retained.documentState.completedRevealSource} " +
+                    "publication=${retained.documentState.snapshot?.renderedSource?.length} " +
+                    "drained=${retained.documentState.revealCoordinator.drained.value} " +
+                    "started=${retained.documentState.revealCoordinator.started.value} " +
+                    "paused=${retained.documentState.revealCoordinator.isAnimationPaused} " +
+                    "held=${retained.documentState.revealCoordinator.isAnimationHeld} " +
                     "clock=${compose.mainClock.currentTime}",
                 timeout,
             )

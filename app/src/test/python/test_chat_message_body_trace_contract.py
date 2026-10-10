@@ -110,8 +110,8 @@ class ChatBodyTraceContractTest(unittest.TestCase):
             self.assertRegex(body, MOUNT)
             self.assertRegex(self.item_body(name, text=True),
                              rf'traceChatBodyRun\s*\(\s*"{re.escape(kind)}"')
-        self.assertRegex(self.item_body("StableMarkdown", text=True),
-                         r'traceChatBodyRun\s*\(\s*"md\.phase\.')
+        self.assertRegex((ROOT.parent / 'markdown/DocumentStreamingMarkdown.kt').read_text(),
+                         r'"md\.phase\.')
 
     def test_tool_and_document_entries_mark_their_own_body_when_defined_here(self):
         for name, kind in (("ToolActivityInline", "tool"), ("ChatMarkdownDocument", "md.doc")):

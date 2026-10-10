@@ -40,11 +40,11 @@ class CompletedMarkdownCacheContractTest(unittest.TestCase):
         self.assertGreater(body.index("LocalCompletedMarkdownCache provides"), body.index("LazyColumn("))
 
     def test_stable_markdown_uses_cached_state_at_entry(self):
-        args, _ = function(self.items, "StableMarkdown")
+        args, _ = function(self.items, "LegacyStableMarkdown")
         self.assertIn("markdownState: MarkdownState = rememberCompletedMarkdownState(content)", args)
 
     def test_success_records_the_matching_document_before_rendering(self):
-        _, body = function(self.items, "StableMarkdown")
+        _, body = function(self.items, "LegacyStableMarkdown")
         success = block(body, "success =")
         self.assertIn("CacheCompletedMarkdownSuccess(content, markdownState, state)", success)
         self.assertLess(success.index("CacheCompletedMarkdownSuccess("), success.index("ChatMarkdownDocument("))
@@ -53,13 +53,16 @@ class CompletedMarkdownCacheContractTest(unittest.TestCase):
             self.assertNotIn("CacheCompletedMarkdownSuccess", fallback)
             self.assertIn("text = content", fallback)
 
-    def test_thinking_cache_is_only_on_completed_branch(self):
+    def test_thinking_completed_branch_uses_document_renderer_not_legacy_parser(self):
         _, body = function(self.items, "ThinkingRow")
-        completed = block(body, "val stableMarkdownState = if (!message.isStreaming)")
-        self.assertIn("rememberCompletedMarkdownState(message.content)", completed)
+        self.assertIn("StableMarkdown(", body)
+        self.assertNotIn("rememberCompletedMarkdownState", body)
+        _, wrapper = function(self.items, "StableMarkdown")
+        self.assertIn("DocumentStaticMarkdown(", wrapper)
+        self.assertNotIn("MarkdownState", wrapper)
 
     def test_renderer_and_regression_use_the_same_state_identity_boundary(self):
-        _, body = function(self.items, "StableMarkdown")
+        _, body = function(self.items, "LegacyStableMarkdown")
         host = block(body, "CompletedMarkdownStateHost(markdownState)")
         self.assertIn("Markdown(", host)
         _, test_body = function(self.reentry, "ObservedDocument")

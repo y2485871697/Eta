@@ -887,7 +887,7 @@ private fun AgentMessageBlock(
                             isStreaming = message.isStreaming,
                             animateInitialContent = !message.isStreaming &&
                                 displayContent.isNotEmpty() &&
-                                streamingState.snapshot == null &&
+                                streamingState.documentState.snapshot == null &&
                                 streamingState.revealedContent == null,
                             isPaused = isPaused,
                             onRevealCompleteChange = { streamingRevealComplete = it },
@@ -938,8 +938,42 @@ private fun AgentMessageBlock(
 /** 当前点开的推理把分帧组合进度和 loading 回退记进同一个点击窗口。 */
 private val LocalToggleProbe = staticCompositionLocalOf<ToggleProbeRef?> { null }
 
+/** Both ordinary answers and thinking use upstream prepared-document rendering. */
 @Composable
 private fun StableMarkdown(
+    content: String, modifier: Modifier = Modifier,
+    tone: ChatMarkdownTone = ChatMarkdownTone.Answer,
+    progressive: Boolean = false,
+) {
+    val bodyTraceMount = remember { nextChatBodyTraceMount() }
+    SideEffect { traceChatBodyRun("md", bodyTraceMount) }
+    io.github.mangi.eta.ui.markdown.DocumentStaticMarkdown(
+        content, modifier,
+        if (tone == ChatMarkdownTone.Answer) io.github.mangi.eta.ui.markdown.MarkdownTone.Answer
+        else io.github.mangi.eta.ui.markdown.MarkdownTone.Thinking,
+    )
+}
+
+@Composable
+private fun StreamingMarkdown(
+    state: StreamingMarkdownState, content: String, isStreaming: Boolean,
+    animateInitialContent: Boolean = false, isPaused: Boolean = false,
+    onRevealCompleteChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier, tone: ChatMarkdownTone = ChatMarkdownTone.Answer,
+) {
+    io.github.mangi.eta.ui.markdown.DocumentStreamingMarkdown(
+        state = state.documentState, content = content, isStreaming = isStreaming,
+        animateInitialContent = animateInitialContent, isPaused = isPaused,
+        onRevealCompleteChange = onRevealCompleteChange, modifier = modifier,
+        tone = if (tone == ChatMarkdownTone.Answer) io.github.mangi.eta.ui.markdown.MarkdownTone.Answer
+            else io.github.mangi.eta.ui.markdown.MarkdownTone.Thinking,
+    )
+}
+
+// Legacy AST renderer is retained only for isolated compatibility tests during migration.
+// It is not called by AgentMessageBlock, ThinkingRow or either production wrapper above.
+@Composable
+private fun LegacyStableMarkdown(
     content: String,
     modifier: Modifier = Modifier,
     tone: ChatMarkdownTone = ChatMarkdownTone.Answer,
@@ -1004,6 +1038,7 @@ private fun StableMarkdown(
  */
 @Stable
 internal class StreamingMarkdownState {
+    val documentState = io.github.mangi.eta.ui.markdown.DocumentStreamingState()
     var revealedContent by mutableStateOf<String?>(null)
     val parserSession = StreamingGfmParserSession()
     val revealCoordinator = SmoothTextRevealCoordinator().apply { pauseAnimationsAndCatchUp() }
@@ -1016,7 +1051,7 @@ internal class StreamingMarkdownState {
 }
 
 @Composable
-private fun StreamingMarkdown(
+private fun LegacyStreamingMarkdown(
     state: StreamingMarkdownState,
     content: String,
     isStreaming: Boolean,
@@ -2649,16 +2684,6 @@ private fun ThinkingRow(
         expanded = message.isStreaming
     }
 
-    // Markdown 状态在行级提前创建：行进入组合（工作过程展开或滚动到可视区）时就开始
-    // 后台解析，而不是等到首次点击展开。否则首帧只能测量 loading fallback 的纯文本高度，
-    // 解析完成后正文高度会再次变化；状态挂在行级还能在收起/展开循环中存活，
-    // 避免每次展开都重新走一遍异步解析。
-    val stableMarkdownState = if (!message.isStreaming) {
-        rememberCompletedMarkdownState(message.content)
-    } else {
-        null
-    }
-
     val pulseAlpha = rememberActivePulse(
         active = message.isStreaming && !isPaused,
         label = "thinking_pulse",
@@ -2796,7 +2821,6 @@ private fun ThinkingRow(
                             StableMarkdown(
                                 content = message.content,
                                 tone = ChatMarkdownTone.Thinking,
-                                markdownState = checkNotNull(stableMarkdownState),
                                 modifier = contentModifier,
                                 progressive = expandedByTap,
                             )

@@ -34,7 +34,7 @@ class FrozenMarkdownInputContract(unittest.TestCase):
     def test_only_streaming_host_supplies_the_conservative_transformer(self):
         text = (ROOT / 'ui/components/ChatMessageItem.kt').read_text()
         self.assertEqual(1, text.count('rememberStreamingMarkdownImageTransformer(parsed)'))
-        start = text.index('private fun StreamingMarkdown(')
+        start = text.index('private fun LegacyStreamingMarkdown(')
         end = text.index('private fun StreamingGfmSuccess(', start)
         body = text[start:end]
         self.assertIn('val imageTransformer = rememberStreamingMarkdownImageTransformer(parsed)', body)

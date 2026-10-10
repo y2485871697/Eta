@@ -1561,4 +1561,10 @@
   <string name="whale_maid_satiety_peckish">Could eat a bit more</string>
   <string name="whale_maid_satiety_full">Satisfied</string>
   <string name="whale_maid_satiety_stuffed">Stuffed</string>
+    <string name="markdown_code_block">Code</string>
+    <string name="markdown_alert_note">Note</string>
+    <string name="markdown_alert_tip">Tip</string>
+    <string name="markdown_alert_important">Important</string>
+    <string name="markdown_alert_warning">Warning</string>
+    <string name="markdown_alert_caution">Caution</string>
 </resources>
