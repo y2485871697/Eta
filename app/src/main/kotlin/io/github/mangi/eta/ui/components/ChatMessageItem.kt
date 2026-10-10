@@ -1061,7 +1061,6 @@ private fun StreamingMarkdown(
     val view = LocalView.current
     val routeCovered = LocalChatRouteCovered.current
     val transitionActive = LocalChatTransitionActive.current
-    val userScrolling = LocalChatUserScrolling.current
     val routeCoveredNow = rememberUpdatedState(routeCovered)
 
     LifecycleResumeEffect(state) {
@@ -1111,11 +1110,6 @@ private fun StreamingMarkdown(
     // The restore baseline case must not take this path: there the reveal has to stay pending.
     LaunchedEffect(revealCoordinator, isPaused, content) {
         if (isPaused) revealCoordinator.restoreHistoryThrough(content.length)
-    }
-
-    LaunchedEffect(userScrolling) {
-        // 滑动时字继续打、振动继续响，只是先不把新行高度交给列表。
-        revealCoordinator.deferListMeasurement(userScrolling)
     }
 
     LaunchedEffect(revealCoordinator, view) {

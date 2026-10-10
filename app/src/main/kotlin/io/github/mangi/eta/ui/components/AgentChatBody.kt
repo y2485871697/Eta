@@ -44,7 +44,6 @@ import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.RocketLaunch
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -237,10 +236,6 @@ internal fun AgentChatBody(
     val uiStreaming = frozenChatSnapshot?.second ?: isStreaming
     val uiPaused = frozenChatSnapshot?.third ?: isPaused
     // 一盖住就停，不等横滑停稳。打字机可以继续，震动不行。
-    io.github.mangi.eta.ui.haptics.StreamingHaptics.Observe(
-        enabled = !isPaused && !routeCovered,
-        conversationId = collaborationConversationId,
-    )
     SideEffect {
         StreamPerformanceDiagnostics.record("chat.compose", value = messages.size.toLong())
         if (chatComposeStartedNs != 0L) {
@@ -318,6 +313,12 @@ internal fun AgentChatBody(
         cacheWindow = chatCacheWindow,
         initialFirstVisibleItemIndex = initialBottomItemIndex,
     )
+
+    io.github.mangi.eta.ui.haptics.StreamingHaptics.Observe(
+        enabled = !isPaused && !routeCovered,
+        conversationId = collaborationConversationId,
+    )
+
     val currentBrowserMessageId = remember(
         visibleMessages,
         browserShortcut,
@@ -1387,7 +1388,6 @@ internal fun AgentConversationMessages(
             // Commit count only (ns=0): proves this content lambda was applied, not its cost.
             StreamPerformanceDiagnostics.record("chat.content.commit", value = 1)
         }
-        CompositionLocalProvider(LocalChatUserScrolling provides isUserScrolling) {
         LazyColumn(
             state = scrollState,
             verticalArrangement = if (shouldPinConversationToBottom(isStreaming, streamFilledViewport)) {
@@ -1733,7 +1733,6 @@ internal fun AgentConversationMessages(
                         .height(1.dp),
                 )
             }
-        }
         }
 
         fun navigateUserMessage(toEdge: Boolean) {
