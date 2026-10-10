@@ -186,6 +186,7 @@ import io.github.mangi.eta.agent.media.AgentVideoCodec
 import io.github.mangi.eta.ui.model.fullImageSourceAt
 import io.github.mangi.eta.ui.model.visibleFileReferences
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
