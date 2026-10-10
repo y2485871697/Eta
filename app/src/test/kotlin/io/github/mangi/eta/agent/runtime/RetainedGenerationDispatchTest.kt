@@ -170,9 +170,22 @@ class RetainedGenerationDispatchTest {
                     assertTrue(registry.stopRun(old.run))
                     assertTrue(current.delegate().optBoolean("ok"))
                     assertEquals(count + 1, current.coordinator.taskIds().size)
+                    val archivedId = current.coordinator.taskIds().first()
                     assertTrue(registry.stop(target))
                     assertEquals("RUN_CLOSED", current.delegate().getString("code"))
+                    // Exercise the other side of the stop/retire race deterministically:
+                    // archived tasks remain readable, but ordinary admission stays closed.
+                    await {
+                        // The fixture has no Android task-change callback; a real result
+                        // read also drives the registry's end/onTaskChanged retirement.
+                        current.get(archivedId)
+                        synchronized(registry) { field(current.group, "coordinator") == null }
+                    }
+                    assertEquals("RUN_CLOSED", current.delegate().getString("code"))
                     assertEquals(count + 1, current.coordinator.taskIds().size)
+                    assertTrue(current.get(archivedId).optBoolean("archived"))
+                    assertEquals("TASK_FINISHED", current.execute("continue_task",
+                        JSONObject().put("task_id", archivedId)).getString("code"))
                 }
             }
         } finally { release.countDown() }

@@ -427,7 +427,14 @@ internal object AgentChildTaskGroups {
         // Never resume, adopt or fall back to a retained group just to create a new task.
         val group = if (id.isNotBlank()) candidates.firstOrNull { owns(it, id) } else current
         if (group == null) return error(if (id.isNotBlank()) "TASK_NOT_FOUND" else "RUN_CLOSED")
-        if (synchronized(this) { group.coordinator == null && !group.retiring } && call.name != "get_task_result") return error("TASK_FINISHED")
+        val admissionError = synchronized(this) {
+            // Ordinary dispatch belongs to this run, not an archived task. Keep the
+            // stop fence stable before and after asynchronous coordinator retirement.
+            if (call.name == "delegate_task" && group.stopping) "RUN_CLOSED"
+            else if (group.coordinator == null && !group.retiring && call.name != "get_task_result") "TASK_FINISHED"
+            else null
+        }
+        if (admissionError != null) return error(admissionError)
         val response = if (call.name == "continue_task") continueOwned(group, currentRunId ?: current?.runId, call) else result(group, id, call)
         val json = runCatching { JSONObject(response.content) }.getOrNull() ?: return response
         if (call.name == "get_task_result" && id.isNotBlank()) group.handoffs.recordRead(json)
