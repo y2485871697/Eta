@@ -81,6 +81,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -1010,6 +1011,8 @@ internal class StreamingMarkdownState {
     val parseTargets = Channel<StreamingMarkdownTarget>(Channel.CONFLATED)
     val acceptedContent = arrayOf("")
     var snapshot by mutableStateOf<StreamingGfmSnapshot?>(null)
+    var completedRevealSource by mutableStateOf<String?>(null)
+    val compositionProgress = ProgressiveMarkdownCompositionState()
 }
 
 @Composable
@@ -1041,6 +1044,7 @@ private fun StreamingMarkdown(
         PreparedMarkdownSpec(typography, inlineCode, typography.textLink, preparedListener, preparedAnnotator)
     }
     val revealCoordinator = state.revealCoordinator
+    val compositionProgress = state.compositionProgress
     val components = remember(revealCoordinator) {
         chatMarkdownComponents(
             revealCoordinator = revealCoordinator,
@@ -1062,6 +1066,17 @@ private fun StreamingMarkdown(
     val routeCovered = LocalChatRouteCovered.current
     val transitionActive = LocalChatTransitionActive.current
     val routeCoveredNow = rememberUpdatedState(routeCovered)
+    // A lazy-row disposal is not an activity pause. Keep only unfinished output
+    // mounted so its parser, reveal clock and frame-coupled haptics survive a fling.
+    // The pin keeps composition, not the viewport position or measured height.
+    KeepActiveStreamingRow(
+        shouldKeepStreamingRow(
+            content = content,
+            isStreaming = isStreaming,
+            isPaused = isPaused,
+            completedRevealSource = state.completedRevealSource,
+        ),
+    )
 
     LifecycleResumeEffect(state) {
         val animateExisting = animateInitialContent && !currentPaused && currentContent.isNotEmpty()
@@ -1180,6 +1195,7 @@ private fun StreamingMarkdown(
                     nextStreamingSnapshot(state.snapshot, parsed)?.let { published ->
                         StreamPerformanceDiagnostics.record("markdown.targetToPublish", System.nanoTime() - publishTarget.queuedAtNs)
                         StreamPerformanceDiagnostics.record("markdown.publish", value = published.originalSource.length.toLong())
+                        state.compositionProgress.acceptSource(published.originalSource)
                         state.snapshot = published
                     }
                 }
@@ -1191,7 +1207,7 @@ private fun StreamingMarkdown(
         }
     }
 
-    LaunchedEffect(content, parseAsStreaming, snapshot?.originalSource, snapshot?.isComplete, revealCoordinator) {
+    LaunchedEffect(content, parseAsStreaming, snapshot?.originalSource, snapshot?.isComplete, revealCoordinator, compositionProgress.publication) {
         val currentSnapshot = snapshot
         if (!isStreamingMarkdownTargetComplete(
                 content = content,
@@ -1204,11 +1220,19 @@ private fun StreamingMarkdown(
             return@LaunchedEffect
         }
 
-        // 等这一版 AST 完成组合与排版后，再等待尾部字符的透明度动画收口。
-        withFrameNanos { }
-        if (!revealCoordinator.drained.value) {
-            revealCoordinator.drained.filter { it }.first()
-        }
+        // Parsing alone is not composition. A terminal long document may still
+        // be admitted over several frames; no pin release before that frontier.
+        snapshotFlow { compositionProgress.composedSource }
+            .first { it == currentSnapshot?.originalSource }
+        // Drain can be momentarily true between two successive block layouts.
+        // Require another layout frame after each drain before declaring completion.
+        do {
+            withFrameNanos { }
+            if (!revealCoordinator.drained.value) {
+                revealCoordinator.drained.filter { it }.first()
+            }
+            withFrameNanos { }
+        } while (!revealCoordinator.drained.value)
         if (isStreamingMarkdownTargetComplete(
                 content = currentContent,
                 isStreaming = currentIsStreaming,
@@ -1216,6 +1240,10 @@ private fun StreamingMarkdown(
                 snapshotComplete = currentSnapshot?.isComplete == true,
             )
         ) {
+            // Release the lazy pin only after this exact terminal revision has
+            // parsed, laid out for a frame and drained. A transient drained=true
+            // before onTextLayout must never release a still-pending row.
+            state.completedRevealSource = currentContent
             currentRevealCompleteCallback(true)
         }
     }
@@ -1252,6 +1280,9 @@ private fun StreamingMarkdown(
                     preparedBlocks = parsed.preparedBlocks.takeIf { parsed.renderSpec == renderSpec },
                     components = successComponents,
                     revealCoordinator = revealCoordinator,
+                    compositionProgress = compositionProgress,
+                    compositionSource = parsed.originalSource,
+                    compositionPublication = compositionProgress.publication,
                     modifier = successModifier,
                 )
             },
@@ -1269,6 +1300,9 @@ private fun StreamingGfmSuccess(
     preparedBlocks: List<PreparedMarkdownBlock>? = null,
     components: MarkdownComponents,
     revealCoordinator: SmoothTextRevealCoordinator,
+    compositionProgress: ProgressiveMarkdownCompositionState,
+    compositionSource: String,
+    compositionPublication: Int,
     modifier: Modifier = Modifier,
 ) {
     val activeRevealBlocks = remember(state.node) {
@@ -1284,6 +1318,9 @@ private fun StreamingGfmSuccess(
         preparedBlocks = preparedBlocks,
         components = components,
         revealCoordinator = revealCoordinator,
+        compositionProgress = compositionProgress,
+        compositionSource = compositionSource,
+        compositionPublication = compositionPublication,
         modifier = modifier,
     )
 }
@@ -1301,6 +1338,9 @@ private fun ChatMarkdownDocument(
     revealCoordinator: SmoothTextRevealCoordinator? = null,
     progressive: Boolean = false,
     preparedBlocks: List<PreparedMarkdownBlock>? = null,
+    compositionProgress: ProgressiveMarkdownCompositionState? = null,
+    compositionSource: String? = null,
+    compositionPublication: Int = 0,
 ) {
     val bodyTraceMount = remember { nextChatBodyTraceMount() }
     val diagnosticRow = LocalStreamDiagnosticRow.current
@@ -1321,13 +1361,18 @@ private fun ChatMarkdownDocument(
         val lengths = remember(blocks) { blocks.map { (it.endOffset - it.startOffset).coerceAtLeast(0) } }
         // 不用 blocks 当 key。流式增量每次都是新列表，重新记住会把已显示的块清掉，看起来整页闪。
         // 上限只增不减；新块到了，由下面的长度变化继续往前排。
-        var limit by remember {
+        // The owner survives lazy-row disposal. Restoring already composed blocks
+        // prevents a long history row shrinking to the first 480 chars on reentry.
+        // Only the block count is retained; width/font changes still remeasure.
+        var limit by remember(compositionProgress, compositionProgress?.generation) {
             mutableIntStateOf(
-                nextProgressiveBlockLimit(lengths, 0, firstBudget, mustAdvance = streamingReveal),
+                compositionProgress?.initialLimit(lengths, firstBudget, streamingReveal)
+                    ?: nextProgressiveBlockLimit(lengths, 0, firstBudget, mustAdvance = streamingReveal),
             )
         }
+        SideEffect { compositionProgress?.recordLimit(limit, lengths.size, compositionSource, compositionPublication) }
         val probeRef = LocalToggleProbe.current
-        LaunchedEffect(lengths.size) {
+        LaunchedEffect(lengths.size, compositionProgress?.generation) {
             probeRef?.let { ref ->
                 StreamPerformanceDiagnostics.probeEvent(
                     ref.token, "progressive", "blocks=$limit/${lengths.size} chars=${lengths.sum()}",

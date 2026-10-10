@@ -8,7 +8,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -387,6 +386,7 @@ internal class SmoothTextRevealNode(
     private var cachedSettledLine = -1
     private var cachedSettledWidth = -1
     private var cachedSettledPrefix = -1
+    private var cachedSettledLayout: TextLayoutResult? = null
 
     override fun onAttach() {
         state.attach(this)
@@ -397,12 +397,12 @@ internal class SmoothTextRevealNode(
         releaseSettledLayer()
         state.detach(this)
         clearPathCache()
-        releaseSettledLayer()
         cachedVisibleHeight = -1
     }
 
     fun updateState(next: SmoothTextRevealState) {
         if (state === next) return
+        releaseSettledLayer()
         if (isAttached) state.detach(this)
         state = next
         clearPathCache()
@@ -496,34 +496,17 @@ internal class SmoothTextRevealNode(
         val partialAlpha = (snapshot.progress - fullCount).coerceIn(0f, 1f)
         if (partialAlpha > 0f && fullCount < targetCount) {
             ensurePaths(snapshot, fullCount)
-            val glyphLine = if (typedLine >= 0) typedLine else if (layout.lineCount > 0) {
-                layout.getLineForOffset(fullEnd.coerceIn(0, textLength - 1))
-            } else {
-                -1
-            }
             cachedNextPath?.let { path ->
-                val glyphDraw: DrawScope.() -> Unit = {
-                    clipPath(path) {
-                        alphaPaint.alpha = partialAlpha
-                        StreamPerformanceDiagnostics.measure("reveal.saveLayer") {
-                            contentScope.drawContext.canvas.saveLayer(path.getBounds(), alphaPaint)
-                        }
-                        try {
-                            contentScope.drawDiagnosticContent()
-                        } finally {
-                            contentScope.drawContext.canvas.restore()
-                        }
+                clipPath(path) {
+                    alphaPaint.alpha = partialAlpha
+                    StreamPerformanceDiagnostics.measure("reveal.saveLayer") {
+                        contentScope.drawContext.canvas.saveLayer(path.getBounds(), alphaPaint)
                     }
-                }
-                if (glyphLine >= 0) {
-                    clipRect(
-                        top = layout.getLineTop(glyphLine),
-                        right = size.width,
-                        bottom = layout.getLineBottom(glyphLine),
-                        block = glyphDraw,
-                    )
-                } else {
-                    glyphDraw()
+                    try {
+                        contentScope.drawDiagnosticContent()
+                    } finally {
+                        contentScope.drawContext.canvas.restore()
+                    }
                 }
             }
         }
@@ -546,7 +529,8 @@ internal class SmoothTextRevealNode(
         val reusable = cachedSettledPicture != null &&
             cachedSettledLine == currentLine &&
             cachedSettledWidth == widthPx &&
-            cachedSettledPrefix == prefix
+            cachedSettledPrefix == prefix &&
+            cachedSettledLayout === layout
         if (!reusable) {
             releaseSettledLayer()
             val layer = requireGraphicsContext().createGraphicsLayer()
@@ -562,6 +546,7 @@ internal class SmoothTextRevealNode(
             cachedSettledLine = currentLine
             cachedSettledWidth = widthPx
             cachedSettledPrefix = prefix
+            cachedSettledLayout = layout
             if (StreamPerformanceDiagnostics.enabled) {
                 StreamPerformanceDiagnostics.record("reveal.settled.record")
             }
@@ -577,6 +562,7 @@ internal class SmoothTextRevealNode(
         cachedSettledLine = -1
         cachedSettledWidth = -1
         cachedSettledPrefix = -1
+        cachedSettledLayout = null
         if (isAttached) requireGraphicsContext().releaseGraphicsLayer(layer)
     }
 
