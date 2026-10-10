@@ -204,7 +204,6 @@ import org.intellij.markdown.flavours.gfm.GFMTokenTypes.CELL
 import org.intellij.markdown.flavours.gfm.GFMTokenTypes.CHECK_BOX
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TooltipBox
@@ -738,15 +737,13 @@ private fun UserMessageBubble(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TooltipBox(text = stringResource(R.string.ui_copy_4edd1d), enabled = true) {
-                IconButton(
+                ChatIconAction(
                     onClick = {
                         TouchHaptics.click(view)
                         @Suppress("DEPRECATION")
                         clipboardManager.setText(AnnotatedString(copyText))
                         copied = true
                     },
-                    minWidth = 30.dp,
-                    minHeight = 30.dp,
                 ) {
                     Icon(
                         imageVector = if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
@@ -763,14 +760,12 @@ private fun UserMessageBubble(
                 }
             }
             TooltipBox(text = stringResource(R.string.ui_edit_a7f814), enabled = actionsEnabled) {
-                IconButton(
+                ChatIconAction(
                     onClick = {
                         TouchHaptics.click(view)
                         onEdit()
                     },
                     enabled = actionsEnabled,
-                    minWidth = 30.dp,
-                    minHeight = 30.dp,
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Edit,
@@ -781,14 +776,12 @@ private fun UserMessageBubble(
                 }
             }
             TooltipBox(text = stringResource(R.string.ui_branch_conversation), enabled = branchEnabled) {
-                IconButton(
+                ChatIconAction(
                     onClick = {
                         TouchHaptics.click(view)
                         onBranch()
                     },
                     enabled = branchEnabled,
-                    minWidth = 30.dp,
-                    minHeight = 30.dp,
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.CallSplit,
@@ -799,14 +792,12 @@ private fun UserMessageBubble(
                 }
             }
             TooltipBox(text = stringResource(R.string.ui_delete_3755f5), enabled = actionsEnabled) {
-                IconButton(
+                ChatIconAction(
                     onClick = {
                         TouchHaptics.click(view)
                         onDelete()
                     },
                     enabled = actionsEnabled,
-                    minWidth = 30.dp,
-                    minHeight = 30.dp,
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Delete,
@@ -2292,7 +2283,7 @@ private fun ChatCodeBlock(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(
+            ChatIconAction(
                 onClick = {
                     @Suppress("DEPRECATION")
                     clipboardManager.setText(AnnotatedString(code))
@@ -3299,7 +3290,7 @@ private fun ToolCommandBlock(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(
+            ChatIconAction(
                 onClick = {
                     @Suppress("DEPRECATION")
                     clipboardManager.setText(AnnotatedString(command))

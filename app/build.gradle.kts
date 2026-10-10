@@ -43,7 +43,7 @@ android {
         minSdk = 34
         targetSdk = 36
         // versionCode 规则：yyyyMMdd + 两位当日序号（01 起），发版时随 versionName 一起手动递增。
-        versionCode = 2026101104
+        versionCode = 2026101105
         versionName = "5.3.9"
         val diagnosticSha = System.getenv("GITHUB_SHA")?.takeIf { it.matches(Regex("[0-9a-fA-F]{40}")) } ?: "unknown"
         buildConfigField("String", "GIT_SHA", "\"$diagnosticSha\"")
