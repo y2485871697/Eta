@@ -224,15 +224,19 @@ internal fun AgentChatBody(
 ) {
     val chatComposeStartedNs = if (StreamPerformanceDiagnostics.enabled) System.nanoTime() else 0L
     val chatUiActive = LocalChatUiActive.current
-    // 还露在屏幕上时继续用实时消息。冻结会把字停在入栈那一帧。
-    val frozenChatSnapshot = remember(chatUiActive) {
-        if (chatUiActive) null else Triple(messages, isStreaming, isPaused)
+    val routeCovered = LocalChatRouteCovered.current
+    val transitionActive = LocalChatTransitionActive.current
+    // 停稳且完全盖住时保留当前快照，避免设置页和管理页跟着重排。
+    // 横滑手势和回弹期间露出的部分必须继续走正常打字机，不能追平、不能停住。
+    val followLiveTranscript = chatUiActive && (!routeCovered || transitionActive)
+    val frozenChatSnapshot = remember(followLiveTranscript) {
+        if (followLiveTranscript) null else Triple(messages, isStreaming, isPaused)
     }
     val uiMessages = frozenChatSnapshot?.first ?: messages
     val uiStreaming = frozenChatSnapshot?.second ?: isStreaming
     val uiPaused = frozenChatSnapshot?.third ?: isPaused
     io.github.mangi.eta.ui.haptics.StreamingHaptics.Observe(
-        enabled = chatUiActive && !isPaused,
+        enabled = followLiveTranscript && !isPaused,
         conversationId = collaborationConversationId,
     )
     SideEffect {
@@ -939,7 +943,6 @@ internal fun AgentConversationMessages(
     // 上提照常，标签随动画一帧一帧往上让开。
     val shouldLiftTail = shouldFollowBottom
     // 被盖住但仍露在屏幕上时不走整列离屏裁剪。完全打开时仍按原来的条件。
-    val routeCovered = LocalChatRouteCovered.current
     val shouldClipTail = shouldClipChatTail(
         isStreaming = isStreaming,
         isBottomSettling = isBottomSettling,

@@ -67,19 +67,32 @@ class SettingsJankHotPathContract(unittest.TestCase):
         end = body.index('internal fun AgentChatScaffold(')
         host = body[start:end]
         self.assertIn('val chatUiActive = LocalChatUiActive.current', host)
-        self.assertIn('remember(chatUiActive)', host)
+        self.assertIn('val followLiveTranscript = chatUiActive && (!routeCovered || transitionActive)', host)
+        self.assertIn('remember(followLiveTranscript)', host)
         self.assertIn('visibleMessagesCache.project(uiMessages', host)
         self.assertIn('isStreaming = uiStreaming', host)
         self.assertIn('isPaused = uiPaused', host)
         self.assertIn('LaunchedEffect(messages, isStreaming)', host)
-        self.assertIn('enabled = chatUiActive && !isPaused', host)
+        self.assertIn('enabled = followLiveTranscript && !isPaused', host)
 
     def test_navigation_does_not_write_root_state_from_a_graphics_layer(self):
         root = (ROOT / 'app/AgentAppRoot.kt').read_text()
         helper = (ROOT / 'components/ChatUiActive.kt').read_text()
+        activity = (ROOT / 'app/ChatNavigationActivity.kt').read_text()
         self.assertNotIn('navigationAwareMiuixTransition', root)
         self.assertNotIn('LocalChatNavigationInProgress', helper)
         self.assertFalse((ROOT / 'app/ChatNavigationTransition.kt').exists())
+        self.assertIn('LocalChatTransitionActive provides navigationActive.value', root)
+        self.assertIn('transition = navigationTransition.transition', root)
+        self.assertIn('chatNavigationActivityTransition', root)
+        draw = activity.split('navGraphicsTransition(opaqueDepth = 1f)', 1)[1].split('applyDefaultCoveredChatTransform', 1)[0]
+        self.assertIn('tracker.observeFrame(scope.gesture != null || scope.settle != null)', draw)
+        self.assertNotIn('.value', draw)
+        self.assertNotIn('onActivityChanged', draw)
+        self.assertIn('postFrameCallback', activity)
+        self.assertIn('navigationActivityIsCurrent', activity)
+        self.assertIn('alpha = 1f - 0.1f * depth.coerceIn(0f, 1f)', activity)
+        self.assertIn('width * 0.25f', activity)
 
     def test_covered_route_does_not_disable_reveal_during_swipe(self):
         item = (ROOT / 'components/ChatMessageItem.kt').read_text()
@@ -87,6 +100,14 @@ class SettingsJankHotPathContract(unittest.TestCase):
         self.assertNotIn('navigationInProgressNow', item)
         # Stopgap restores covered-hold behavior, not hidden-page optimization.
         self.assertIn('val animationsAllowed = state.restoreState.animationsAllowed(isPaused) || routeCoveredNow.value', item)
+        self.assertNotIn('catchUpThrough', item)
+        self.assertNotIn('heldLength', item)
+        self.assertNotIn('streamingCodeParts', item)
+        # 横滑期间露出的聊天必须继续正常打字机，不能追平或停掉显现。
+        body = (ROOT / 'components/AgentChatBody.kt').read_text()
+        self.assertIn('!routeCovered || transitionActive', body)
+        self.assertNotIn('pauseAnimationsAndCatchUp', body)
+
         self.assertIn('LaunchedEffect(revealCoordinator, animationsAllowed, isPaused)', item)
         self.assertIn('if (routeCoveredNow.value) {', item)
 

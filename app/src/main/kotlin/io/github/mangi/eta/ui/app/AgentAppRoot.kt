@@ -4,6 +4,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import io.github.mangi.eta.ui.components.StreamingMarkdownCache
 import io.github.mangi.eta.ui.components.LocalStreamingMarkdownStates
 import io.github.mangi.eta.ui.components.LocalChatRouteCovered
+import io.github.mangi.eta.ui.components.LocalChatTransitionActive
 import io.github.mangi.eta.ui.components.LocalChatUiActive
 import android.Manifest
 import android.app.Activity
@@ -521,13 +522,26 @@ fun AgentAppRoot(
     // 副屏恢复进行中不能被滑走；其余时间任务偏好页跟其他设置页一样可以横滑返回。
     var taskRecoveryWorking by remember { mutableStateOf(false) }
     val taskPreferenceSwipeDismiss = if (taskRecoveryWorking) NavSwipeDirection.None else swipeDismiss
+    // Draw-phase atomics only. The boolean is published on a later frame, and only when it changes,
+    // so a swipe cannot write snapshot state from the graphics layer on every sampled frame.
+    val navigationActive = remember { mutableStateOf(false) }
+    val navigationTransition = remember {
+        chatNavigationActivityTransition { active ->
+            if (navigationActive.value != active) navigationActive.value = active
+        }
+    }
+    DisposableEffect(navigationTransition) {
+        onDispose { navigationTransition.cancel() }
+    }
     CompositionLocalProvider(
         io.github.mangi.eta.ui.components.LocalConversationSubAgentEditor provides subAgentEditor,
+        LocalChatTransitionActive provides navigationActive.value,
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
     NavDisplay(
         backStack = backStack,
         onBack = { popRoute() },
+        transition = navigationTransition.transition,
         effects = NavDisplayEffects(
             cornerClipRadius = rememberNavSystemCornerRadius(),
         ),
