@@ -1,6 +1,8 @@
 package io.github.mangi.eta.ui.components
 
 import android.app.Application
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.width
@@ -15,6 +17,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.junit4.createComposeRule
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.ui.model.AgentMessageUi
@@ -50,7 +56,7 @@ class StreamingRowPinningTest {
             MiuixTheme {
                 list = rememberLazyListState()
                 scope = rememberCoroutineScope()
-                LazyColumn(state = list, modifier = Modifier.height(240.dp)) {
+                LazyColumn(state = list, modifier = Modifier.height(240.dp).testTag("row-host")) {
                     item(key = "live") {
                         DisposableEffect(Unit) {
                             mounts++
@@ -77,10 +83,18 @@ class StreamingRowPinningTest {
         compose.waitUntil(15_000) { retained.snapshot?.originalSource == message.value.content }
         compose.runOnIdle {
             assertFalse(retained.revealCoordinator.isAnimationPaused)
+            assertFalse(retained.revealCoordinator.isAnimationHeld)
             assertEquals(0, disposals)
             message.value = message.value.copy(isStreaming = false)
         }
-        compose.waitUntil(15_000) { retained.completedRevealSource == message.value.content }
+        // A single 15-second budget covers parse, composition and terminal drain.
+        awaitRowState("terminal parse/composition/reveal", retained) {
+            retained.completedRevealSource == message.value.content
+        }
+        compose.runOnIdle {
+            assertTrue(retained.snapshot?.isComplete == true)
+            assertEquals(message.value.content, retained.compositionProgress.composedSource)
+        }
         // Releasing a pin permits disposal on the next lazy measurement.
         compose.runOnIdle { scope.launch { list.scrollToItem(31) } }
         compose.waitUntil(15_000) { disposals == 1 }
@@ -97,7 +111,10 @@ class StreamingRowPinningTest {
         val heights = java.util.concurrent.CopyOnWriteArrayList<Int>()
         compose.setContent {
             MiuixTheme {
-                Column(Modifier.width(340.dp)) {
+                // The viewport stays screen-sized; its child must receive unbounded height,
+                // as a real LazyColumn item does. A plain Column clips the measurement
+                // to the root maxHeight and cannot prove a multi-screen document.
+                Column(Modifier.width(340.dp).verticalScroll(rememberScrollState()).testTag("row-host")) {
                     if (shown.value) {
                         ChatMessageItem(message, remember { ChatMessageActions() }, false,
                             retainedStreamingState = retained, showCopyAction = false,
@@ -106,7 +123,9 @@ class StreamingRowPinningTest {
                 }
             }
         }
-        compose.waitUntil(30_000) { retained.completedRevealSource == source }
+        awaitRowState("long-document completion", retained, timeoutMillis = 30_000) {
+            retained.completedRevealSource == source
+        }
         val fullHeight = compose.runOnIdle { heights.last() }
         assertTrue("Test must cover a multi-screen document", fullHeight > 900)
         compose.runOnIdle { shown.value = false }
@@ -119,4 +138,40 @@ class StreamingRowPinningTest {
         }
     }
 
+    private fun awaitRowState(
+        stage: String,
+        retained: StreamingMarkdownState,
+        timeoutMillis: Long = 15_000,
+        condition: () -> Boolean,
+    ) {
+        val previousAutoAdvance = compose.mainClock.autoAdvance
+        try {
+            compose.mainClock.autoAdvance = false
+            compose.waitUntil(timeoutMillis) {
+                // Explicitly pump the host to exclude missing Robolectric layout/draw
+                // as a cause. Only drive the production runner: never add another
+                // reveal runner, catch up, or scroll the row back into view.
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+                compose.onNodeWithTag("row-host").captureToImage()
+                compose.runOnIdle(condition)
+            }
+        } catch (timeout: ComposeTimeoutException) {
+            throw AssertionError(
+                "$stage timed out: snapshotComplete=${retained.snapshot?.isComplete} " +
+                    "snapshotSource=${retained.snapshot?.originalSource} " +
+                    "composedSource=${retained.compositionProgress.composedSource} " +
+                    "completedSource=${retained.completedRevealSource} " +
+                    "publication=${retained.compositionProgress.publication} " +
+                    "drained=${retained.revealCoordinator.drained.value} " +
+                    "started=${retained.revealCoordinator.started.value} " +
+                    "paused=${retained.revealCoordinator.isAnimationPaused} " +
+                    "held=${retained.revealCoordinator.isAnimationHeld} " +
+                    "clock=${compose.mainClock.currentTime}",
+                timeout,
+            )
+        } finally {
+            compose.mainClock.autoAdvance = previousAutoAdvance
+        }
+    }
 }
