@@ -99,16 +99,21 @@ class SettingsJankHotPathContract(unittest.TestCase):
         self.assertNotIn('revealClockAllowed', item)
         self.assertNotIn('navigationInProgressNow', item)
         # Stopgap restores covered-hold behavior, not hidden-page optimization.
-        self.assertIn('val animationsAllowed = state.restoreState.animationsAllowed(isPaused) || routeCoveredNow.value', item)
+        self.assertIn('val settledCover = routeCovered && !transitionActive', item)
+        self.assertIn('state.restoreState.animationsAllowed(isPaused) || (routeCovered && transitionActive)', item)
+        self.assertIn('else if (settledCover) revealCoordinator.holdAnimations()', item)
+        self.assertNotIn('animationsAllowed(isPaused) || routeCoveredNow.value', item)
         self.assertNotIn('catchUpThrough', item)
         self.assertNotIn('heldLength', item)
         self.assertNotIn('streamingCodeParts', item)
         # 横滑期间露出的聊天必须继续正常打字机，不能追平或停掉显现。
+        # 停稳且完全盖住只停时钟，不走追平。
         body = (ROOT / 'components/AgentChatBody.kt').read_text()
         self.assertIn('!routeCovered || transitionActive', body)
         self.assertNotIn('pauseAnimationsAndCatchUp', body)
+        self.assertNotIn('holdAnimations', body)
 
-        self.assertIn('LaunchedEffect(revealCoordinator, animationsAllowed, isPaused)', item)
+        self.assertIn('LaunchedEffect(revealCoordinator, animationsAllowed, isPaused, settledCover)', item)
         self.assertIn('if (routeCoveredNow.value) {', item)
 
     def test_selection_completion_does_not_swap_markdown_parent(self):

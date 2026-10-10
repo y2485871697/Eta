@@ -123,4 +123,14 @@ class StreamingMarkdownRestoreStateTest {
         assertTrue(state.animationsAllowed(false))
         assertFalse(state.completeLayout(state.generation, "已打出", "已打出更多"))
     }
+
+    @Test
+    fun coveredHoldReentryContinuesWithoutRestoreBaseline() {
+        val state = StreamingMarkdownRestoreState()
+        assertTrue(state.begin("已打出", live = true))
+        state.holdCovered()
+        assertTrue(state.begin("已打出更多", live = true))
+        assertTrue(state.animationsAllowed(false))
+        assertFalse(state.completeLayout(state.generation, "已打出更多", "已打出更多"))
+    }
 }

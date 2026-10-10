@@ -1059,7 +1059,9 @@ private fun StreamingMarkdown(
     val currentPaused by rememberUpdatedState(isPaused)
     val restoreGeneration = state.restoreState.generation
     val view = LocalView.current
-    val routeCoveredNow = rememberUpdatedState(LocalChatRouteCovered.current)
+    val routeCovered = LocalChatRouteCovered.current
+    val transitionActive = LocalChatTransitionActive.current
+    val routeCoveredNow = rememberUpdatedState(routeCovered)
 
     LifecycleResumeEffect(state) {
         val animateExisting = animateInitialContent && !currentPaused && currentContent.isNotEmpty()
@@ -1088,14 +1090,19 @@ private fun StreamingMarkdown(
         }
     }
 
-    val animationsAllowed = state.restoreState.animationsAllowed(isPaused) || routeCoveredNow.value
+    // 停稳且完全盖住才停住显现，而且不追平。横滑、松手回弹期间露出的边继续逐字打。
+    val settledCover = routeCovered && !transitionActive
+    val animationsAllowed = !settledCover && (
+        state.restoreState.animationsAllowed(isPaused) || (routeCovered && transitionActive)
+    )
     // Content is deliberately not a key. A streaming delta must not re-run the gate decision:
     // while the restore baseline is still pending, animationsAllowed is false, and every delta
     // would catch the reveal up to the newest text. That drains the pending records, the frame
     // clock parks on its wakeup channel, and the typewriter plus its haptics stop for the rest
     // of the message. Only a real gate change may move the coordinator.
-    LaunchedEffect(revealCoordinator, animationsAllowed, isPaused) {
+    LaunchedEffect(revealCoordinator, animationsAllowed, isPaused, settledCover) {
         if (animationsAllowed) revealCoordinator.resumeAnimationsWithoutCatchingUp()
+        else if (settledCover) revealCoordinator.holdAnimations()
         else if (!isPaused) revealCoordinator.pauseAnimationsAndCatchUp()
     }
 

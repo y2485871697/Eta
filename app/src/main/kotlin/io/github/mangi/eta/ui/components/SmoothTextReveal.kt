@@ -48,6 +48,8 @@ internal class SmoothTextRevealCoordinator {
     private val drainedState = MutableStateFlow(true)
     private val startedState = MutableStateFlow<Set<RevealBlockKey>>(emptySet())
     private var animationsPaused = false
+    /** Settled and fully covered: park the clock without completing pending glyphs. */
+    private var animationsHeld = false
     private var restoredSourceLength = 0
 
     /** Layout nodes may attach after the parent's restore callback; those old blocks
@@ -70,11 +72,15 @@ internal class SmoothTextRevealCoordinator {
     val isAnimationPaused: Boolean
         get() = animationsPaused
 
+    val isAnimationHeld: Boolean
+        get() = animationsHeld
+
     /**
      * 页面不可见时帧时钟会停，但 Runtime 仍可能继续追加文本。此时直接追平当前目标，
      * 并让后续排版结果同样立即完成，避免回到页面后补播后台积压的显现动画。
      */
     fun pauseAnimationsAndCatchUp() {
+        animationsHeld = false
         animationsPaused = true
         records.values.forEach(::completeRecord)
         updateDrainedState()
@@ -82,6 +88,7 @@ internal class SmoothTextRevealCoordinator {
     }
 
     fun resumeAnimationsAfterCatchUp() {
+        animationsHeld = false
         records.values.forEach(::completeRecord)
         updateDrainedState()
         animationsPaused = false
@@ -90,8 +97,23 @@ internal class SmoothTextRevealCoordinator {
 
     /** 暂停会话后续写：已显示的字保持追平，之后新到的字重新走打字机。 */
     fun resumeAnimationsWithoutCatchingUp() {
+        animationsHeld = false
         animationsPaused = false
         updateDrainedState()
+        wakeups.trySend(Unit)
+    }
+
+    /**
+     * 停稳且完全盖住时停住显现。已显示的进度保留，不追平，
+     * 后续排版也不会把未显示的字一次性补完。横滑或回到聊天后再继续。
+     */
+    fun holdAnimations() {
+        if (animationsHeld && !animationsPaused) {
+            wakeups.trySend(Unit)
+            return
+        }
+        animationsPaused = false
+        animationsHeld = true
         wakeups.trySend(Unit)
     }
 
@@ -184,7 +206,7 @@ internal class SmoothTextRevealCoordinator {
 
     suspend fun runFrameClock() {
         while (currentCoroutineContext().isActive) {
-            val active = firstPendingRecord()
+            val active = if (animationsHeld) null else firstPendingRecord()
             if (active == null) {
                 updateDrainedState()
                 wakeups.receive()
@@ -194,8 +216,10 @@ internal class SmoothTextRevealCoordinator {
             drainedState.value = false
             var previousFrameNanos = withFrameNanos { it }
             while (currentCoroutineContext().isActive) {
+                if (animationsHeld) break
                 val record = firstPendingRecord() ?: break
                 val frameNanos = withFrameNanos { it }
+                if (animationsHeld) break
                 StreamPerformanceDiagnostics.record("reveal.frameGap", frameNanos - previousFrameNanos)
                 val elapsedSeconds = ((frameNanos - previousFrameNanos) / NANOS_PER_SECOND)
                     .coerceIn(0f, MAX_FRAME_DELTA_SECONDS)

@@ -12,6 +12,7 @@ internal class StreamingMarkdownRestoreState {
     private var baseline by mutableStateOf<String?>(null)
     private var foreground by mutableStateOf(false)
     private var entered = false
+    private var coveredHold = false
 
     fun animationsAllowed(paused: Boolean): Boolean = foreground && baseline == null && !paused
 
@@ -20,6 +21,15 @@ internal class StreamingMarkdownRestoreState {
      * network batch and its end event can land in the same snapshot, so isStreaming
      * is already false. That first appearance still has to typewriter. */
     fun begin(content: String, live: Boolean = false, animateExisting: Boolean = false): Boolean {
+        if (entered && coveredHold) {
+            // Returning from a covered page continues the same typewriter.
+            // A restore baseline here would catch the visible edge up mid-swipe.
+            coveredHold = false
+            baseline = null
+            foreground = true
+            generation += 1
+            return true
+        }
         val firstUnseen = !entered && (live || (animateExisting && content.isNotEmpty()))
         entered = true
         generation += 1
@@ -32,12 +42,14 @@ internal class StreamingMarkdownRestoreState {
         generation += 1
         baseline = null
         foreground = false
+        coveredHold = false
     }
 
     /** 仍露在屏幕上，只是被上一页盖住。保持打字机，不建立恢复基线。 */
     fun holdCovered() {
         baseline = null
         foreground = true
+        coveredHold = true
     }
 
     fun completeLayout(generation: Int, renderedContent: String, currentContent: String): Boolean {

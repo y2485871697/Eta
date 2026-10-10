@@ -302,6 +302,44 @@ class SmoothTextRevealCoordinatorTest {
         assertTrue(coordinator.drained.value)
     }
 
+    @Test
+    fun holdKeepsVisibleProgressAndLaterTextDoesNotCatchUp() = runBlocking {
+        val coordinator = SmoothTextRevealCoordinator()
+        val key = RevealBlockKey(0)
+        val node = attach(coordinator, key, "已经可见")
+        val clock = TestFrameClock()
+        val job = launch(clock, start = CoroutineStart.UNDISPATCHED) { coordinator.runFrameClock() }
+        try {
+            clock.send(0L)
+            clock.send(16_000_000L)
+            yield()
+            val shown = coordinator.drawSnapshot(key)!!.progress
+            assertTrue(shown > 0f)
+            coordinator.holdAnimations()
+            val longer = "已经可见并且停稳后才到达的文字"
+            coordinator.updateLayout(key, node, longer, layout(longer))
+            clock.send(32_000_000L)
+            clock.send(48_000_000L)
+            yield()
+            val frozen = coordinator.drawSnapshot(key)!!.progress
+            assertEquals(shown, frozen, 0f)
+            assertTrue(frozen < longer.length)
+            assertTrue(coordinator.isAnimationHeld)
+            assertFalse(coordinator.drained.value)
+            coordinator.resumeAnimationsWithoutCatchingUp()
+            assertFalse(coordinator.isAnimationHeld)
+            assertEquals(frozen, coordinator.drawSnapshot(key)!!.progress, 0f)
+            clock.send(49_000_000L)
+            clock.send(50_000_000L)
+            yield()
+            val resumed = coordinator.drawSnapshot(key)!!.progress
+            assertTrue(resumed > frozen)
+            assertTrue(resumed < longer.length)
+        } finally {
+            job.cancelAndJoin()
+        }
+    }
+
     private fun attach(
         coordinator: SmoothTextRevealCoordinator,
         key: RevealBlockKey,
