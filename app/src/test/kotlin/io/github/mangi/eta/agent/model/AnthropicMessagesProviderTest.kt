@@ -323,18 +323,54 @@ class AnthropicMessagesProviderTest {
         }
     }
 
+    @Test
+    fun completeSendsStableNativeAffinityAcrossFreshRuntimeRequests() {
+        val body = event("content_block_delta", JSONObject().put("type", "content_block_delta").put("index", 0)
+            .put("delta", JSONObject().put("type", "text_delta").put("text", "ok"))) +
+            event("message_delta", JSONObject().put("type", "message_delta")
+                .put("delta", JSONObject().put("stop_reason", "end_turn"))) +
+            event("message_stop", JSONObject().put("type", "message_stop"))
+        val bodies = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val headerSessions = java.util.concurrent.CopyOnWriteArrayList<String?>()
+        withAnthropicServer(body, onRequest = bodies::add,
+            onHeaders = { headerSessions.add(it.getFirst("session-id")) }) { baseUrl ->
+            repeat(2) {
+                AnthropicMessagesProvider.complete(
+                    ProviderRequest(
+                        AgentModelClient.ModelConfig(providerType = ProviderTypes.ANTHROPIC,
+                            baseUrl = baseUrl, apiKey = "test", model = "claude-test", systemPrompt = ""),
+                        JSONArray().put(JSONObject().put("role", "user").put("content", "hello")),
+                        JSONArray(), sessionId = String("conv-restored".toCharArray()),
+                    ), AgentRunController(),
+                )
+            }
+        }
+        assertEquals(listOf("conv-restored", "conv-restored"), headerSessions)
+        assertEquals(2, bodies.size)
+        val first = JSONObject(bodies[0])
+        val second = JSONObject(bodies[1])
+        assertEquals(first.getJSONObject("metadata").getString("user_id"),
+            second.getJSONObject("metadata").getString("user_id"))
+        assertEquals(first.toString(), second.toString())
+        assertTrue(!bodies[0].contains("conv-restored"))
+        assertEquals("1h", first.getJSONArray("messages").getJSONObject(0).getJSONArray("content")
+            .getJSONObject(0).getJSONObject("cache_control").getString("ttl"))
+    }
+
     private fun event(name: String, data: JSONObject): String =
         "event: $name\ndata: $data\n\n"
 
     private fun withAnthropicServer(
         body: String,
         onRequest: (String) -> Unit,
+        onHeaders: (com.sun.net.httpserver.Headers) -> Unit = {},
         block: (String) -> Unit
     ) {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val executor = Executors.newSingleThreadExecutor()
         server.executor = executor
         server.createContext("/v1/messages") { exchange ->
+            onHeaders(exchange.requestHeaders)
             onRequest(exchange.requestBody.use { it.readBytes().toString(Charsets.UTF_8) })
             val bytes = body.toByteArray(Charsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "text/event-stream")

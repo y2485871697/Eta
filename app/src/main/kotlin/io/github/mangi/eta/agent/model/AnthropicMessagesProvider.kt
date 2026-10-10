@@ -42,7 +42,7 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                 ProviderRequestHeaders.mergeInto(this, config.baseUrl, config.customHeaders, request.sessionId)
             }
             .build()
-        val requestJson = request.restrictReconnectPayload(buildRequestJson(config, request.messages, request.tools), capabilities.endpoint)
+        val requestJson = request.restrictReconnectPayload(buildRequestJson(config, request.messages, request.tools, request.sessionId), capabilities.endpoint)
         val serializedBody = requestJson.toString()
         val requestBody = serializedBody.toRequestBody(JSON_MEDIA_TYPE)
         val httpRequest = Request.Builder()
@@ -68,7 +68,8 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
     internal fun buildRequestJson(
         config: AgentModelClient.ModelConfig,
         messages: JSONArray,
-        tools: JSONArray
+        tools: JSONArray,
+        sessionId: String = "",
     ): JSONObject {
         val systemParts = mutableListOf<String>()
         var stableSystemBlockIndex: Int? = null
@@ -126,6 +127,9 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                 }
                 convertTools(tools)?.let { request.put("tools", it) }
                 RequestBodyMerge.mergeCustomBody(request, config.customBody)
+                // Relay affinity reads native metadata, not the session-id HTTP header.
+                // Use the durable conversation identity; never generate a per-run anchor.
+                AnthropicSessionAffinity.applyDefault(request, sessionId)
                 request.remove("eta_media_reasoning")
                 request.remove(ImageRequestParameters.CONFIG_KEY) // Local image settings never enter text protocols.
                 ProviderReasoning.applyAnthropicRequest(request, config)
