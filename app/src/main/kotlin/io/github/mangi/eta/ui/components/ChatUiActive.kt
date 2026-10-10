@@ -33,6 +33,9 @@ val LocalChatRouteCovered = compositionLocalOf { false }
  */
 val LocalChatTransitionActive = compositionLocalOf { false }
 
+/** 手指拖动或惯性还没停。流式发布让到下一帧，避免和列表滑动抢同一帧。 */
+val LocalChatUserScrolling = compositionLocalOf { false }
+
 /** 完成且不再逐帧变化的内容复用一张离屏纹理。层始终挂着，只切换合成策略，避免插入时重挂。 */
 @Composable
 internal fun completedContentDrawLayer(modifier: Modifier, enabled: Boolean): Modifier {

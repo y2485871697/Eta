@@ -185,6 +185,7 @@ import io.github.mangi.eta.ui.model.durationMsAt
 import io.github.mangi.eta.agent.media.AgentVideoCodec
 import io.github.mangi.eta.ui.model.fullImageSourceAt
 import io.github.mangi.eta.ui.model.visibleFileReferences
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -1124,6 +1125,8 @@ private fun StreamingMarkdown(
         }
     }
 
+    val userScrolling = LocalChatUserScrolling.current
+    val userScrollingNow = rememberUpdatedState(userScrolling)
     LaunchedEffect(content, parseAsStreaming, renderSpec) {
         val previousContent = acceptedContent[0]
         if (!content.startsWith(previousContent)) {
@@ -1175,6 +1178,11 @@ private fun StreamingMarkdown(
             }
 
             val publishTarget = target
+            // A finger fling shares the frame with markdown publish. Keep the newest
+            // parse, and apply it on the first frame after the list stops moving.
+            while (userScrollingNow.value && currentCoroutineContext().isActive) {
+                withFrameNanos { }
+            }
             StreamPerformanceDiagnostics.withAttribution(publishTarget.diagnosticAttribution) {
                 StreamPerformanceDiagnostics.measure("markdown.publishBlock", publishTarget.content.length.toLong()) {
                     nextStreamingSnapshot(state.snapshot, parsed)?.let { published ->

@@ -6278,7 +6278,14 @@ internal class AgentAppState(
                     folderId = conversationFolderIds[id],
                     environment = environment,
                 )
-                conversationSummaryCache.getOrBuild(id, key) {
+                // The open conversation's preview changes on every token. Keep the last
+                // summary while it is streaming so the manage list is not rebuilt per delta.
+                val cached = if (state.isStreaming && id == selectedConversationId) {
+                    conversationSummaryCache.current(id)
+                } else {
+                    null
+                }
+                cached ?: conversationSummaryCache.getOrBuild(id, key) {
                     ConversationSummaryUi(
                         id = id,
                         title = conversationTitles[id].orEmpty().ifBlank {
@@ -7360,6 +7367,8 @@ internal data class ConversationSummaryKey(
 internal class ConversationSummaryCache {
     private data class Entry(val key: ConversationSummaryKey, val summary: ConversationSummaryUi)
     private val entries = mutableMapOf<String, Entry>()
+
+    fun current(id: String): ConversationSummaryUi? = entries[id]?.summary
 
     fun retain(ids: Set<String>) {
         entries.keys.retainAll(ids)
