@@ -8,8 +8,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
@@ -18,9 +21,11 @@ import androidx.compose.ui.node.LayoutModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.node.invalidateMeasurement
+import androidx.compose.ui.node.requireGraphicsContext
 import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntSize
 import java.text.BreakIterator
 import java.util.Locale
 import kotlin.math.ceil
@@ -378,9 +383,10 @@ internal class SmoothTextRevealNode(
     private var cachedFullPath: Path? = null
     private var cachedNextPath: Path? = null
     private var cachedVisibleHeight = -1
-    private var cachedSettledPicture: androidx.compose.ui.graphics.layer.GraphicsLayer? = null
+    private var cachedSettledPicture: GraphicsLayer? = null
     private var cachedSettledLine = -1
-    private var cachedSettledLayout: TextLayoutResult? = null
+    private var cachedSettledWidth = -1
+    private var cachedSettledPrefix = -1
 
     override fun onAttach() {
         state.attach(this)
@@ -388,8 +394,10 @@ internal class SmoothTextRevealNode(
     }
 
     override fun onDetach() {
+        releaseSettledLayer()
         state.detach(this)
         clearPathCache()
+        releaseSettledLayer()
         cachedVisibleHeight = -1
     }
 
@@ -450,12 +458,14 @@ internal class SmoothTextRevealNode(
     private fun ContentDrawScope.drawInsideMeasuredHeight() {
         val snapshot = state.drawSnapshot()
         if (snapshot == null) {
+            releaseSettledLayer()
             drawDiagnosticContent()
             return
         }
         val contentScope = this
         val targetCount = snapshot.boundaries.lastIndex
         if (targetCount <= 0 || snapshot.progress >= targetCount) {
+            releaseSettledLayer()
             drawDiagnosticContent()
             return
         }
@@ -464,38 +474,109 @@ internal class SmoothTextRevealNode(
         val layout = snapshot.layoutResult
         val textLength = layout.layoutInput.text.length
         val fullEnd = snapshot.boundaries[fullCount].coerceIn(0, textLength)
-        // Finished lines are one rectangle. Rebuilding a glyph path for the whole
-        // visible prefix was the scroll-time cost; the current line stays a second clip.
+        // Finished lines are recorded once into a layer. Scrolling blits that layer
+        // instead of repainting the whole prefix. The line still being typed, and the
+        // fading glyph, stay live. Line height is not frozen.
+        var typedLine = -1
         if (fullEnd > 0 && layout.lineCount > 0) {
-            val line = layout.getLineForOffset((fullEnd - 1).coerceAtMost(textLength - 1))
-            val completedBottom = if (line > 0) layout.getLineBottom(line - 1) else 0f
+            typedLine = layout.getLineForOffset((fullEnd - 1).coerceAtMost(textLength - 1))
+            val completedBottom = if (typedLine > 0) layout.getLineBottom(typedLine - 1) else 0f
             if (completedBottom > 0f) {
-                clipRect(right = size.width, bottom = completedBottom) {
-                    contentScope.drawDiagnosticContent()
-                }
+                drawSettledLines(layout, typedLine, completedBottom)
             }
             val cursor = layout.getHorizontalPosition(fullEnd, usePrimaryDirection = true).coerceAtLeast(0f)
             if (cursor > 0f) {
                 clipRect(
-                    top = layout.getLineTop(line),
+                    top = layout.getLineTop(typedLine),
                     right = cursor,
-                    bottom = layout.getLineBottom(line),
+                    bottom = layout.getLineBottom(typedLine),
                 ) { contentScope.drawDiagnosticContent() }
             }
         }
         val partialAlpha = (snapshot.progress - fullCount).coerceIn(0f, 1f)
         if (partialAlpha > 0f && fullCount < targetCount) {
             ensurePaths(snapshot, fullCount)
+            val glyphLine = if (typedLine >= 0) typedLine else if (layout.lineCount > 0) {
+                layout.getLineForOffset(fullEnd.coerceIn(0, textLength - 1))
+            } else {
+                -1
+            }
             cachedNextPath?.let { path ->
-                clipPath(path) {
-                    alphaPaint.alpha = partialAlpha
-                    StreamPerformanceDiagnostics.measure("reveal.saveLayer") {
-                        drawContext.canvas.saveLayer(path.getBounds(), alphaPaint)
+                val glyphDraw: DrawScope.() -> Unit = {
+                    clipPath(path) {
+                        alphaPaint.alpha = partialAlpha
+                        StreamPerformanceDiagnostics.measure("reveal.saveLayer") {
+                            contentScope.drawContext.canvas.saveLayer(path.getBounds(), alphaPaint)
+                        }
+                        try {
+                            contentScope.drawDiagnosticContent()
+                        } finally {
+                            contentScope.drawContext.canvas.restore()
+                        }
                     }
-                    try { contentScope.drawDiagnosticContent() } finally { drawContext.canvas.restore() }
+                }
+                if (glyphLine >= 0) {
+                    clipRect(
+                        top = layout.getLineTop(glyphLine),
+                        right = size.width,
+                        bottom = layout.getLineBottom(glyphLine),
+                        block = glyphDraw,
+                    )
+                } else {
+                    glyphDraw()
                 }
             }
         }
+    }
+
+    private fun ContentDrawScope.drawSettledLines(
+        layout: TextLayoutResult,
+        currentLine: Int,
+        completedBottom: Float,
+    ) {
+        val widthPx = ceil(size.width).toInt()
+        val heightPx = ceil(completedBottom).toInt()
+        val prefix = if (currentLine in 0 until layout.lineCount) layout.getLineStart(currentLine) else 0
+        if (widthPx <= 0 || heightPx <= 0 || heightPx > 8192) {
+            releaseSettledLayer()
+            clipRect(right = size.width, bottom = completedBottom) { drawDiagnosticContent() }
+            return
+        }
+        val reusable = cachedSettledPicture != null &&
+            cachedSettledLine == currentLine &&
+            cachedSettledWidth == widthPx &&
+            cachedSettledPrefix == prefix
+        if (!reusable) {
+            releaseSettledLayer()
+            val layer = requireGraphicsContext().createGraphicsLayer()
+            val contentScope = this
+            // record(size) retargets this draw scope. The density overload would run on a
+            // fresh scope and could not draw the paragraph content.
+            layer.record(size = IntSize(widthPx, heightPx)) {
+                contentScope.clipRect(right = widthPx.toFloat(), bottom = completedBottom) {
+                    contentScope.drawDiagnosticContent()
+                }
+            }
+            cachedSettledPicture = layer
+            cachedSettledLine = currentLine
+            cachedSettledWidth = widthPx
+            cachedSettledPrefix = prefix
+            if (StreamPerformanceDiagnostics.enabled) {
+                StreamPerformanceDiagnostics.record("reveal.settled.record")
+            }
+        } else if (StreamPerformanceDiagnostics.enabled) {
+            StreamPerformanceDiagnostics.record("reveal.settled.hit")
+        }
+        drawLayer(cachedSettledPicture!!)
+    }
+
+    private fun releaseSettledLayer() {
+        val layer = cachedSettledPicture ?: return
+        cachedSettledPicture = null
+        cachedSettledLine = -1
+        cachedSettledWidth = -1
+        cachedSettledPrefix = -1
+        if (isAttached) requireGraphicsContext().releaseGraphicsLayer(layer)
     }
 
     private fun ContentDrawScope.drawDiagnosticContent() {
