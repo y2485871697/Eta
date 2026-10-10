@@ -44,7 +44,9 @@ class AgentTerminalSnapshotRegressionTest {
         val visible = filter.project(stamped, null)
         val entries = timeline.project(visible)
         val lazyRows = rows.project(entries, emptyMap(), false)
-        assertEquals(2, fullBuilds) // thinking group changes still force the original full path
+        // The stamped assistant payload and the thinking step both patch in place: neither
+        // feeds terminal ordering or grouping, so only the first projection rebuilds.
+        assertEquals(1, fullBuilds)
         assertEquals(visible.toTimelineEntries(), entries)
         assertEquals(entries.toLazyTimelineRows(emptyMap(), false), lazyRows)
         assertEquals("answer", (stamped.last() as AgentMessageUi).content)

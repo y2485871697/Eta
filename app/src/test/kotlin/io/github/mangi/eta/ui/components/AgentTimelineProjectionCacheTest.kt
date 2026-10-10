@@ -125,28 +125,29 @@ class AgentTimelineProjectionCacheTest {
         assertEquals(2, fixture.builds)
     }
 
-    @Test fun structuralAndNonAssistantReplacementsFallBack() {
+    @Test fun payloadDeltasPatchInPlaceAndStructuralChangesFallBack() {
         val base: List<AgentChatMessageUi> = listOf(
             UserMessageUi("user-run", "task"), ThinkingMessageUi("run-thinking-1", "work", true),
             ToolActivityMessageUi("run-tool-1-read", "read_file", ToolActivityStatusUi.Running, argumentsSummary = "read"),
             SystemNoticeMessageUi("interrupted-run", SystemNoticeCode.ModelRetry),
             AgentMessageUi("assistant-run-1", "body", true),
         )
-        val variants: List<List<AgentChatMessageUi>> = listOf(
-            base + UserMessageUi("user-new", "append"), base.dropLast(1), base.reversed(),
-            base.toMutableList().apply { this[4] = (base[4] as AgentMessageUi).copy(id = "different") },
-            base.toMutableList().apply { this[4] = ThinkingMessageUi("assistant-run-1", "different type", false) },
-            base.toMutableList().apply { this[0] = (base[0] as UserMessageUi).copy(content = "edit") },
-            base.toMutableList().apply { this[1] = (base[1] as ThinkingMessageUi).copy(isStreaming = false) },
-            base.toMutableList().apply { this[2] = (base[2] as ToolActivityMessageUi).copy(status = ToolActivityStatusUi.Success) },
-            base.toMutableList().apply { this[3] = (base[3] as SystemNoticeMessageUi).copy(code = SystemNoticeCode.Completed) },
-            base.toMutableList().apply { this[0] = UserMessageUi("user-run-supplement-resume", "hidden") },
+        // Thinking text and tool status feed neither terminal ordering nor grouping.
+        val variants: List<Pair<List<AgentChatMessageUi>, Int>> = listOf(
+            (base + UserMessageUi("user-new", "append")) to 2, base.dropLast(1) to 2, base.reversed() to 2,
+            base.toMutableList().apply { this[4] = (base[4] as AgentMessageUi).copy(id = "different") } to 2,
+            base.toMutableList().apply { this[4] = ThinkingMessageUi("assistant-run-1", "different type", false) } to 2,
+            base.toMutableList().apply { this[0] = (base[0] as UserMessageUi).copy(content = "edit") } to 2,
+            base.toMutableList().apply { this[1] = (base[1] as ThinkingMessageUi).copy(isStreaming = false) } to 1,
+            base.toMutableList().apply { this[2] = (base[2] as ToolActivityMessageUi).copy(status = ToolActivityStatusUi.Success) } to 1,
+            base.toMutableList().apply { this[3] = (base[3] as SystemNoticeMessageUi).copy(code = SystemNoticeCode.Completed) } to 2,
+            base.toMutableList().apply { this[0] = UserMessageUi("user-run-supplement-resume", "hidden") } to 2,
         )
-        variants.forEach { current ->
+        variants.forEach { (current, expectedBuilds) ->
             val fixture = Fixture()
             val old = fixture.project(base)
             assertEquivalent(current, fixture.project(current))
-            assertEquals(2, fixture.builds)
+            assertEquals(expectedBuilds, fixture.builds)
             assertEquals(base.toTimelineEntries(), old)
         }
     }
