@@ -131,7 +131,7 @@ class StreamingRowPinningTest {
         compose.runOnIdle { shown.value = false }
         compose.waitForIdle()
         compose.runOnIdle { heights.clear(); shown.value = true }
-        compose.waitUntil(15_000) { heights.isNotEmpty() }
+        awaitRowState("first reentry layout", retained) { heights.isNotEmpty() }
         compose.runOnIdle {
             assertEquals("First reentry layout may not shrink to the 480-char batch", fullHeight, heights.first())
             assertEquals(source, retained.compositionProgress.composedSource)
