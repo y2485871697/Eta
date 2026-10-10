@@ -50,6 +50,8 @@ internal class SmoothTextRevealCoordinator {
     private var animationsPaused = false
     /** Settled and fully covered: park the clock without completing pending glyphs. */
     private var animationsHeld = false
+    /** Finger scroll: keep revealing, but do not remeasure the list until it stops. */
+    private var deferMeasurement = false
     private var restoredSourceLength = 0
 
     /** Layout nodes may attach after the parent's restore callback; those old blocks
@@ -107,6 +109,16 @@ internal class SmoothTextRevealCoordinator {
      * 停稳且完全盖住时停住显现。已显示的进度保留，不追平，
      * 后续排版也不会把未显示的字一次性补完。横滑或回到聊天后再继续。
      */
+    fun measurementIsDeferred(): Boolean = deferMeasurement
+
+    fun deferListMeasurement(defer: Boolean) {
+        if (deferMeasurement == defer) return
+        deferMeasurement = defer
+        if (!defer) {
+            records.values.forEach { record -> record.node?.onRevealDataChanged() }
+        }
+    }
+
     fun holdAnimations() {
         if (animationsHeld && !animationsPaused) {
             wakeups.trySend(Unit)
@@ -321,6 +333,7 @@ internal class SmoothTextRevealState(
     val key: RevealBlockKey,
     private val coordinator: SmoothTextRevealCoordinator,
 ) {
+    fun measurementDeferred(): Boolean = coordinator.measurementIsDeferred()
     private var node: SmoothTextRevealNode? = null
     private var text: String? = null
     private var layoutResult: TextLayoutResult? = null
@@ -406,7 +419,7 @@ internal class SmoothTextRevealNode(
         val visibleHeight = state.visibleHeightPx()
         if (visibleHeight != cachedVisibleHeight) {
             cachedVisibleHeight = visibleHeight
-            if (isAttached) {
+            if (isAttached && !state.measurementDeferred()) {
                 StreamPerformanceDiagnostics.record("reveal.remeasure")
                 invalidateMeasurement()
             }

@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.RocketLaunch
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -307,11 +308,6 @@ internal fun AgentChatBody(
     // A default one-item prefetch is too shallow for mixed short tool rows and tall Markdown.
     // Keep one viewport on both sides: ahead prepares incoming rows; behind prevents
     // immediate disposal/recomposition when expansion or a direction reversal moves the boundary.
-    // 输出时尾部每长一行都要测量。前后各留一整屏会把这些测量拖进滑动帧。
-    // 手指滑动时只留屏幕附近一小段；松手后仍是前后各一整屏。
-    val scrollingCacheWindow = remember {
-        LazyLayoutCacheWindow(aheadFraction = 0.15f, behindFraction = 0.15f)
-    }
     val chatCacheWindow = remember {
         LazyLayoutCacheWindow(
             aheadFraction = CHAT_CACHE_AHEAD_VIEWPORTS,
@@ -319,7 +315,7 @@ internal fun AgentChatBody(
         )
     }
     val scrollState = rememberLazyListState(
-        cacheWindow = if (isStreaming) scrollingCacheWindow else chatCacheWindow,
+        cacheWindow = chatCacheWindow,
         initialFirstVisibleItemIndex = initialBottomItemIndex,
     )
     val currentBrowserMessageId = remember(
@@ -1391,6 +1387,7 @@ internal fun AgentConversationMessages(
             // Commit count only (ns=0): proves this content lambda was applied, not its cost.
             StreamPerformanceDiagnostics.record("chat.content.commit", value = 1)
         }
+        CompositionLocalProvider(LocalChatUserScrolling provides isUserScrolling) {
         LazyColumn(
             state = scrollState,
             verticalArrangement = if (shouldPinConversationToBottom(isStreaming, streamFilledViewport)) {
@@ -1736,6 +1733,7 @@ internal fun AgentConversationMessages(
                         .height(1.dp),
                 )
             }
+        }
         }
 
         fun navigateUserMessage(toEdge: Boolean) {

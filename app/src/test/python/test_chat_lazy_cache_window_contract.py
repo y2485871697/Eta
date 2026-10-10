@@ -20,7 +20,7 @@ class ChatLazyCacheWindowContractTest(unittest.TestCase):
     def test_cache_window_is_bounded_to_one_viewport_each_side(self):
         self.assertRegex(self.source, r"CHAT_CACHE_AHEAD_VIEWPORTS\s*=\s*1f\b")
         self.assertRegex(self.source, r"CHAT_CACHE_BEHIND_VIEWPORTS\s*=\s*1f\b")
-        self.assertEqual(self.body.count("LazyLayoutCacheWindow("), 2)
+        self.assertEqual(self.body.count("LazyLayoutCacheWindow("), 1)
         self.assertRegex(self.body, r"aheadFraction\s*=\s*CHAT_CACHE_AHEAD_VIEWPORTS")
         self.assertRegex(self.body, r"behindFraction\s*=\s*CHAT_CACHE_BEHIND_VIEWPORTS")
 
@@ -29,7 +29,7 @@ class ChatLazyCacheWindowContractTest(unittest.TestCase):
         self.assertIsNotNone(state)
         opening = self.body.index("(", state.start())
         call = self.body[opening + 1:balanced_end(self.body, opening, "(", ")")]
-        self.assertRegex(call, r"cacheWindow\s*=\s*if \(isStreaming\) scrollingCacheWindow else chatCacheWindow")
+        self.assertRegex(call, r"cacheWindow\s*=\s*chatCacheWindow")
         self.assertRegex(call, r"initialFirstVisibleItemIndex\s*=\s*initialBottomItemIndex")
         self.assertLess(self.body.index("val chatCacheWindow"), state.start())
 
