@@ -82,23 +82,45 @@ internal class AgentTimelineProjectionCache(
             if (changed == null) {
                 val changedIndices = ArrayList<Int>(1)
                 var compatible = true
+                val groupReplacements = HashMap<Int, MutableList<IntArray>>()
                 for (index in messages.indices) {
                     val old = previous[index]
                     val current = messages[index]
                     if (old === current) continue
-                    if (old !is AgentMessageUi || current !is AgentMessageUi ||
-                        old.id != current.id || mapping[index] < 0
-                    ) {
+                    if (old.id != current.id) {
                         compatible = false
                         break
                     }
-                    changedIndices += index
+                    if (old is AgentMessageUi && current is AgentMessageUi) {
+                        if (mapping[index] < 0) {
+                            compatible = false
+                            break
+                        }
+                        changedIndices += index
+                        continue
+                    }
+                    // Work payloads (thinking text, tool status) never feed terminal ordering or
+                    // grouping: both read only IDs and types. Patch the member inside its group.
+                    val slot = workSlots?.get(index) ?: run { compatible = false; null }
+                    if (slot == null || !old.isWorkPayloadOf(current)) {
+                        compatible = false
+                        break
+                    }
+                    groupReplacements.getOrPut(slot.entry) { ArrayList<IntArray>(2) }.add(intArrayOf(slot.member, index))
                 }
                 if (compatible) {
-                    if (changedIndices.isEmpty()) return entries
+                    if (changedIndices.isEmpty() && groupReplacements.isEmpty()) return entries
                     val updated = entries.toMutableList()
                     changedIndices.forEach { index ->
                         updated[mapping[index]] = AgentTimelineEntry.Message(messages[index])
+                    }
+                    groupReplacements.forEach { (entryIndex, slots) ->
+                        val group = updated[entryIndex] as AgentTimelineEntry.WorkProcess
+                        val members = group.messages.toMutableList()
+                        slots.forEach { slot ->
+                            if (slot[0] in members.indices) members[slot[0]] = messages[slot[1]]
+                        }
+                        updated[entryIndex] = group.copy(messages = members)
                     }
                     // Neither the old input snapshot nor any previously returned list
                     // is mutated. Also tolerate a caller reusing its list container.
@@ -183,25 +205,40 @@ internal class AgentSpeechPrefaceCache(
         val previous = source
         val dependent = ownerDependentSlots
         if (previous != null && dependent != null && previous.size == messages.size && finalIds == selectedIds) {
-            var compatible = true
-            for (index in messages.indices) {
-                val old = previous[index]
-                val current = messages[index]
-                if (old === current) continue
-                if (old !is AgentMessageUi || current !is AgentMessageUi || old.id != current.id ||
-                    !old.isStreaming || !current.isStreaming ||
-                    !current.content.startsWith(old.content) || dependent[index]
+            // A live transcript replaces one slot at a time. Without this hint the
+            // scan below and the snapshot copy both walk every historical message.
+            val single = (messages as? AgentIncrementalList<AgentChatMessageUi>)?.singleReplacementFrom(previous)
+            if (single != null) {
+                val old = previous[single]
+                val current = messages[single]
+                if (old !== current && old is AgentMessageUi && current is AgentMessageUi &&
+                    old.id == current.id && old.isStreaming && current.isStreaming &&
+                    current.content.startsWith(old.content) && !dependent[single]
                 ) {
-                    compatible = false
-                    break
+                    source = messages
+                    return prefaces
+                }
+            } else {
+                var compatible = true
+                for (index in messages.indices) {
+                    val old = previous[index]
+                    val current = messages[index]
+                    if (old === current) continue
+                    if (old !is AgentMessageUi || current !is AgentMessageUi || old.id != current.id ||
+                        !old.isStreaming || !current.isStreaming ||
+                        !current.content.startsWith(old.content) || dependent[index]
+                    ) {
+                        compatible = false
+                        break
+                    }
+                }
+                if (compatible) {
+                    source = messages.incrementalSnapshot()
+                    return prefaces
                 }
             }
-            if (compatible) {
-                source = messages.toList()
-                return prefaces
-            }
         }
-        val input = messages.toList()
+        val input = messages.incrementalSnapshot()
         val ids = selectedIds.toSet()
         val result = fullProjection(input, ids)
         source = input

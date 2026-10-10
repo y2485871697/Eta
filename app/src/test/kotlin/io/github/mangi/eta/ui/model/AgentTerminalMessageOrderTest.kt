@@ -3,10 +3,46 @@ package io.github.mangi.eta.ui.model
 import io.github.mangi.eta.ui.components.AgentTimelineEntry
 import io.github.mangi.eta.ui.components.toTimelineEntries
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentTerminalMessageOrderTest {
+    @Test
+    fun alreadyOrderedTerminalBodiesRetainTheOriginalListAndMessageInstances() {
+        val runId = "already-ordered"
+        val text = assistant("assistant-$runId-1-0", "full saved body\n".repeat(4_096))
+        val body = listOf(user(runId), text, thinking(runId, 1), tool(runId, 1))
+        for (code in terminalCodes) {
+            val notice = SystemNoticeMessageUi("interrupted-$runId", code, "saved detail")
+            val input = body + notice
+
+            assertSame(input, normalizeTerminalRunMessages(runId, input))
+            assertSame(input, input.withTerminalBodiesInOrder())
+            assertSame(notice, input.withTerminalBodiesInOrder().last())
+        }
+    }
+
+    @Test
+    fun equalRepeatedSnapshotsStillDeduplicateAndRetainTheLatestBodyInstance() {
+        val runId = "equal-replay"
+        val text = assistant("assistant-$runId-1-0", "identical payload")
+        val latestText = text.copy()
+        val notice = SystemNoticeMessageUi("interrupted-$runId", SystemNoticeCode.Stopped, "detail")
+        val latestNotice = notice.copy()
+        assertNotSame(text, latestText)
+        assertEquals(text, latestText)
+        val input = listOf(user(runId), text, latestText, notice, latestNotice)
+        val expected = listOf(input.first(), latestText, latestNotice)
+
+        assertNormalized(runId, input, expected)
+        assertProjected(input, expected)
+        val actual = input.withTerminalBodiesInOrder()
+        assertNotSame(input, actual)
+        assertSame(latestText, actual[1])
+    }
+
     @Test
     fun stoppedNoticeFollowsAllRecordedAssistantThinkingAndToolContent() {
         assertTerminalBodyOrder(SystemNoticeCode.Stopped, "assistant-order-run-4-result")
@@ -372,7 +408,7 @@ class AgentTerminalMessageOrderTest {
         // token usage, timestamps and thinking metadata, not only IDs or counts.
         assertEquals("Full message payloads and order for $runId", expected, actual)
         assertUniqueIds(actual)
-        assertEquals("Normalization must be idempotent", actual, normalizeTerminalRunMessages(runId, actual))
+        assertSame("Already normalized input must retain its identity", actual, normalizeTerminalRunMessages(runId, actual))
         assertEquals("Normalization must not mutate the caller's snapshot", original, input)
     }
 
@@ -381,7 +417,7 @@ class AgentTerminalMessageOrderTest {
         val actual = input.withTerminalBodiesInOrder()
         assertEquals("Stored projection must preserve full message payloads and ownership", expected, actual)
         assertUniqueIds(actual)
-        assertEquals("Stored projection must be idempotent", actual, actual.withTerminalBodiesInOrder())
+        assertSame("Already projected input must retain its identity", actual, actual.withTerminalBodiesInOrder())
         assertEquals("Stored projection must not mutate its input", original, input)
     }
 

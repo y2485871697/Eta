@@ -12,11 +12,11 @@ class AgentTerminalMessageOrderScaleTest {
         val messages = CountingList(terminalOrderLargeHistory())
         assertEquals(3_200, messages.size)
         assertSame("An unchanged transcript retains its identity", messages, messages.withTerminalBodiesInOrder())
-        assertTrue("History reads must not multiply by terminal runs: ${messages.reads}", messages.reads <= 10 * messages.size)
+        assertTrue("Unchanged history must skip output/equality passes: ${messages.reads}", messages.reads <= 4 * messages.size)
 
         messages.reads = 0
         assertSame(messages, normalizeTerminalRunMessages(terminalOrderHistoryRunId(0), messages))
-        assertTrue("Explicit-run normalization also has bounded passes", messages.reads <= 10 * messages.size)
+        assertTrue("Explicit-run normalization also skips output/equality passes", messages.reads <= 4 * messages.size)
     }
 
     @Test

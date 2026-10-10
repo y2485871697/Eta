@@ -162,6 +162,31 @@ class AgentTimelineProjectionTest {
     }
 
     @Test
+    fun reorderedTerminalWorkStillUses32MessageGroupsAndFiltersHiddenRecords() {
+        val runId = "late-work"
+        val user = UserMessageUi("user-$runId", "task")
+        val notice = SystemNoticeMessageUi("interrupted-$runId", SystemNoticeCode.Stopped, "detail")
+        val work = List(65) { index ->
+            ThinkingMessageUi("$runId-thinking-$index-0", "payload $index", false)
+        }
+        val retry = SystemNoticeMessageUi("assistant-$runId-1-usage", SystemNoticeCode.ModelRetry, "retry")
+        val resume = UserMessageUi("user-$runId-supplement-resume", "hidden resume")
+        val input = listOf(user, notice) + work.take(31) + listOf(retry, resume) + work.drop(31)
+
+        val entries = input.toTimelineEntries()
+        val groups = entries.filterIsInstance<AgentTimelineEntry.WorkProcess>()
+        assertEquals(listOf(32, 32, 1), groups.map { it.messages.size })
+        assertEquals(listOf(user.id, "work-${work[0].id}", "work-${work[32].id}",
+            "work-${work[64].id}", notice.id), entries.map { it.key })
+        assertEquals(listOf(user) + work + notice, entries.flattenMessages())
+        assertEquals((listOf(user) + work + notice).toTimelineEntries(), entries)
+        work.zip(groups.flatMap { it.messages }).forEach { (original, projected) ->
+            assertSame(original, projected)
+        }
+        assertSame(notice, input[1])
+    }
+
+    @Test
     fun hidingRetryPreservesOtherNoticesAndBoundedWorkGroups() {
         val notices = SystemNoticeCode.entries.filterNot { it == SystemNoticeCode.ModelRetry }
             .map { SystemNoticeMessageUi("notice-${it.wireValue}", it, "detail") }

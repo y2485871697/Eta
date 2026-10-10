@@ -54,24 +54,36 @@ private fun orderTerminalBodies(
     // notices alone must not make us parse every body ID on each tool boundary.
     // Discover the applicable notices first, using the same ownership grammar.
     val runs = linkedMapOf<String, TerminalBodyOrder>()
+    var needsOrdering = false
     messages.forEachIndexed { index, message ->
         if (message !is SystemNoticeMessageUi || !message.code.isTerminal()) return@forEachIndexed
         val owner = message.ownerAmong(owners)
         if (owner != null && owner.isNotBlank() && (onlyRunId == null || owner == onlyRunId)) {
             val run = runs[owner]
             if (run == null) runs[owner] = TerminalBodyOrder(index, message.id, message)
-            else run.latestNotice = message
+            else {
+                run.latestNotice = message
+                needsOrdering = true
+            }
         }
     }
     if (runs.isEmpty()) return messages
-    val messageOwners = messages.map { it.ownerAmong(owners) }
+    val messageOwners = arrayOfNulls<String>(messages.size)
     messages.forEachIndexed { index, message ->
-        val run = runs[messageOwners[index]]
+        val owner = message.ownerAmong(owners)
+        messageOwners[index] = owner
+        val run = runs[owner]
         if (run != null && message.isRunBody()) {
-            run.firstBodyIndices.putIfAbsent(message.id, index)
+            val firstIndex = run.firstBodyIndices.putIfAbsent(message.id, index)
+            if (firstIndex != null || index > run.firstNoticeIndex) needsOrdering = true
             run.body[message.id] = message
         }
     }
+    // With no repeated notices or body IDs and no body after its notice, emission
+    // would reuse every input slot (only copying notices to the same values).
+    // Any repetition shortens the list; any late body crosses a notice of a
+    // different message type. Neither can be structurally equal to the input.
+    if (!needsOrdering) return messages
     val ordered = ArrayList<AgentChatMessageUi>(messages.size)
     messages.forEachIndexed { index, message ->
         val run = runs[messageOwners[index]]
@@ -92,7 +104,7 @@ private fun orderTerminalBodies(
             else -> ordered.add(message)
         }
     }
-    return if (ordered == messages) messages else ordered
+    return ordered
 }
 
 private fun List<AgentChatMessageUi>.knownTerminalRunIds(): Set<String> = buildSet {

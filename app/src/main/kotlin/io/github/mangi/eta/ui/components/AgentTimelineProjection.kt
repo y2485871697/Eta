@@ -28,8 +28,8 @@ internal sealed interface AgentTimelineEntry {
     ) : AgentTimelineEntry
 }
 
-internal fun List<AgentChatMessageUi>.toTimelineEntries(): List<AgentTimelineEntry> = buildList {
-    val workMessages = mutableListOf<AgentChatMessageUi>()
+internal fun List<AgentChatMessageUi>.toTimelineEntries(): List<AgentTimelineEntry> = buildList(size) {
+    val workMessages = ArrayList<AgentChatMessageUi>(WORK_PROCESS_UI_BATCH_LIMIT)
 
     fun flushWorkProcess() {
         if (workMessages.isEmpty()) return
