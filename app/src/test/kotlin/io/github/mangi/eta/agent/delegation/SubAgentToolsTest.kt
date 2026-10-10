@@ -47,5 +47,9 @@ class SubAgentToolsTest {
         assertTrue(description.contains("missing shell is not a reason for the parent to read that source itself"))
         assertTrue(description.contains("A multi-file investigation is not a trivial task"))
         assertFalse(description.contains("handle it yourself"))
+        assertTrue(description.contains("continue in the background after a normal parent final reply"))
+        assertTrue(description.contains("does not resume previously paused tasks"))
+        assertTrue(description.contains("explicit pause, stop, cancel, or failure handling"))
+        assertTrue(description.contains("Pending tasks are not completed or verified results"))
     }
 }

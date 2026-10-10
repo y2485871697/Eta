@@ -125,14 +125,108 @@ class ChildGroupLifecycleTest {
             c.pauseGroup()
             assertEquals("group", read(c, id).getString("pause_source"))
             c.execute(call("continue_task", JSONObject().put("task_id", id)))
-            c.pauseGroup() // The next parent end must freeze a task continued from a historical group.
+            c.pauseGroup() // A later explicit group pause still freezes a continued historical task.
             assertEquals("awaiting_decision", read(c, id).getString("status"))
             c.resumeGroup(); release.countDown()
             awaitCondition { read(c, id).getString("status") == "completed" }
         }
     }
 
-    @Test fun normalParentEndPauseThenDetachKeepsTaskAndNextRoundCanTakeOver() {
+    @Test fun successfulParentEndAndDetachLetsRunningAndQueuedChildrenComplete() {
+        val generation = UUID.randomUUID().toString()
+        val run = UUID.randomUUID().toString()
+        val session = AgentRuntimeSession(run)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val calls = AtomicInteger()
+        val c = SubAgentCoordinator(listOf(model), modelParallelLimits = listOf(1),
+            onTaskChanged = { registry.onTaskChanged(generation) }) { config, _, controller ->
+            assertSame(model, config)
+            if (calls.incrementAndGet() == 1) { entered.countDown(); release.await() }
+            controller.throwIfCancelled()
+            "same task result"
+        }
+        AgentChildRunControl.begin(session)
+        Fixture(run = run, generation = generation, coordinator = c).use { f ->
+            try {
+                val running = start(c)
+                await(entered)
+                val queued = start(c)
+                AgentChildRunControl.terminate(session, AgentChildControlPolicy.Reason.SUCCESS)
+                registry.detach(generation)
+                assertTrue(session.complete(AgentRuntimeWire.RunResult(runId = run, ok = true, content = "parent done")))
+                assertTrue(session.isTerminal)
+                assertTrue(session.terminalResult?.ok == true)
+                assertTrue(session.controller.isCancelled)
+                AgentChildRunControl.finish(session)
+                assertEquals("running", f.get(running).getString("status"))
+                assertFalse(f.get(running).getBoolean("pause_requested"))
+                assertFalse(f.get(queued).getBoolean("pause_requested"))
+                assertEquals(1, calls.get())
+                assertTrue(registry.hasActive(f.owner))
+                assertSame(c, field(f.group, "coordinator"))
+                assertEquals(1L, f.released.count)
+                assertTrue(AgentChildRunControl.pendingSelections.value.none { it.runId == run })
+                release.countDown()
+                awaitCondition { f.get(running).optBoolean("archived") && f.get(queued).optBoolean("archived") }
+                for (id in listOf(running, queued)) {
+                    val result = f.get(id)
+                    assertEquals(id, result.getString("task_id"))
+                    assertEquals("completed", result.getString("status"))
+                    assertEquals("original", result.getString("model"))
+                    assertEquals("same task result", result.getString("result"))
+                    assertEquals(0, result.getInt("continuation_count"))
+                }
+                assertEquals(2, calls.get())
+                await(f.released)
+                assertNull(field(f.group, "coordinator"))
+            } finally {
+                release.countDown()
+                AgentChildRunControl.finish(session)
+            }
+        }
+    }
+
+    @Test fun successfulParentEndDoesNotResumePreviouslyManuallyPausedChild() {
+        val generation = UUID.randomUUID().toString()
+        val run = UUID.randomUUID().toString()
+        val session = AgentRuntimeSession(run)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val c = SubAgentCoordinator(listOf(model), onTaskChanged = { registry.onTaskChanged(generation) }) { _, _, controller ->
+            entered.countDown(); release.await(); controller.throwIfCancelled(); "done"
+        }
+        AgentChildRunControl.begin(session)
+        Fixture(run = run, generation = generation, coordinator = c).use { f ->
+            try {
+                val id = start(c)
+                await(entered)
+                c.execute(call("supervise_task", JSONObject().put("task_id", id).put("action", "pause")))
+                AgentChildRunControl.terminate(session, AgentChildControlPolicy.Reason.SUCCESS)
+                registry.detach(generation)
+                assertTrue(session.complete(AgentRuntimeWire.RunResult(runId = run, ok = true, content = "parent done")))
+                assertTrue(session.isTerminal)
+                assertTrue(session.terminalResult?.ok == true)
+                assertTrue(session.controller.isCancelled)
+                AgentChildRunControl.finish(session)
+                release.countDown()
+                awaitCondition { f.get(id).optBoolean("pause_confirmed") }
+                val paused = f.get(id)
+                assertEquals("awaiting_decision", paused.getString("status"))
+                assertEquals("manual", paused.getString("pause_source"))
+                assertEquals(0, paused.getInt("continuation_count"))
+                assertFalse(paused.optBoolean("archived"))
+                assertSame(c, field(f.group, "coordinator"))
+                assertEquals(1L, f.released.count)
+                assertTrue(AgentChildRunControl.pendingSelections.value.none { it.runId == run })
+            } finally {
+                release.countDown()
+                AgentChildRunControl.finish(session)
+            }
+        }
+    }
+
+    @Test fun explicitParentPauseThenDetachKeepsTaskAndNextRoundCanTakeOver() {
         val generation = UUID.randomUUID().toString()
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)

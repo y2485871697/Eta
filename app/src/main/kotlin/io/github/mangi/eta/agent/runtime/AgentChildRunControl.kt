@@ -54,18 +54,23 @@ internal object AgentChildRunControl {
     }
 
     /**
-     * Freeze before terminal publication. SUCCESS requests the same freeze with no choice.
+     * Explicit controls/failures freeze before terminal publication. SUCCESS only seals
+     * parent control: it neither pauses live children nor resumes previously paused tasks.
      * Registry capture uses the CURRENT controlling run, not a group's birth run; pause validates
      * the captured control epoch again atomically, so continue/adoption wins over stale cleanup.
      */
     @Synchronized fun terminate(session: AgentRuntimeSession, reason: AgentChildControlPolicy.Reason) {
         if (parents[session.runId] !== session || !policy.isControllable(session)) return
-        val targets = AgentChildTaskGroups.captureRunStopTargets(session.runId)
+        val targets = if (AgentChildControlPolicy.shouldPauseChildren(reason)) {
+            AgentChildTaskGroups.captureRunStopTargets(session.runId)
+        } else emptyList()
         targets.forEach(AgentChildTaskGroups::pause)
-        val active = AgentChildTaskGroups.captureActiveStopTargets()
-        val unfinished = targets.any { target -> active.any {
-            it.ownerId == target.ownerId && it.generations.any(target.generations::contains)
-        } }
+        val unfinished = if (targets.isEmpty()) false else {
+            val active = AgentChildTaskGroups.captureActiveStopTargets()
+            targets.any { target -> active.any {
+                it.ownerId == target.ownerId && it.generations.any(target.generations::contains)
+            } }
+        }
         policy.terminate(session, reason, targets, unfinished)
         choices.value = policy.pending
     }

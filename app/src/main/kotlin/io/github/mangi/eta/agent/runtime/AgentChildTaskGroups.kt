@@ -395,7 +395,7 @@ internal object AgentChildTaskGroups {
 
     /**
      * Capture configuration, not execution ownership, before constructing this run's groups.
-     * A live retained coordinator can be paused (including by a successful previous parent).
+     * A live retained coordinator can be running or explicitly paused by prior controls.
      * Its immutable candidates still govern ordinary dispatch, but new work must NOT execute
      * through that historical coordinator. Archived result-only groups do not constrain new work.
      * Missing frozen candidates fail closed; the current setting is only for explicit replacement.

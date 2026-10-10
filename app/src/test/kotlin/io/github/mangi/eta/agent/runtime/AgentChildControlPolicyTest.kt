@@ -120,6 +120,26 @@ class AgentChildControlPolicyTest {
         policy.begin(parent, "run")
         assertNull(policy.terminate(parent, AgentChildControlPolicy.Reason.SUCCESS, listOf("old"), true))
         assertTrue(policy.pending.isEmpty())
+        assertFalse(policy.registered(parent, "late"))
+        assertFalse(policy.isControllable(parent))
+        assertTrue(policy.resume(parent).isEmpty())
+    }
+
+    @Test fun onlyNormalSuccessLeavesChildrenRunningByDefault() {
+        AgentChildControlPolicy.Reason.values().forEach { reason ->
+            assertEquals(reason.name, reason != AgentChildControlPolicy.Reason.SUCCESS,
+                AgentChildControlPolicy.shouldPauseChildren(reason))
+        }
+    }
+
+    @Test fun successfulCompletionDoesNotEraseAnEarlierExplicitPause() {
+        val policy = policy()
+        val parent = Any()
+        policy.begin(parent, "run")
+        policy.pause(parent, listOf("manual"))
+        assertNull(policy.terminate(parent, AgentChildControlPolicy.Reason.SUCCESS, listOf("manual"), true))
         assertTrue(policy.registered(parent, "late"))
+        assertTrue(policy.resume(parent).isEmpty())
+        assertTrue(policy.pending.isEmpty())
     }
 }

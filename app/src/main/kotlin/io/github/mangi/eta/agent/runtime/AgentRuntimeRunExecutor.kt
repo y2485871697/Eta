@@ -434,9 +434,9 @@ internal class AgentRuntimeRunExecutor(
                 transcript = modelFailure?.transcript ?: (throwable as? AgentRunCancelledException)?.transcript.orEmpty())
         } finally {
             if (modelCompleted && !cancelled && !runController.isCancelled) {
-                // End EVERY successful turn (including a supplemental reply) with children
-                // paused, without a dialog. This is before detach and session.complete; capture
-                // is scoped to this session.runId and registry pause rechecks its control epoch.
+                // A normal final/supplemental reply seals only parent control. Children retain
+                // their execution and tool/service leases across detach until they finish.
+                // SUCCESS never pauses, cancels or automatically resumes a child task.
                 AgentChildRunControl.terminate(session, AgentChildControlPolicy.Reason.SUCCESS)
                 try {
                     val receipt = localTools?.completeVirtualDelivery()

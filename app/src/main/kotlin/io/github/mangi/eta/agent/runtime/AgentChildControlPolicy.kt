@@ -38,7 +38,7 @@ internal class AgentChildControlPolicy<T>(private val nextEventId: () -> String)
     /** A group registered during parent preparation must inherit the already-requested freeze. */
     fun registered(identity: Any, target: T): Boolean {
         val run = runs[identity] ?: return false
-        if (!run.paused && !run.terminated) return false
+        if (!run.paused) return false
         if (!run.terminated) run.pausedTargets.add(target)
         return true
     }
@@ -52,7 +52,8 @@ internal class AgentChildControlPolicy<T>(private val nextEventId: () -> String)
     fun terminate(identity: Any, reason: Reason, targets: List<T>, hasUnfinished: Boolean): Selection<T>? {
         val run = runs[identity]?.takeUnless { it.terminated } ?: return null
         run.terminated = true
-        run.paused = true
+        // Normal completion never adds a freeze or clears an explicit earlier pause.
+        run.paused = run.paused || shouldPauseChildren(reason)
         run.pausedTargets.clear()
         if (!shouldOffer(reason, hasUnfinished) || targets.isEmpty()) return null
         return Selection(nextEventId(), run.runId, reason, targets.toList()).also { choices[it.eventId] = it }
@@ -63,6 +64,9 @@ internal class AgentChildControlPolicy<T>(private val nextEventId: () -> String)
     fun finish(identity: Any) { runs.remove(identity) }
 
     companion object {
+        /** A normal final reply ends only the parent; explicit controls/failures still freeze. */
+        fun shouldPauseChildren(reason: Reason): Boolean = reason != Reason.SUCCESS
+
         fun shouldOffer(reason: Reason, hasUnfinished: Boolean): Boolean = hasUnfinished && when (reason) {
             Reason.USER_STOP, Reason.SETTINGS_CHANGED, Reason.FINAL_NETWORK_FAILURE -> true
             Reason.USER_CANCEL, Reason.SUCCESS -> false
