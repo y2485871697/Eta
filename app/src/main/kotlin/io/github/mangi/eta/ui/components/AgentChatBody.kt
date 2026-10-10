@@ -943,6 +943,7 @@ internal fun AgentConversationMessages(
     // 上提照常，标签随动画一帧一帧往上让开。
     val shouldLiftTail = shouldFollowBottom
     // 被盖住但仍露在屏幕上时不走整列离屏裁剪。完全打开时仍按原来的条件。
+    val routeCovered = LocalChatRouteCovered.current
     val shouldClipTail = shouldClipChatTail(
         isStreaming = isStreaming,
         isBottomSettling = isBottomSettling,

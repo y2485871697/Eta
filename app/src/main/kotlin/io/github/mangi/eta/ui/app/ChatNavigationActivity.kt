@@ -36,7 +36,7 @@ internal class ChatNavigationActivityTracker(
     private val stampNs = AtomicLong(0L)
     private val ticking = AtomicBoolean(false)
     private var published: Boolean? = null
-    private val callback = Choreographer.FrameCallback {
+    private val callback: Choreographer.FrameCallback = Choreographer.FrameCallback {
         val now = nowNs()
         if (moving.get() && !navigationActivityIsCurrent(true, stampNs.get(), now, staleNs)) {
             moving.set(false)
