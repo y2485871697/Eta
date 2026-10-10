@@ -1,13 +1,16 @@
 package io.github.mangi.eta.ui.markdown
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -48,6 +51,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -64,7 +68,6 @@ import io.github.mangi.eta.ui.components.StatusSuccess
 import io.github.mangi.eta.ui.components.StatusWarning
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -261,14 +264,25 @@ private fun CopyButton(text: String, tint: Color) {
             copied = false
         }
     }
-    IconButton(
-        onClick = {
-            @Suppress("DEPRECATION")
-            clipboard.setText(AnnotatedString(text))
-            copied = true
-        },
-        minWidth = 32.dp,
-        minHeight = 32.dp,
+    // miuix IconButton always builds an offscreen squircle layer even for its default
+    // transparent background, which showed up as thousands of "alpha caused saveLayer"
+    // records per scroll pass. This button is transparent, so the mask only ever carved
+    // invisible pixels: keep the same 32dp hit target, role, interaction and icon, and
+    // let it draw as a plain button.
+    Box(
+        modifier = Modifier
+            .defaultMinSize(minWidth = 32.dp, minHeight = 32.dp)
+            .clickable(
+                role = Role.Button,
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = {
+                    @Suppress("DEPRECATION")
+                    clipboard.setText(AnnotatedString(text))
+                    copied = true
+                },
+            ),
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,

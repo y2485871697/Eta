@@ -1,5 +1,9 @@
 package io.github.mangi.eta.ui.components
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,6 +26,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,6 +44,34 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TooltipBox
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+/**
+ * Footer icon button that matches miuix [IconButton] appearance and behaviour without its
+ * unconditional offscreen squircle layer: that mask is built even for a transparent background,
+ * so each footer button cost an extra offscreen composite per frame while carving invisible
+ * pixels. Hit target, role, enablement and icon are unchanged; disabled buttons stay clickable-
+ * disabled and are not dimmed, exactly as before.
+ */
+@Composable
+private fun FooterIconButton(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .defaultMinSize(minWidth = 30.dp, minHeight = 30.dp)
+            .clickable(
+                enabled = enabled,
+                role = Role.Button,
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+        content = { content() },
+    )
+}
 
 /** Renders the original projection owner; never manufactures a callback message. */
 @Composable
@@ -127,15 +160,14 @@ internal fun AgentMessageActionRow(
         modifier = modifier.fillMaxWidth().padding(top = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (showCopyAction) IconButton(
+        if (showCopyAction) FooterIconButton(
             onClick = {
                 TouchHaptics.click(view)
                 @Suppress("DEPRECATION")
                 clipboardManager.setText(AnnotatedString(content))
                 copied = true
             },
-            minWidth = 30.dp,
-            minHeight = 30.dp,
+            enabled = true,
         ) {
             Icon(
                 imageVector = if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
@@ -148,12 +180,10 @@ internal fun AgentMessageActionRow(
         if (allowSpeech) SpeechPlaybackButton(messageId, speechContent)
         if (showMessageActions) {
             TooltipBox(text = stringResource(R.string.ui_branch_conversation), enabled = branchEnabled) {
-                IconButton(
+                FooterIconButton(
                     onClick = { TouchHaptics.click(view); onBranch() },
                     enabled = branchEnabled,
-                    minWidth = 30.dp,
-                    minHeight = 30.dp,
-                ) {
+                        ) {
                     Icon(
                         imageVector = Icons.Rounded.CallSplit,
                         contentDescription = stringResource(R.string.ui_branch_conversation),
@@ -163,12 +193,10 @@ internal fun AgentMessageActionRow(
                 }
             }
             TooltipBox(text = stringResource(R.string.ui_regenerate_2e1905), enabled = messageActionsEnabled) {
-                IconButton(
+                FooterIconButton(
                     onClick = { TouchHaptics.click(view); onRegenerate() },
                     enabled = messageActionsEnabled,
-                    minWidth = 30.dp,
-                    minHeight = 30.dp,
-                ) {
+                        ) {
                     Icon(
                         imageVector = Icons.Rounded.Refresh,
                         contentDescription = stringResource(R.string.ui_regenerate_reply_84a7d9),
@@ -178,12 +206,10 @@ internal fun AgentMessageActionRow(
                 }
             }
             TooltipBox(text = stringResource(R.string.ui_delete_3755f5), enabled = messageActionsEnabled) {
-                IconButton(
+                FooterIconButton(
                     onClick = { TouchHaptics.click(view); onDelete() },
                     enabled = messageActionsEnabled,
-                    minWidth = 30.dp,
-                    minHeight = 30.dp,
-                ) {
+                        ) {
                     Icon(
                         imageVector = Icons.Rounded.Delete,
                         contentDescription = stringResource(R.string.ui_delete_this_conversation_3f351b),
