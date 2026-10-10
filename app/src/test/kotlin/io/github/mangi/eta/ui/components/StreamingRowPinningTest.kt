@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -111,14 +112,18 @@ class StreamingRowPinningTest {
         val heights = java.util.concurrent.CopyOnWriteArrayList<Int>()
         compose.setContent {
             MiuixTheme {
-                // The viewport stays screen-sized; its child must receive unbounded height,
-                // as a real LazyColumn item does. A plain Column clips the measurement
-                // to the root maxHeight and cannot prove a multi-screen document.
-                Column(Modifier.width(340.dp).verticalScroll(rememberScrollState()).testTag("row-host")) {
-                    if (shown.value) {
-                        ChatMessageItem(message, remember { ChatMessageActions() }, false,
-                            retainedStreamingState = retained, showCopyAction = false,
-                            modifier = Modifier.onSizeChanged { if (it.height > 0) heights.add(it.height) })
+                // The viewport stays bounded; its scroll content receives unbounded height,
+                // as a real LazyColumn item does. A plain non-scrolling Column caps
+                // measurement at root maxHeight and cannot prove a multi-screen document.
+                // Capture the stable viewport, not the scroll content, which can
+                // legitimately have zero height between removal and reentry.
+                Box(Modifier.width(340.dp).height(240.dp).testTag("row-host")) {
+                    Column(Modifier.width(340.dp).verticalScroll(rememberScrollState())) {
+                        if (shown.value) {
+                            ChatMessageItem(message, remember { ChatMessageActions() }, false,
+                                retainedStreamingState = retained, showCopyAction = false,
+                                modifier = Modifier.onSizeChanged { if (it.height > 0) heights.add(it.height) })
+                        }
                     }
                 }
             }
@@ -130,6 +135,8 @@ class StreamingRowPinningTest {
         assertTrue("Test must cover a multi-screen document", fullHeight > 900)
         compose.runOnIdle { shown.value = false }
         compose.waitForIdle()
+        // The empty host must also support a real draw before reentry.
+        compose.onNodeWithTag("row-host").captureToImage()
         compose.runOnIdle { heights.clear(); shown.value = true }
         awaitRowState("first reentry layout", retained) { heights.isNotEmpty() }
         compose.runOnIdle {
