@@ -146,10 +146,10 @@ internal object StreamingHaptics {
     }
 
     private fun foregroundGate(view: View): Boolean = synchronized(gates) {
-        // 当前这条划出屏幕后，打字机节点会卸掉，可见推进也就不再进来。
-        // 会话还在这个聊天页时仍算前台，后面的字走后台补震，不能把振动停掉。
+        // 划出当前这条后，打字机节点卸掉，visibleReveal 变 false。
+        // 聊天页还开着时不能因此停震：可见推进仍走前台，离开组合的字走补震。
         gates.any { gate ->
-            gate.view === view && gate.enabled() &&
+            gate.view === view && gate.enabled() && gate.visibleReveal() &&
                 gate.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
         }
     }

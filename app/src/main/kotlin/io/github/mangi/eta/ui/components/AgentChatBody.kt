@@ -307,6 +307,11 @@ internal fun AgentChatBody(
     // A default one-item prefetch is too shallow for mixed short tool rows and tall Markdown.
     // Keep one viewport on both sides: ahead prepares incoming rows; behind prevents
     // immediate disposal/recomposition when expansion or a direction reversal moves the boundary.
+    // 输出时尾部每长一行都要测量。前后各留一整屏会把这些测量拖进滑动帧。
+    // 手指滑动时只留屏幕附近一小段；松手后仍是前后各一整屏。
+    val scrollingCacheWindow = remember {
+        LazyLayoutCacheWindow(aheadFraction = 0.15f, behindFraction = 0.15f)
+    }
     val chatCacheWindow = remember {
         LazyLayoutCacheWindow(
             aheadFraction = CHAT_CACHE_AHEAD_VIEWPORTS,
@@ -314,7 +319,7 @@ internal fun AgentChatBody(
         )
     }
     val scrollState = rememberLazyListState(
-        cacheWindow = chatCacheWindow,
+        cacheWindow = if (isStreaming) scrollingCacheWindow else chatCacheWindow,
         initialFirstVisibleItemIndex = initialBottomItemIndex,
     )
     val currentBrowserMessageId = remember(
