@@ -36,6 +36,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -530,7 +531,8 @@ private fun WhaleMaidPet(
                 modifier = Modifier
                     .graphicsLayer { alpha = bubbleAlpha.value }
                     .padding(bottom = 6.dp)
-                    .width(220.dp * snapshot.scale)
+                    // Short speech wraps its text; long speech wraps at the scaled cap.
+                    .widthIn(max = 220.dp * snapshot.scale)
                     .background(Color.White, RoundedCornerShape(12.dp))
                     .border(2.dp, Color(0xFF3B82F6), RoundedCornerShape(12.dp))
                     .noRippleClickable(onClick = onDismissSpeech)
