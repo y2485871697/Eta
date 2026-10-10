@@ -1311,13 +1311,19 @@ private fun ChatMarkdownDocument(
     // 用户点击展开长文档时，把整篇的组合与文字测量分摊到连续几帧，避免首帧一次性
     // 构建全部 AnnotatedString 并测量全文。只在进入组合时决定一次，历史滚入可视区
     // 的已展开内容仍一次到位，不会在滚动途中改变高度。
-    val progressiveAtEntry = remember { progressive && revealCoordinator == null }
+    // Streaming also spreads a long first composition. The reveal clock still
+    // shows only the current tail, so later blocks stay unmeasured until then.
+    val progressiveAtEntry = remember { progressive || revealCoordinator != null }
     val composedBlockLimit = if (progressiveAtEntry) {
+        val streamingReveal = revealCoordinator != null
+        val firstBudget = if (streamingReveal) STREAMING_PROGRESSIVE_FIRST_FRAME_CHARS else PROGRESSIVE_FIRST_FRAME_CHARS
+        val frameBudget = if (streamingReveal) STREAMING_PROGRESSIVE_FRAME_CHARS else PROGRESSIVE_FRAME_CHARS
         val lengths = remember(blocks) { blocks.map { (it.endOffset - it.startOffset).coerceAtLeast(0) } }
         var limit by remember(blocks) {
             // 点击那一帧已经要重组标题行、启动展开动画；超出预算时这一帧不纳入任何正文块。
+            // 流式正文第一次出现时必须至少排一块，否则整段会先空白一帧。
             mutableIntStateOf(
-                nextProgressiveBlockLimit(lengths, 0, PROGRESSIVE_FIRST_FRAME_CHARS, mustAdvance = false),
+                nextProgressiveBlockLimit(lengths, 0, firstBudget, mustAdvance = streamingReveal),
             )
         }
         val probeRef = LocalToggleProbe.current
@@ -1329,7 +1335,7 @@ private fun ChatMarkdownDocument(
             }
             while (limit < lengths.size) {
                 withFrameNanos { }
-                limit = nextProgressiveBlockLimit(lengths, limit, PROGRESSIVE_FRAME_CHARS)
+                limit = nextProgressiveBlockLimit(lengths, limit, frameBudget)
                 probeRef?.let { ref ->
                     StreamPerformanceDiagnostics.probeEvent(ref.token, "progressive", "blocks=$limit/${lengths.size}")
                 }
@@ -1492,6 +1498,8 @@ internal fun shouldFreezeStreamingMarkdownBlock(
 private const val STREAMING_PARSE_PUBLISH_INTERVAL_MS = 90L
 private const val PROGRESSIVE_FIRST_FRAME_CHARS = 240
 private const val PROGRESSIVE_FRAME_CHARS = 400
+private const val STREAMING_PROGRESSIVE_FIRST_FRAME_CHARS = 480
+private const val STREAMING_PROGRESSIVE_FRAME_CHARS = 900
 
 /**
  * 从 [current] 开始按字符预算继续纳入顶层块；返回值不超过块数。
@@ -2246,7 +2254,7 @@ private fun ChatCodeBlock(
             .let { base ->
                 if (revealState != null) base.smoothTextReveal(revealState) else base
             }
-        HapticSelectionContainer {
+        val codeText: @Composable () -> Unit = {
             Text(
                 text = code,
                 style = if (revealState != null) {
@@ -2261,6 +2269,9 @@ private fun ChatCodeBlock(
                 },
             )
         }
+        // Selection registers the whole code block on every layout. A growing
+        // fence does that on each publish, so it stays a plain Text until done.
+        if (revealState == null) HapticSelectionContainer { codeText() } else codeText()
     }
 }
 

@@ -5,10 +5,10 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.toRect
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureResult
@@ -458,23 +458,45 @@ internal class SmoothTextRevealNode(
         }
 
         val fullCount = floor(snapshot.progress).toInt().coerceIn(0, targetCount)
-        ensurePaths(snapshot, fullCount)
-        cachedFullPath?.let { path ->
-            clipPath(path) { contentScope.drawDiagnosticContent() }
-        }
-
+        val layout = snapshot.layoutResult
+        val textLength = layout.layoutInput.text.length
+        val fullEnd = snapshot.boundaries[fullCount].coerceIn(0, textLength)
         val partialAlpha = (snapshot.progress - fullCount).coerceIn(0f, 1f)
-        if (partialAlpha > 0f) {
-            cachedNextPath?.let { path ->
-                clipPath(path) {
+        // Completed lines are a rectangle. Only the current line needs a second clip,
+        // and the fading grapheme is one more rectangle rather than an outline path.
+        if (fullEnd > 0 && layout.lineCount > 0) {
+            val line = layout.getLineForOffset((fullEnd - 1).coerceAtMost(textLength - 1))
+            val completedBottom = if (line > 0) layout.getLineBottom(line - 1) else 0f
+            if (completedBottom > 0f) {
+                clipRect(right = size.width, bottom = completedBottom) {
+                    contentScope.drawDiagnosticContent()
+                }
+            }
+            val cursor = layout.getHorizontalPosition(fullEnd, usePrimaryDirection = true).coerceAtLeast(0f)
+            clipRect(
+                top = layout.getLineTop(line),
+                right = cursor,
+                bottom = layout.getLineBottom(line),
+            ) {
+                contentScope.drawDiagnosticContent()
+            }
+        }
+        if (partialAlpha > 0f && fullCount < targetCount && layout.lineCount > 0) {
+            val start = snapshot.boundaries[fullCount].coerceIn(0, textLength)
+            val end = snapshot.boundaries[fullCount + 1].coerceIn(start, textLength)
+            if (end > start) {
+                val line = layout.getLineForOffset(start.coerceAtMost(textLength - 1))
+                val left = layout.getHorizontalPosition(start, usePrimaryDirection = true)
+                val right = layout.getHorizontalPosition(end, usePrimaryDirection = true)
+                clipRect(
+                    left = minOf(left, right).coerceAtLeast(0f),
+                    top = layout.getLineTop(line),
+                    right = maxOf(left, right).coerceAtLeast(0f),
+                    bottom = layout.getLineBottom(line),
+                ) {
                     alphaPaint.alpha = partialAlpha
                     StreamPerformanceDiagnostics.measure("reveal.saveLayer") {
-                        drawContext.canvas.saveLayer(
-                            // Only the fading grapheme needs an offscreen alpha layer.
-                            // A paragraph-sized layer grows with the answer on every frame.
-                            path.getBounds(),
-                            alphaPaint,
-                        )
+                        drawContext.canvas.saveLayer(size.toRect(), alphaPaint)
                     }
                     try {
                         contentScope.drawDiagnosticContent()
