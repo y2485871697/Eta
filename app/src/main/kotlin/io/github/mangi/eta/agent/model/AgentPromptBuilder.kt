@@ -26,7 +26,8 @@ internal object AgentPromptBuilder {
             interactiveModeEnabled = interactiveModeEnabled,
         )
         history.forEach { item ->
-            runCatching { AgentConversationCodec.toJsonObject(item) }.getOrNull()?.let(messages::put)
+            runCatching { AgentConversationCodec.toJsonObject(item) }.getOrNull()
+                ?.let(AgentRecoveryContext::forNewRun)?.let(messages::put)
         }
         messages.put(AgentConversationCodec.userMessage(prompt, images))
         return messages

@@ -12,6 +12,27 @@ import org.junit.Test
 
 class AgentPromptBuilderTest {
     @Test
+    fun newUserRunReplacesHistoricalRecoveryRestrictionWithoutDroppingToolHistory() {
+        val recovery = JSONArray().also(AgentRecoveryContext::append).getJSONObject(0)
+        val history = listOf(
+            AgentConversationCodec.fromJsonObject(recovery),
+            AgentModelClient.ConversationMessage(role = "user", content = "old task"),
+            AgentModelClient.ConversationMessage(role = "tool", content = "committed", toolCallId = "old-call"),
+        )
+        val messages = AgentPromptBuilder.buildInitialMessages(
+            config = modelConfig("", terminalTools = false, browserTools = false),
+            prompt = "new independent task", images = emptyList(), history = history,
+            skillContext = SkillContext.EMPTY,
+        )
+        assertFalse(AgentRecoveryContext.isActive(messages))
+        assertTrue(messages.toString().contains("[Eta previous recovery safety]"))
+        assertTrue(messages.toString().contains("old-call"))
+        assertTrue(messages.toString().contains("committed"))
+        assertEquals("new independent task", messages.getJSONObject(messages.length() - 1).getString("content"))
+        assertTrue(AgentRecoveryContext.isActive(JSONArray().put(recovery)))
+    }
+
+    @Test
     fun generatedSystemPromptDoesNotInjectModelIdentity() {
         for (providerPrompt in listOf("自定义回答风格", "")) {
             val config = modelConfig(providerPrompt, terminalTools = false, browserTools = false)
