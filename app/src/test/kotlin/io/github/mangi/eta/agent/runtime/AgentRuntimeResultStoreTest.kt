@@ -215,6 +215,27 @@ class AgentRuntimeResultStoreTest {
     }
 
     @Test
+    fun listingRetainedResultsDoesNotDeleteAndRewriteThem() {
+        val runId = "read-only-drain-${System.nanoTime()}"
+        assertTrue(AgentRuntimeResultStore.add(context, completedRun(runId, System.currentTimeMillis())))
+        val database = EtaDatabase.get(context).openHelper.writableDatabase
+        database.execSQL("CREATE TABLE result_write_audit (operation TEXT NOT NULL)")
+        database.execSQL("CREATE TRIGGER audit_result_delete AFTER DELETE ON runtime_results " +
+            "BEGIN INSERT INTO result_write_audit VALUES ('delete'); END")
+        database.execSQL("CREATE TRIGGER audit_result_insert AFTER INSERT ON runtime_results " +
+            "BEGIN INSERT INTO result_write_audit VALUES ('insert'); END")
+
+        repeat(3) {
+            assertEquals(runId, AgentRuntimeResultStore.list(context).single().result.runId)
+        }
+
+        database.query("SELECT COUNT(*) FROM result_write_audit").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+    }
+
+    @Test
     fun capacityPruningRemovesTheMatchingTerminalCheckpoint() {
         val now = System.currentTimeMillis()
         repeat(9) { index ->

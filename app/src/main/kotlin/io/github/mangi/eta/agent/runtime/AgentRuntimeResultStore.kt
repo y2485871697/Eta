@@ -87,11 +87,12 @@ internal object AgentRuntimeResultStore {
 
     private suspend fun prune(dao: io.github.mangi.eta.data.db.RuntimeRunDao): List<RuntimeResultEntity> {
         val now = System.currentTimeMillis()
-        val pruned = dao.runtimeResults()
+        val stored = dao.runtimeResults()
+        val pruned = stored
             .filter { now - it.createdAt <= MAX_AGE_MS }
             .sortedBy { it.createdAt }
             .takeLast(MAX_PENDING)
-        dao.replaceRuntimeResults(pruned)
+        if (pruned.size != stored.size) dao.replaceRuntimeResults(pruned)
         return pruned
     }
 

@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.model
 
+import okhttp3.Dispatcher
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -34,7 +35,14 @@ internal object AgentHttpClient {
             .build()
     }
 
-    val modelClient: OkHttpClient by lazy { client }
+    val modelClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .dispatcher(Dispatcher().apply {
+                // Keep the model total budget; do not add a five-stream host bottleneck.
+                maxRequestsPerHost = maxRequests
+            })
+            .build()
+    }
 }
 
 private object ProviderRequestInterceptor : Interceptor {

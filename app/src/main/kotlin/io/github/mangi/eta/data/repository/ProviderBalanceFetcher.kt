@@ -26,6 +26,7 @@ import kotlinx.serialization.json.contentOrNull
 import okio.Buffer
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -42,16 +43,16 @@ internal class BalanceQueryException(
 internal object ProviderBalanceFetcher {
     /**
      * 单次余额请求的总超时（连接 + 写入 + 读取 + 重定向）。
-     * 余额查询复用了为流式模型准备的 600s 读超时客户端，慢/挂死的网关会拖住整轮刷新，
-     * 因此这里用独立的短总超时兜底。
+     * 连接配置沿用共享客户端；调度队列独立，并用短总超时覆盖慢网关及排队等待。
      */
     const val TOTAL_TIMEOUT_MS = 15_000L
 
     private val json = Json { ignoreUnknownKeys = true }
     private val binaryExpr = Regex("""^(.+?)\s+([+\-*/])\s+(.+)$""")
 
-    private val balanceClient: OkHttpClient by lazy {
+    internal val balanceClient: OkHttpClient by lazy {
         AgentHttpClient.client.newBuilder()
+            .dispatcher(Dispatcher())
             .callTimeout(TOTAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             .build()
     }
